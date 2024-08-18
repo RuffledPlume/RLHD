@@ -30,6 +30,8 @@ import rs117.hd.HdPlugin;
 
 public class GpuFloatBuffer
 {
+	private float[] fourFloatWrite = new float[4];
+
 	private FloatBuffer buffer;
 
 	public GpuFloatBuffer()
@@ -54,7 +56,11 @@ public class GpuFloatBuffer
 	}
 
 	public void put(float x, float y, float z, float w) {
-		buffer.put(x).put(y).put(z).put(w);
+		fourFloatWrite[0] = x;
+		fourFloatWrite[1] = y;
+		fourFloatWrite[2] = z;
+		fourFloatWrite[3] = w;
+		buffer.put(fourFloatWrite, 0, 4);
 	}
 
 	public void put(float[] floats) {
