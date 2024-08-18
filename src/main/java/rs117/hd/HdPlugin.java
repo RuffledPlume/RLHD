@@ -180,6 +180,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 	private static final float COLOR_FILTER_FADE_DURATION = 3000;
 
+	private static final int[] worldPosInts = new int[3];
 	private static final int[] eightIntWrite = new int[8];
 	private static final int[] sixteenIntWrite = new int[16];
 
@@ -1860,7 +1861,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 		renderBufferOffset += bufferLength;
 		numPassthroughModels += underwaterTerrain ? 2 : 1;
-		tileRenderedCount++;
 	}
 
 	private void prepareInterfaceTexture(int canvasWidth, int canvasHeight) {
@@ -3131,7 +3131,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 					frameTimer.begin(Timer.MODEL_PUSHING);
 
 				int uuid = ModelHash.generateUuid(client, hash, renderable);
-				int[] worldPos = sceneContext.localToWorld(x, z, plane);
+				int[] worldPos = sceneContext.localToWorld(x, z, plane, worldPosInts);
 				ModelOverride modelOverride = modelOverrideManager.getOverride(uuid, worldPos);
 				if (modelOverride.hide)
 					return;

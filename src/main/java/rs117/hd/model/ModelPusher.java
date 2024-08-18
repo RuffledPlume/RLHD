@@ -72,6 +72,9 @@ public class ModelPusher {
 	public static final int MAX_MATERIAL_COUNT = (1 << 12) - 1;
 
 	private static final int[] ZEROED_INTS = new int[12];
+	private static final float[] ZEROED_FLOATS = new float[12];
+
+	private static final int[] worldPosInts = new int[3];
 
 	private ModelCache modelCache;
 
@@ -311,10 +314,10 @@ public class ModelPusher {
 				frameTimer.begin(Timer.MODEL_PUSHING_NORMAL);
 
 			for (int face = 0; face < faceCount; face++) {
-				getNormalDataForFace(sceneContext, model, modelOverride, face);
-				sceneContext.stagingBufferNormals.put(sceneContext.modelFaceNormals);
+				float[] modelFaceNormals = getNormalDataForFace(sceneContext, model, modelOverride, face);
+				sceneContext.stagingBufferNormals.put(modelFaceNormals);
 				if (shouldCacheNormalData)
-					fullNormalData.put(sceneContext.modelFaceNormals);
+					fullNormalData.put(modelFaceNormals);
 			}
 
 			if (plugin.enableDetailedTimers)
@@ -395,11 +398,10 @@ public class ModelPusher {
 		sceneContext.modelPusherResults[1] = texturedFaceCount;
 	}
 
-	private void getNormalDataForFace(SceneContext sceneContext, Model model, @NonNull ModelOverride modelOverride, int face) {
+	private float[] getNormalDataForFace(SceneContext sceneContext, Model model, @NonNull ModelOverride modelOverride, int face) {
 		assert SceneUploader.packTerrainData(false, 0, WaterType.NONE, 0) == 0;
 		if (modelOverride.flatNormals || !plugin.configPreserveVanillaNormals && model.getFaceColors3()[face] == -1) {
-			Arrays.fill(sceneContext.modelFaceNormals, 0);
-			return;
+			return ZEROED_FLOATS;
 		}
 
 		final int triA = model.getFaceIndices1()[face];
@@ -410,8 +412,7 @@ public class ModelPusher {
 		final int[] zVertexNormals = model.getVertexNormalsZ();
 
 		if (xVertexNormals == null || yVertexNormals == null || zVertexNormals == null) {
-			Arrays.fill(sceneContext.modelFaceNormals, 0);
-			return;
+			return ZEROED_FLOATS;
 		}
 
 		float terrainData = 0x800000; // Force undo vanilla shading in compute to not use flat normals
@@ -427,6 +428,8 @@ public class ModelPusher {
 		sceneContext.modelFaceNormals[9] = yVertexNormals[triC];
 		sceneContext.modelFaceNormals[10] = zVertexNormals[triC];
 		sceneContext.modelFaceNormals[11] = terrainData;
+
+		return sceneContext.modelFaceNormals;
 	}
 
 	public int packMaterialData(
@@ -619,7 +622,7 @@ public class ModelPusher {
 									int tileZ = tile.getRenderLevel();
 									int tileExX = tileX + SCENE_OFFSET;
 									int tileExY = tileY + SCENE_OFFSET;
-									int[] worldPos = sceneContext.sceneToWorld(tileX, tileY, tileZ);
+									int[] worldPos = sceneContext.sceneToWorld(tileX, tileY, tileZ, worldPosInts);
 									var override = tileOverrideManager.getOverride(scene, tile, worldPos,
 										modelOverride.inheritTileColorType == InheritTileColorType.OVERLAY ?
 											OVERLAY_FLAG | scene.getOverlayIds()[tileZ][tileExX][tileExY] :

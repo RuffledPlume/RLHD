@@ -263,7 +263,7 @@ public class TileInfoOverlay extends Overlay implements MouseListener, MouseWhee
 									}
 
 									int tileZ = tile.getRenderLevel();
-									hoveredWorldPoint = sceneContext.extendedSceneToWorld(x, y, tileZ);
+									hoveredWorldPoint = sceneContext.extendedSceneToWorld(x, y, tileZ, new int[3]);
 
 									break tileLoop;
 								}
@@ -440,7 +440,7 @@ public class TileInfoOverlay extends Overlay implements MouseListener, MouseWhee
 		int tileZ = tile.getRenderLevel();
 		int tileExX = tileX + SCENE_OFFSET;
 		int tileExY = tileY + SCENE_OFFSET;
-		int[] worldPos = sceneContext.sceneToWorld(tileX, tileY, tileZ);
+		int[] worldPos = sceneContext.sceneToWorld(tileX, tileY, tileZ, new int[3]);
 
 		ArrayList<String> lines = new ArrayList<>();
 
