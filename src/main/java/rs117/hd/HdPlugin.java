@@ -181,6 +181,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	private static final float COLOR_FILTER_FADE_DURATION = 3000;
 
 	private static final int[] eightIntWrite = new int[8];
+	private static final int[] sixteenIntWrite = new int[16];
 
 	private static final int[] RENDERBUFFER_FORMATS_SRGB = {
 		GL_SRGB8,
@@ -1771,20 +1772,22 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		if (redrawPreviousFrame || paint.getBufferLen() <= 0)
 			return;
 
-		int vertexCount = paint.getBufferLen();
+		final int vertexCount = paint.getBufferLen();
+
+		eightIntWrite[0] = paint.getBufferOffset();
+		eightIntWrite[1] = paint.getUvBufferOffset();
+		eightIntWrite[2] = vertexCount / 3;
+		eightIntWrite[3] = renderBufferOffset;
+		eightIntWrite[4] = 0;
+		eightIntWrite[5] = tileX * LOCAL_TILE_SIZE;
+		eightIntWrite[6] = 0;
+		eightIntWrite[7] = tileY * LOCAL_TILE_SIZE;
 
 		++numPassthroughModels;
 		modelPassthroughBuffer
-			.ensureCapacity(16)
+			.ensureCapacity(8)
 			.getBuffer()
-			.put(paint.getBufferOffset())
-			.put(paint.getUvBufferOffset())
-			.put(vertexCount / 3)
-			.put(renderBufferOffset)
-			.put(0)
-			.put(tileX * LOCAL_TILE_SIZE)
-			.put(0)
-			.put(tileY * LOCAL_TILE_SIZE);
+			.put(eightIntWrite, 0, 8);
 
 		renderBufferOffset += vertexCount;
 	}
@@ -1806,23 +1809,19 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 	@Override
 	public void drawSceneTileModel(Scene scene, SceneTileModel model, int tileX, int tileY) {
-		if (redrawPreviousFrame || model.getBufferLen() <= 0)
+		int bufferLength = model.getBufferLen();
+		if (redrawPreviousFrame || bufferLength <= 0)
 			return;
 
 		final int localX = tileX * LOCAL_TILE_SIZE;
-		final int localY = 0;
 		final int localZ = tileY * LOCAL_TILE_SIZE;
-
-		GpuIntBuffer b = modelPassthroughBuffer;
-		b.ensureCapacity(16);
-		IntBuffer buffer = b.getBuffer();
-
-		int bufferLength = model.getBufferLen();
+		final int modelBufferOffset = model.getBufferOffset();
+		final int modelUVBufferOffset = model.getUvBufferOffset();
 
 		// we packed a boolean into the buffer length of tiles so we can tell
 		// which tiles have procedurally-generated underwater terrain.
 		// unpack the boolean:
-		boolean underwaterTerrain = (bufferLength & 1) == 1;
+		final boolean underwaterTerrain = (bufferLength & 1) == 1;
 		// restore the bufferLength variable:
 		bufferLength = bufferLength >> 1;
 
@@ -1832,28 +1831,36 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			// buffer length includes the generated underwater terrain, so it must be halved
 			bufferLength /= 2;
 
-			++numPassthroughModels;
-
-			buffer.put(model.getBufferOffset() + bufferLength);
-			buffer.put(model.getUvBufferOffset() + bufferLength);
-			buffer.put(bufferLength / 3);
-			buffer.put(renderBufferOffset);
-			buffer.put(0);
-			buffer.put(localX).put(localY).put(localZ);
+			sixteenIntWrite[0] = modelBufferOffset + bufferLength;
+			sixteenIntWrite[1] = modelUVBufferOffset + bufferLength;
+			sixteenIntWrite[2] = bufferLength / 3;
+			sixteenIntWrite[3] = renderBufferOffset;
+			sixteenIntWrite[4] = 0;
+			sixteenIntWrite[5] = localX;
+			sixteenIntWrite[6] = 0;
+			sixteenIntWrite[7] = localZ;
 
 			renderBufferOffset += bufferLength;
 		}
 
-		++numPassthroughModels;
+		final int writeOffset = underwaterTerrain ? 8 : 0;
+		sixteenIntWrite[writeOffset] = modelBufferOffset;
+		sixteenIntWrite[writeOffset + 1] = modelUVBufferOffset;
+		sixteenIntWrite[writeOffset + 2] = bufferLength / 3;
+		sixteenIntWrite[writeOffset + 3] = renderBufferOffset;
+		sixteenIntWrite[writeOffset + 4] = 0;
+		sixteenIntWrite[writeOffset + 5] = localX;
+		sixteenIntWrite[writeOffset + 6] = 0;
+		sixteenIntWrite[writeOffset + 7] = localZ;
 
-		buffer.put(model.getBufferOffset());
-		buffer.put(model.getUvBufferOffset());
-		buffer.put(bufferLength / 3);
-		buffer.put(renderBufferOffset);
-		buffer.put(0);
-		buffer.put(localX).put(localY).put(localZ);
+		modelPassthroughBuffer
+			.ensureCapacity(16)
+			.getBuffer()
+			.put(sixteenIntWrite, 0, underwaterTerrain ? 16 : 8);
 
 		renderBufferOffset += bufferLength;
+		numPassthroughModels += underwaterTerrain ? 2 : 1;
+		tileRenderedCount++;
 	}
 
 	private void prepareInterfaceTexture(int canvasWidth, int canvasHeight) {
@@ -3192,7 +3199,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 		bufferForTriangles(faceCount)
 			.ensureCapacity(8)
-			.put(eightIntWrite);
+			.getBuffer().put(eightIntWrite, 0, 8);
 		renderBufferOffset += faceCount * 3;
 	}
 
