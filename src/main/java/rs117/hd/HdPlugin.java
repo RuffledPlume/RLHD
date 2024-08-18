@@ -43,6 +43,7 @@ import java.nio.IntBuffer;
 import java.nio.ShortBuffer;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -480,6 +481,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 	private final ConcurrentHashMap.KeySetView<String, ?> pendingConfigChanges = ConcurrentHashMap.newKeySet();
 	private final Map<Long, ModelOffsets> frameModelInfoMap = new HashMap<>();
+	private List<ModelOffsets> modelInfoBin = new ArrayList<>();
 
 	// Camera position and orientation may be reused from the old scene while hopping, prior to drawScene being called
 	public final float[] cameraPosition = new float[3];
@@ -2312,6 +2314,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 		frameTimer.end(Timer.DRAW_FRAME);
 		frameTimer.endFrameAndReset();
+
+		// Before clearing the map, reclaim all the modelInfos
+		modelInfoBin.addAll(frameModelInfoMap.values());
 		frameModelInfoMap.clear();
 		checkGLErrors();
 
@@ -3076,16 +3081,16 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		eightIntWrite[6] = y;
 		eightIntWrite[7] = z;
 
-		int plane = ModelHash.getPlane(hash);
+		final int plane = ModelHash.getPlane(hash);
 		int faceCount;
 		if (sceneContext.id == (offsetModel.getSceneId() & SceneUploader.SCENE_ID_MASK)) {
 			// The model is part of the static scene buffer
 			assert model == renderable;
 
 			faceCount = Math.min(MAX_FACE_COUNT, offsetModel.getFaceCount());
-			int vertexOffset = offsetModel.getBufferOffset();
-			int uvOffset = offsetModel.getUvBufferOffset();
-			boolean hillskew = offsetModel != model;
+			final int vertexOffset = offsetModel.getBufferOffset();
+			final int uvOffset = offsetModel.getUvBufferOffset();
+			final boolean hillskew = offsetModel != model;
 
 			eightIntWrite[0] = vertexOffset;
 			eightIntWrite[1] = uvOffset;
@@ -3124,13 +3129,13 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				if (modelOverride.hide)
 					return;
 
-				int vertexOffset = dynamicOffsetVertices + sceneContext.getVertexOffset();
+				final int vertexOffset = dynamicOffsetVertices + sceneContext.getVertexOffset();
 				int uvOffset = dynamicOffsetUvs + sceneContext.getUvOffset();
 
 				int preOrientation = 0;
 				if (ModelHash.getType(hash) == ModelHash.TYPE_OBJECT) {
-					int tileExX = (x >> LOCAL_COORD_BITS) + SCENE_OFFSET;
-					int tileExY = (z >> LOCAL_COORD_BITS) + SCENE_OFFSET;
+					final int tileExX = (x >> LOCAL_COORD_BITS) + SCENE_OFFSET;
+					final int tileExY = (z >> LOCAL_COORD_BITS) + SCENE_OFFSET;
 					if (0 <= tileExX && tileExX < EXTENDED_SCENE_SIZE && 0 <= tileExY && tileExY < EXTENDED_SCENE_SIZE) {
 						Tile tile = sceneContext.scene.getExtendedTiles()[plane][tileExX][tileExY];
 						int config;
@@ -3159,8 +3164,23 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				eightIntWrite[2] = faceCount;
 
 				// add this temporary model to the map for batching purposes
-				if (configModelBatching)
-					frameModelInfoMap.put(batchHash, new ModelOffsets(faceCount, vertexOffset, uvOffset));
+				if (configModelBatching) {
+					// Check if there is any within the bin, before allocating a new one
+					int binSize = modelInfoBin.size();
+					if(binSize > 0) {
+						// Grab off the end, to avoid shifting everything over to the left
+						modelOffsets = modelInfoBin.get(binSize - 1);
+						modelInfoBin.remove(binSize - 1);
+					} else {
+						// None left in the bin, allocate a new one
+						modelOffsets = new ModelOffsets();
+					}
+					modelOffsets.faceCount = faceCount;
+					modelOffsets.vertexOffset = vertexOffset;
+					modelOffsets.uvOffset = uvOffset;
+
+					frameModelInfoMap.put(batchHash, modelOffsets);
+				}
 			}
 		}
 
