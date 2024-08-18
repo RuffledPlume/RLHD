@@ -608,6 +608,10 @@ public class ProceduralGenerator {
 					int depth = DEPTH_LEVEL_SLOPE[sceneContext.underwaterDepthLevels[z][x][y] - 1];
 					int heightOffset = (int) (depth * .55f); // legacy weirdness
 					underwaterDepths[z][x][y] = heightOffset;
+
+					// Offset the TileMaxHeight
+					final int tileIdx = y + x * EXTENDED_SCENE_SIZE + z * SceneContext.EXTENDED_SCENE_SIZE_SQ;
+					sceneContext.tileMaxHeight[tileIdx] += depth - HdPlugin.GROUND_MIN_Y;
 				}
 			}
 		}

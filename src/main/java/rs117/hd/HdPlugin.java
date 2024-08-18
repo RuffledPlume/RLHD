@@ -2887,53 +2887,37 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		int tileExX,
 		int tileExY
 	) {
-		if (sceneContext == null)
-			return false;
-
-		if (orthographicProjection)
+		if (orthographicProjection || sceneContext == null || sceneContext.scene != scene)
 			return true;
 
-		int[][][] tileHeights = scene.getTileHeights();
-		int x = ((tileExX - SCENE_OFFSET) << Perspective.LOCAL_COORD_BITS) + 64;
-		int z = ((tileExY - SCENE_OFFSET) << Perspective.LOCAL_COORD_BITS) + 64;
-		int y = Math.max(
-			Math.max(tileHeights[plane][tileExX][tileExY], tileHeights[plane][tileExX][tileExY + 1]),
-			Math.max(tileHeights[plane][tileExX + 1][tileExY], tileHeights[plane][tileExX + 1][tileExY + 1])
-		) + GROUND_MIN_Y;
+		// Compute the local coordinates relative to the camera
+		final int x = (((tileExX - SCENE_OFFSET) << Perspective.LOCAL_COORD_BITS) + 64) - cameraX;
+		final int z = (((tileExY - SCENE_OFFSET) << Perspective.LOCAL_COORD_BITS) + 64) - cameraZ;
+		final int y = sceneContext.tileMaxHeight[tileExY + tileExX * EXTENDED_SCENE_SIZE + plane * SceneContext.EXTENDED_SCENE_SIZE_SQ] - cameraY;
 
-		if (sceneContext.scene == scene) {
-			int depthLevel = sceneContext.underwaterDepthLevels[plane][tileExX][tileExY];
-			if (depthLevel > 0)
-				y += ProceduralGenerator.DEPTH_LEVEL_SLOPE[depthLevel - 1] - GROUND_MIN_Y;
-		}
+		// Approximate radius of the tile for frustum culling
+		final int tileRadius = 96; // ~ 64 * sqrt(2)
 
-		x -= (int) cameraPosition[0];
-		y -= (int) cameraPosition[1];
-		z -= (int) cameraPosition[2];
+		// Transform the local coordinates using the yaw (horizontal rotation)
+		final int transformedZ = (yawCos * z - yawSin * x) >> 16;
+		final int depthRadiusOffset = (pitchCos * tileRadius) >> 16;
+		final int depth = depthRadiusOffset + ((pitchSin * y + pitchCos * transformedZ) >> 16);
 
-		int radius = 96; // ~ 64 * sqrt(2)
-
-		int zoom = (configShadowsEnabled && configExpandShadowDraw) ? client.get3dZoom() / 2 : client.get3dZoom();
-		int Rasterizer3D_clipMidX2 = client.getRasterizer3D_clipMidX2();
-		int Rasterizer3D_clipNegativeMidX = client.getRasterizer3D_clipNegativeMidX();
-		int Rasterizer3D_clipNegativeMidY = client.getRasterizer3D_clipNegativeMidY();
-
-		int var11 = yawCos * z - yawSin * x >> 16;
-		int var12 = pitchSin * y + pitchCos * var11 >> 16;
-		int var13 = pitchCos * radius >> 16;
-		int depth = var12 + var13;
+		// Check if the tile is within the near plane of the frustum
 		if (depth > NEAR_PLANE) {
-			int rx = z * yawSin + yawCos * x >> 16;
-			int var16 = (rx - radius) * zoom;
-			int var17 = (rx + radius) * zoom;
-			// left && right
-			if (var16 < Rasterizer3D_clipMidX2 * depth && var17 > Rasterizer3D_clipNegativeMidX * depth) {
-				int ry = pitchCos * y - var11 * pitchSin >> 16;
-				int ybottom = pitchSin * radius >> 16;
-				int var20 = (ry + ybottom) * zoom;
-				// top
-				// we don't test the bottom so we don't have to find the height of all the models on the tile
-				return var20 > Rasterizer3D_clipNegativeMidY * depth;
+			final int transformedX = (z * yawSin + yawCos * x) >> 16;
+			final int leftFrustumBound = (transformedX - tileRadius) * currentZoom;
+			// Check left and right bounds
+			if (leftFrustumBound < Rasterizer3D_clipMidX2 * depth) {
+				final int rightFrustumBound = (transformedX + tileRadius) * currentZoom;
+				if (rightFrustumBound > Rasterizer3D_clipNegativeMidX * depth) {
+					// Transform the local Y using pitch (vertical rotation)
+					final int transformedY = pitchCos * y - transformedZ * pitchSin;
+					final int topFrustumBound = ((transformedY + (pitchSin * tileRadius)) >> 16) * currentZoom;
+
+					// Check top bound (we skip bottom bound to avoid computing model heights)
+					return topFrustumBound > Rasterizer3D_clipNegativeMidY * depth;
+				}
 			}
 		}
 		return false;

@@ -12,6 +12,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import net.runelite.api.*;
 import net.runelite.api.coords.*;
+import rs117.hd.HdPlugin;
 import rs117.hd.data.materials.Material;
 import rs117.hd.scene.areas.AABB;
 import rs117.hd.scene.areas.Area;
@@ -30,6 +31,7 @@ import static rs117.hd.HdPlugin.VERTEX_SIZE;
 
 public class SceneContext {
 	public static final int SCENE_OFFSET = (EXTENDED_SCENE_SIZE - SCENE_SIZE) / 2;
+	public static final int EXTENDED_SCENE_SIZE_SQ = EXTENDED_SCENE_SIZE * EXTENDED_SCENE_SIZE;
 
 	public final int id = HDUtils.rand.nextInt() & SceneUploader.SCENE_ID_MASK;
 	public final Client client;
@@ -77,6 +79,7 @@ public class SceneContext {
 	public boolean[][][] skipTile;
 	public Map<Integer, Integer> vertexUnderwaterDepth;
 	public int[][][] underwaterDepthLevels;
+	public int[] tileMaxHeight;
 
 	public int numVisibleLights = 0;
 	public final ArrayList<Light> lights = new ArrayList<>();
@@ -95,6 +98,25 @@ public class SceneContext {
 		this.scene = scene;
 		this.regionIds = HDUtils.getSceneRegionIds(scene);
 		this.expandedMapLoadingChunks = expandedMapLoadingChunks;
+
+		if(tileMaxHeight == null){
+			tileMaxHeight = new int[MAX_Z * (EXTENDED_SCENE_SIZE + 1) * (EXTENDED_SCENE_SIZE + 1)];
+		}
+
+		int[][][] tileHeights = scene.getTileHeights();
+		for (int z = 0, idx = 0; z < Constants.MAX_Z - 1; ++z) {
+			for (int x = 0; x < Constants.EXTENDED_SCENE_SIZE - 1; ++x) {
+				for (int y = 0; y < Constants.EXTENDED_SCENE_SIZE - 1; ++y) {
+					final int v0 = tileHeights[z][x][y];
+					final int v1 = tileHeights[z][x + 1][y];
+					final int v2 = tileHeights[z][x + 1][y + 1];
+					final int v3 = tileHeights[z][x][y + 1];
+					final int maxHeight = Math.max(Math.max(v0, v1), Math.max(v2, v3));
+					final int tileIdx = y + x * EXTENDED_SCENE_SIZE + z * EXTENDED_SCENE_SIZE_SQ;
+					tileMaxHeight[tileIdx] = maxHeight + HdPlugin.GROUND_MIN_Y;
+				}
+			}
+		}
 
 		if (previous == null) {
 			staticUnorderedModelBuffer = new GpuIntBuffer();
