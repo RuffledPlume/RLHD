@@ -180,6 +180,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 	private static final int[] worldPosInts = new int[3];
 	private static final int[] eightIntWrite = new int[8];
+	private static final float[] eightFloatWrite = new float[8];
 	private static final int[] sixteenIntWrite = new int[16];
 
 	private static final int[] RENDERBUFFER_FORMATS_SRGB = {
@@ -1620,23 +1621,25 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 		if (sceneContext.scene == scene && updateUniforms) {
 			// Update lights UBO
-			uniformBufferLights.clear();
+			FloatBuffer uniformFloatBufferLights = uniformBufferLights.asFloatBuffer();
+			uniformFloatBufferLights.clear();
 			assert sceneContext.numVisibleLights <= configMaxDynamicLights;
 			for (int i = 0; i < sceneContext.numVisibleLights; i++) {
 				Light light = sceneContext.lights.get(i);
-				uniformBufferLights.putFloat(light.pos[0] + cameraShift[0]);
-				uniformBufferLights.putFloat(light.pos[1]);
-				uniformBufferLights.putFloat(light.pos[2] + cameraShift[1]);
-				uniformBufferLights.putFloat(light.radius * light.radius);
-				uniformBufferLights.putFloat(light.color[0] * light.strength);
-				uniformBufferLights.putFloat(light.color[1] * light.strength);
-				uniformBufferLights.putFloat(light.color[2] * light.strength);
-				uniformBufferLights.putFloat(0); // pad
+				eightFloatWrite[0] = light.pos[0] + cameraShift[0];
+				eightFloatWrite[1] = light.pos[1];
+				eightFloatWrite[2] = light.pos[2] + cameraShift[1];
+				eightFloatWrite[3] = light.radius * light.radius;
+				eightFloatWrite[4] = light.color[0] * light.strength;
+				eightFloatWrite[5] = light.color[1] * light.strength;
+				eightFloatWrite[6] = light.color[2] * light.strength;
+				eightFloatWrite[7] = 0; // pad
+				uniformFloatBufferLights.put(eightFloatWrite, 0, 8);
 			}
-			uniformBufferLights.flip();
+			uniformFloatBufferLights.flip();
 			if (configMaxDynamicLights > 0) {
 				glBindBuffer(GL_UNIFORM_BUFFER, hUniformBufferLights.glBufferId);
-				glBufferSubData(GL_UNIFORM_BUFFER, 0, uniformBufferLights);
+				glBufferSubData(GL_UNIFORM_BUFFER, 0, uniformFloatBufferLights);
 				glBindBuffer(GL_UNIFORM_BUFFER, 0);
 			}
 		}
