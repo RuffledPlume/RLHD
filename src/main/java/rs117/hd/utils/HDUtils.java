@@ -359,7 +359,8 @@ public class HDUtils {
 	/**
 	 * The returned plane may be different, so it's not safe to use for indexing into overlay IDs for instance
 	 */
-	public static int[] localToWorld(Scene scene, int localX, int localY, int plane) {
+	public static int[] localToWorld(Scene scene, int localX, int localY, int plane, int[] result)
+	{
 		int sceneX = localX >> LOCAL_COORD_BITS;
 		int sceneY = localY >> LOCAL_COORD_BITS;
 
@@ -373,6 +374,10 @@ public class HDUtils {
 			int templateChunkPlane = templateChunk >> 24 & 3;
 			int worldX = templateChunkX + (sceneX & 7);
 			int worldY = templateChunkY + (sceneY & 7);
+
+			result[0] = worldX;
+			result[1] = worldY;
+			result[2] = templateChunkPlane;
 
 			int[] pos = { worldX, worldY, templateChunkPlane };
 
@@ -395,10 +400,18 @@ public class HDUtils {
 					break;
 			}
 
-			return pos;
+			return result;
 		}
 
-		return new int[] { scene.getBaseX() + sceneX, scene.getBaseY() + sceneY, plane };
+		result[0] = scene.getBaseX() + sceneX;
+		result[1] = scene.getBaseY() + sceneY;
+		result[2] = plane;
+
+		return result;
+	}
+
+	public static int[] localToWorld(Scene scene, int localX, int localY, int plane) {
+		return localToWorld(scene, localX, localY, plane, new int[3]);
 	}
 
 	public static int worldToRegionID(int[] worldPoint) {

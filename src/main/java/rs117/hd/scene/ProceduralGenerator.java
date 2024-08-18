@@ -80,6 +80,8 @@ public class ProceduralGenerator {
 	@Inject
 	private TileOverrideManager tileOverrideManager;
 
+	private int[] worldPosInts = new int[3];
+
 	public void generateSceneData(SceneContext sceneContext)
 	{
 		long timerTotal = System.currentTimeMillis();
@@ -161,7 +163,7 @@ public class ProceduralGenerator {
 		int tileX = tileExX - SCENE_OFFSET;
 		int tileY = tileExY - SCENE_OFFSET;
 		int tileZ = tile.getRenderLevel();
-		int[] worldPos = sceneContext.sceneToWorld(tileX, tileY, tileZ);
+		int[] worldPos = sceneContext.sceneToWorld(tileX, tileY, tileZ, worldPosInts);
 
 		Scene scene = sceneContext.scene;
 		if (tile.getSceneTilePaint() != null) {
@@ -394,7 +396,7 @@ public class ProceduralGenerator {
 					if (tile.getSceneTilePaint() != null) {
 						int[] vertexKeys = tileVertexKeys(scene, tile);
 
-						int[] worldPos = sceneContext.extendedSceneToWorld(x, y, tile.getRenderLevel());
+						int[] worldPos = sceneContext.extendedSceneToWorld(x, y, tile.getRenderLevel(), worldPosInts);
 						var override = tileOverrideManager.getOverride(scene, tile, worldPos);
 						if (seasonalWaterType(override, tile.getSceneTilePaint().getTexture()) == WaterType.NONE) {
 							for (int vertexKey : vertexKeys)
@@ -445,7 +447,7 @@ public class ProceduralGenerator {
 						int faceCount = model.getFaceX().length;
 
 						int tileZ = tile.getRenderLevel();
-						int[] worldPos = sceneContext.extendedSceneToWorld(x, y, tileZ);
+						int[] worldPos = sceneContext.extendedSceneToWorld(x, y, tileZ, worldPosInts);
 						int overlayId = OVERLAY_FLAG | scene.getOverlayIds()[tileZ][x][y];
 						int underlayId = scene.getUnderlayIds()[tileZ][x][y];
 

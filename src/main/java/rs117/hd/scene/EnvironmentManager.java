@@ -141,6 +141,8 @@ public class EnvironmentManager {
 	public final float[] currentSunAngles = { 0, 0 };
 	private final float[] targetSunAngles = { 0, 0 };
 
+	private final int[] worldPosInts = new int[3];
+
 	private boolean lightningEnabled = false;
 	private boolean forceNextTransition = false;
 
@@ -212,7 +214,8 @@ public class EnvironmentManager {
 		int[] focalPoint = sceneContext.localToWorld(
 			plugin.cameraFocalPoint[0],
 			plugin.cameraFocalPoint[1],
-			client.getPlane()
+			client.getPlane(),
+			worldPosInts
 		);
 
 		// skip the transitional fade if the player has moved too far

@@ -153,28 +153,28 @@ public class SceneContext {
 	 * @param plane      which the local coordinate is on
 	 * @return world coordinate
 	 */
-	public int[] localToWorld(LocalPoint localPoint, int plane) {
-		return HDUtils.localToWorld(scene, localPoint.getX(), localPoint.getY(), plane);
+	public int[] localToWorld(LocalPoint localPoint, int plane, int[] result) {
+		return HDUtils.localToWorld(scene, localPoint.getX(), localPoint.getY(), plane, result);
 	}
 
-	public int[] localToWorld(LocalPoint localPoint) {
-		return localToWorld(localPoint, client.getPlane());
+	public int[] localToWorld(LocalPoint localPoint, int[] result) {
+		return localToWorld(localPoint, client.getPlane(), result);
 	}
 
-	public int[] localToWorld(int localX, int localY, int plane) {
-		return HDUtils.localToWorld(scene, localX, localY, plane);
+	public int[] localToWorld(int localX, int localY, int plane, int[] result) {
+		return HDUtils.localToWorld(scene, localX, localY, plane, result);
 	}
 
-	public int[] localToWorld(int localX, int localY) {
-		return localToWorld(localX, localY, client.getPlane());
+	public int[] localToWorld(int localX, int localY, int[] result) {
+		return localToWorld(localX, localY, client.getPlane(), result);
 	}
 
-	public int[] sceneToWorld(int sceneX, int sceneY, int plane) {
-		return localToWorld(sceneX * LOCAL_TILE_SIZE, sceneY * LOCAL_TILE_SIZE, plane);
+	public int[] sceneToWorld(int sceneX, int sceneY, int plane, int[] result) {
+		return localToWorld(sceneX * LOCAL_TILE_SIZE, sceneY * LOCAL_TILE_SIZE, plane, result);
 	}
 
-	public int[] extendedSceneToWorld(int sceneExX, int sceneExY, int plane) {
-		return sceneToWorld(sceneExX - SCENE_OFFSET, sceneExY - SCENE_OFFSET, plane);
+	public int[] extendedSceneToWorld(int sceneExX, int sceneExY, int plane, int[] result) {
+		return sceneToWorld(sceneExX - SCENE_OFFSET, sceneExY - SCENE_OFFSET, plane, result);
 	}
 
 	public Stream<LocalPoint> worldInstanceToLocals(WorldPoint worldPoint)

@@ -69,6 +69,9 @@ public class SceneUploader {
 
 	private static final float[] UP_NORMAL = { 0, -1, 0 };
 
+	private final int[] worldPosInts = new int[3];
+	private final int[] eightIntWrite = new int[8];
+
 	@Inject
 	private Client client;
 
@@ -261,7 +264,7 @@ public class SceneUploader {
 						}
 					}
 
-					int[] worldPoint = sceneContext.sceneToWorld(tileX, tileY, tileZ);
+					int[] worldPoint = sceneContext.sceneToWorld(tileX, tileY, tileZ, worldPosInts);
 					boolean fillGaps =
 						tileZ == 0 &&
 						tileX > sceneMin &&
@@ -292,23 +295,25 @@ public class SceneUploader {
 							uploadBlackTile(sceneContext, tileExX, tileExY, renderLevel);
 							vertexCount = 6;
 						} else {
-							int[] worldPos = sceneContext.sceneToWorld(tileX, tileY, tileZ);
+							int[] worldPos = sceneContext.sceneToWorld(tileX, tileY, tileZ, worldPosInts);
 							int[] uploadedTileModelData = uploadHDTileModelSurface(sceneContext, tile, worldPos, model, true);
 							vertexCount = uploadedTileModelData[0];
 						}
 
 						if (vertexCount > 0) {
+							eightIntWrite[0] = vertexOffset;
+							eightIntWrite[1] = uvOffset;
+							eightIntWrite[2] = vertexCount / 3;
+							eightIntWrite[3] = sceneContext.staticVertexCount;
+							eightIntWrite[4] = 0;
+							eightIntWrite[5] = tileX * LOCAL_TILE_SIZE;
+							eightIntWrite[6] = 0;
+							eightIntWrite[7] = tileY * LOCAL_TILE_SIZE;
+
 							sceneContext.staticUnorderedModelBuffer
 								.ensureCapacity(8)
 								.getBuffer()
-								.put(vertexOffset)
-								.put(uvOffset)
-								.put(vertexCount / 3)
-								.put(sceneContext.staticVertexCount)
-								.put(0)
-								.put(tileX * LOCAL_TILE_SIZE)
-								.put(0)
-								.put(tileY * LOCAL_TILE_SIZE);
+								.put(eightIntWrite, 0, 8);
 							sceneContext.staticVertexCount += vertexCount;
 						}
 					}
@@ -325,7 +330,7 @@ public class SceneUploader {
 		if (model.getSceneId() == EXCLUDED_FROM_SCENE_BUFFER)
 			return;
 
-		int[] worldPos = sceneContext.localToWorld(tile.getLocalLocation(), tile.getPlane());
+		int[] worldPos = sceneContext.localToWorld(tile.getLocalLocation(), tile.getPlane(), worldPosInts);
 		ModelOverride modelOverride = modelOverrideManager.getOverride(uuid, worldPos);
 		int sceneId = modelOverride.hashCode() << 16 | sceneContext.id;
 
@@ -360,7 +365,7 @@ public class SceneUploader {
 		if (bridge != null)
 			upload(sceneContext, bridge, tileExX, tileExY);
 
-		int[] worldPos = sceneContext.localToWorld(tile.getLocalLocation(), tile.getPlane());
+		int[] worldPos = sceneContext.localToWorld(tile.getLocalLocation(), tile.getPlane(), worldPosInts);
 		var override = tileOverrideManager.getOverride(sceneContext.scene, tile, worldPos);
 
 		SceneTilePaint sceneTilePaint = tile.getSceneTilePaint();
@@ -385,18 +390,20 @@ public class SceneUploader {
 				int tileX = tileExX - SCENE_OFFSET;
 				int tileY = tileExY - SCENE_OFFSET;
 
+				eightIntWrite[0] = vertexOffset;
+				eightIntWrite[1] = uvOffset;
+				eightIntWrite[2] = vertexCount / 3;
+				eightIntWrite[3] = sceneContext.staticVertexCount;
+				eightIntWrite[4] = 0;
+				eightIntWrite[5] = tileX * LOCAL_TILE_SIZE;
+				eightIntWrite[6] = 0;
+				eightIntWrite[7] = tileY * LOCAL_TILE_SIZE;
+
 				// Draw the tile at the start of each frame
 				sceneContext.staticUnorderedModelBuffer
 					.ensureCapacity(8)
 					.getBuffer()
-					.put(vertexOffset)
-					.put(uvOffset)
-					.put(vertexCount / 3)
-					.put(sceneContext.staticVertexCount)
-					.put(0)
-					.put(tileX * LOCAL_TILE_SIZE)
-					.put(0)
-					.put(tileY * LOCAL_TILE_SIZE);
+					.put(eightIntWrite, 0, 8);
 				sceneContext.staticVertexCount += vertexCount;
 
 				// Since we're now drawing this tile at the beginning of the frame, remove its vertices from the draw callback

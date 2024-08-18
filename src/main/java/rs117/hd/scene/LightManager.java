@@ -109,6 +109,8 @@ public class LightManager {
 	@Inject
 	private FrameTimer frameTimer;
 
+	private final int[] worldPosInts = new int[3];
+
 	private final ArrayList<Light> WORLD_LIGHTS = new ArrayList<>();
 	private final ListMultimap<Integer, LightDefinition> NPC_LIGHTS = ArrayListMultimap.create();
 	private final ListMultimap<Integer, LightDefinition> OBJECT_LIGHTS = ArrayListMultimap.create();
@@ -675,7 +677,7 @@ public class LightManager {
 		if (sceneContext == null)
 			return;
 
-		int[] worldPos = sceneContext.localToWorld(actor.getLocalLocation());
+		int[] worldPos = sceneContext.localToWorld(actor.getLocalLocation(), worldPosInts);
 
 		for (var spotAnim : actor.getSpotAnims()) {
 			int spotAnimId = spotAnim.getId();
@@ -715,7 +717,7 @@ public class LightManager {
 			return;
 
 		int uuid = ModelHash.packUuid(ModelHash.TYPE_NPC, npc.getId());
-		int[] worldPos = sceneContext.localToWorld(npc.getLocalLocation());
+		int[] worldPos = sceneContext.localToWorld(npc.getLocalLocation(), worldPosInts);
 
 		var modelOverride = modelOverrideManager.getOverride(uuid, worldPos);
 		if (modelOverride.hide)
@@ -880,13 +882,13 @@ public class LightManager {
 
 			for (LightDefinition def : lights) {
 				if (def.areas.length > 0) {
-					int[] worldPos = sceneContext.localToWorld(lightX, lightZ, plane);
+					int[] worldPos = sceneContext.localToWorld(lightX, lightZ, plane, worldPosInts);
 					boolean isInArea = Arrays.stream(def.areas).anyMatch(aabb -> aabb.contains(worldPos));
 					if (!isInArea)
 						continue;
 				}
 				if (def.excludeAreas.length > 0) {
-					int[] worldPos = sceneContext.localToWorld(lightX, lightZ, plane);
+					int[] worldPos = sceneContext.localToWorld(lightX, lightZ, plane, worldPosInts);
 					boolean isInArea = Arrays.stream(def.excludeAreas).anyMatch(aabb -> aabb.contains(worldPos));
 					if (isInArea)
 						continue;
@@ -974,7 +976,7 @@ public class LightManager {
 		if (!sceneContext.knownProjectiles.add(projectile))
 			return;
 
-		int[] worldPos = sceneContext.localToWorld((int) projectile.getX(), (int) projectile.getY(), projectile.getFloor());
+		int[] worldPos = sceneContext.localToWorld((int) projectile.getX(), (int) projectile.getY(), projectile.getFloor(), worldPosInts);
 
 		int[] refCounter = { 0 };
 		for (LightDefinition def : PROJECTILE_LIGHTS.get(projectile.getId())) {
@@ -1052,7 +1054,7 @@ public class LightManager {
 
 		GraphicsObject graphicsObject = graphicsObjectCreated.getGraphicsObject();
 		var lp = graphicsObject.getLocation();
-		int[] worldPos = sceneContext.localToWorld(lp, graphicsObject.getLevel());
+		int[] worldPos = sceneContext.localToWorld(lp, graphicsObject.getLevel(), worldPosInts);
 
 		for (LightDefinition def : SPOT_ANIM_LIGHTS.get(graphicsObject.getId())) {
 			if (def.areas.length > 0) {
