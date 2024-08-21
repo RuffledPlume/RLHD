@@ -64,7 +64,7 @@ public class GpuFloatBuffer
 	}
 
 	public void put(float[] floats) {
-		buffer.put(floats);
+		buffer.put(floats, 0, floats.length);
 	}
 
 	public void put(FloatBuffer buffer) {
