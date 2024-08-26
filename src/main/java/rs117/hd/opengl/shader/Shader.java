@@ -35,10 +35,14 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.lwjgl.BufferUtils;
+import org.lwjgl.opengl.*;
+import org.lwjgl.system.MemoryUtil;
 import rs117.hd.utils.Props;
 import rs117.hd.utils.ResourcePath;
 
-import static org.lwjgl.opengl.GL43C.*;
+import static org.lwjgl.opengl.GL41C.*;
+import static org.lwjgl.util.shaderc.Shaderc.*;
+import static org.lwjgl.util.shaderc.Shaderc.shaderc_result_get_compilation_status;
 import static rs117.hd.utils.ResourcePath.path;
 
 @Slf4j
@@ -66,7 +70,7 @@ public class Shader
 		return this;
 	}
 
-	public int compile(Template template) throws ShaderException, IOException
+	public int compile(Template template, boolean useSpriv) throws ShaderException, IOException
 	{
 		int program = glCreateProgram();
 		int[] shaders = new int[units.size()];
@@ -90,7 +94,56 @@ public class Shader
 				if (DUMP_SHADERS)
 					dumpPath.resolve(unit.filename).writeString(source);
 
-				glShaderSource(shader, source);
+				if(useSpriv) {
+					int spriv_shader_type =
+						unit.type == GL_VERTEX_SHADER ? shaderc_glsl_vertex_shader :
+						unit.type == GL_FRAGMENT_SHADER ? shaderc_glsl_fragment_shader :
+						unit.type == GL_GEOMETRY_SHADER ? shaderc_glsl_geometry_shader : shaderc_glsl_compute_shader;
+
+					long spiv_compiler = shaderc_compiler_initialize();
+					long spiv_options = shaderc_compile_options_initialize();
+
+					shaderc_compile_options_set_source_language(spiv_options, shaderc_source_language_glsl);
+					shaderc_compile_options_set_target_env(spiv_options, shaderc_target_env_opengl, shaderc_env_version_opengl_4_5);
+					shaderc_compile_options_set_optimization_level(spiv_options, shaderc_optimization_level_performance);
+					shaderc_compile_options_set_generate_debug_info(spiv_options);
+
+					ByteBuffer spiv_entry_point = MemoryUtil.memUTF8("main", true);
+					ByteBuffer spiv_source_file = MemoryUtil.memUTF8("", true);
+					ByteBuffer spiv_source_data = MemoryUtil.memUTF8(source, false);
+
+					long compileResult = shaderc_compile_into_spv(
+						spiv_compiler,
+						spiv_source_data,
+						spriv_shader_type,
+						spiv_source_file,
+						spiv_entry_point,
+						spiv_options
+					);
+
+					MemoryUtil.memFree(spiv_entry_point);
+					MemoryUtil.memFree(spiv_source_file);
+					MemoryUtil.memFree(spiv_source_data);
+
+					if (shaderc_result_get_compilation_status(compileResult) != shaderc_compilation_status_success) {
+						String err = shaderc_result_get_error_message(compileResult);
+						glDeleteShader(shader);
+						shaderc_result_release(compileResult);
+						throw ShaderException.compileError(err, template, unit);
+					}
+
+					ByteBuffer shaderSpirvBinary = shaderc_result_get_bytes(compileResult);
+
+					GL46.glShaderBinary(new int[] {shader}, GL46.GL_SHADER_BINARY_FORMAT_SPIR_V, shaderSpirvBinary );
+					GL46.glSpecializeShader(shader, "main", (int[])null, null);
+
+					shaderc_compiler_release(spiv_compiler);
+					shaderc_compile_options_release(spiv_options);
+					shaderc_result_release(compileResult);
+				} else {
+					glShaderSource(shader, source);
+				}
+				
 				glCompileShader(shader);
 
 				if (glGetShaderi(shader, GL_COMPILE_STATUS) != GL_TRUE)

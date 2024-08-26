@@ -278,7 +278,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		"#extension GL_ARB_compute_shader : require\n" +
 		"#extension GL_ARB_shader_storage_buffer_object : require\n" +
 		"#extension GL_ARB_explicit_attrib_location : require\n";
-	private static final String WINDOWS_VERSION_HEADER = "#version 430\n";
+	private static final String WINDOWS_VERSION_HEADER = "#version 440\n";
 
 	private static final Shader PROGRAM = new Shader()
 		.add(GL_VERTEX_SHADER, "vert.glsl")
@@ -457,6 +457,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	public VanillaShadowMode configVanillaShadowMode;
 	public ColorFilter configColorFilter = ColorFilter.NONE;
 	public ColorFilter configColorFilterPrevious;
+	public boolean configUseSprivCompiler;
 
 	public boolean useLowMemoryMode;
 	public boolean enableDetailedTimers;
@@ -872,22 +873,22 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			.define("WIREFRAME", config.wireframe())
 			.addIncludePath(SHADER_PATH);
 
-		glSceneProgram = PROGRAM.compile(template);
-		glUiProgram = UI_PROGRAM.compile(template);
+		glSceneProgram = PROGRAM.compile(template, configUseSprivCompiler);
+		glUiProgram = UI_PROGRAM.compile(template, configUseSprivCompiler);
 
 		switch (configShadowMode) {
 			case FAST:
-				glShadowProgram = SHADOW_PROGRAM_FAST.compile(template);
+				glShadowProgram = SHADOW_PROGRAM_FAST.compile(template, configUseSprivCompiler);
 				break;
 			case DETAILED:
-				glShadowProgram = SHADOW_PROGRAM_DETAILED.compile(template);
+				glShadowProgram = SHADOW_PROGRAM_DETAILED.compile(template, configUseSprivCompiler);
 				break;
 		}
 
 		if (computeMode == ComputeMode.OPENCL) {
 			openCLManager.initPrograms();
 		} else {
-			glModelPassthroughComputeProgram = UNORDERED_COMPUTE_PROGRAM.compile(template);
+			glModelPassthroughComputeProgram = UNORDERED_COMPUTE_PROGRAM.compile(template, configUseSprivCompiler);
 
 			glModelSortingComputePrograms = new int[numSortingBins];
 			for (int i = 0; i < numSortingBins; i++) {
@@ -897,8 +898,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				glModelSortingComputePrograms[i] = COMPUTE_PROGRAM.compile(template
 					.copy()
 					.define("THREAD_COUNT", threadCount)
-					.define("FACES_PER_THREAD", facesPerThread)
-				);
+					.define("FACES_PER_THREAD", facesPerThread),
+					configUseSprivCompiler);
 			}
 		}
 
@@ -2616,6 +2617,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		configPreserveVanillaNormals = config.preserveVanillaNormals();
 		configSeasonalTheme = config.seasonalTheme();
 		configSeasonalHemisphere = config.seasonalHemisphere();
+		configUseSprivCompiler = config.sprivShaderCompiler();
 
 		var newColorFilter = config.colorFilter();
 		if (newColorFilter != configColorFilter) {
@@ -2771,6 +2773,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 							case KEY_PRESERVE_VANILLA_NORMALS:
 							case KEY_SHADING_MODE:
 							case KEY_FLAT_SHADING:
+							case KEY_SPRIV_SHADER_COMPILE:
 								recompilePrograms = true;
 								clearModelCache = true;
 								reloadScene = true;

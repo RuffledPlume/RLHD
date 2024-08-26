@@ -874,6 +874,17 @@ public interface HdPluginConfig extends Config
 		return false;
 	}
 
+	String KEY_SPRIV_SHADER_COMPILE = "experimentalUseSprivShaderCompiler";
+	@ConfigItem(
+		keyName = KEY_SPRIV_SHADER_COMPILE,
+		name = "Use SPRI-V Shader Commpiler",
+		description = "Cross compile GLSL -> SPIR-V to utilize the glslc .",
+		section = experimentalSettings
+	)
+	default boolean sprivShaderCompiler() {
+		return false;
+	}
+
 	String KEY_SHADING_MODE = "experimentalShadingMode";
 	@ConfigItem(
 		keyName = KEY_SHADING_MODE,
