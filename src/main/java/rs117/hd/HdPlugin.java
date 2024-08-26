@@ -90,6 +90,7 @@ import rs117.hd.data.materials.Material;
 import rs117.hd.model.ModelHasher;
 import rs117.hd.model.ModelOffsets;
 import rs117.hd.model.ModelPusher;
+import rs117.hd.opengl.AsyncInterfaceCopy;
 import rs117.hd.opengl.compute.ComputeMode;
 import rs117.hd.opengl.compute.OpenCLManager;
 import rs117.hd.opengl.shader.Shader;
@@ -120,6 +121,7 @@ import rs117.hd.utils.ModelHash;
 import rs117.hd.utils.PopupUtils;
 import rs117.hd.utils.Props;
 import rs117.hd.utils.ResourcePath;
+import rs117.hd.utils.ThreadPool;
 import rs117.hd.utils.buffer.GLBuffer;
 import rs117.hd.utils.buffer.GpuIntBuffer;
 
@@ -260,6 +262,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	@Inject
 	public HdPluginConfig config;
 
+	@Inject
+	private ThreadPool threadPool;
+
 	@Getter
 	private Gson gson;
 
@@ -353,6 +358,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	private final GLBuffer hUniformBufferLights = new GLBuffer();
 	private ByteBuffer uniformBufferCamera;
 	private ByteBuffer uniformBufferLights;
+
+	private AsyncInterfaceCopy interfaceAsyncCopy;
 
 	@Getter
 	@Nullable
@@ -453,6 +460,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	public VanillaShadowMode configVanillaShadowMode;
 	public ColorFilter configColorFilter = ColorFilter.NONE;
 	public ColorFilter configColorFilterPrevious;
+	public boolean configUseInterfaceAsyncCopy;
 
 	public boolean useLowMemoryMode;
 	public boolean enableDetailedTimers;
@@ -1847,8 +1855,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	}
 
 	private void prepareInterfaceTexture(int canvasWidth, int canvasHeight) {
-		frameTimer.begin(Timer.UPLOAD_UI);
-
 		if (canvasWidth != lastCanvasWidth || canvasHeight != lastCanvasHeight) {
 			lastCanvasWidth = canvasWidth;
 			lastCanvasHeight = canvasHeight;
@@ -1863,6 +1869,15 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		}
 
 		final BufferProvider bufferProvider = client.getBufferProvider();
+		if(configUseInterfaceAsyncCopy) {
+			if(interfaceAsyncCopy == null) {
+				interfaceAsyncCopy = new AsyncInterfaceCopy(frameTimer, threadPool);
+			}
+			interfaceAsyncCopy.prepare(bufferProvider, interfacePbo, interfaceTexture);
+			return;
+		}
+
+		frameTimer.begin(Timer.UPLOAD_UI);
 		final int[] pixels = bufferProvider.getPixels();
 		final int width = bufferProvider.getWidth();
 		final int height = bufferProvider.getHeight();
@@ -1872,7 +1887,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		if (mappedBuffer == null) {
 			log.error("Unable to map interface PBO. Skipping UI...");
 		} else {
+			frameTimer.begin(Timer.COPY_UI);
 			mappedBuffer.asIntBuffer().put(pixels, 0, width * height);
+			frameTimer.end(Timer.COPY_UI);
 			glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
 			glBindTexture(GL_TEXTURE_2D, interfaceTexture);
 			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, 0);
@@ -2286,6 +2303,11 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			log.error("Unable to swap buffers:", ex);
 		}
 
+		// Make sure the interface texture has finished being prepared before submitting
+		if(interfaceAsyncCopy != null && configUseInterfaceAsyncCopy) {
+			interfaceAsyncCopy.complete();
+		}
+
 		glBindFramebuffer(GL_FRAMEBUFFER, awtContext.getFramebuffer(false));
 
 		frameTimer.end(Timer.DRAW_FRAME);
@@ -2586,6 +2608,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		configPreserveVanillaNormals = config.preserveVanillaNormals();
 		configSeasonalTheme = config.seasonalTheme();
 		configSeasonalHemisphere = config.seasonalHemisphere();
+		configUseInterfaceAsyncCopy = config.useInterfaceAsyncCopy();
 
 		var newColorFilter = config.colorFilter();
 		if (newColorFilter != configColorFilter) {
