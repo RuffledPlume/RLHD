@@ -25,31 +25,29 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#version 330
-
-layout(triangles) in;
-layout(triangle_strip, max_vertices = 3) out;
-
-uniform mat4 lightProjectionMatrix;
-uniform float elapsedTime;
+#include VERSION_HEADER
 
 #include uniforms/materials.glsl
+#include uniforms/scene.glsl
 
 #include utils/constants.glsl
 #include utils/misc.glsl
 #include utils/uvs.glsl
 
-flat in vec3 gPosition[3];
-flat in vec3 gUv[3];
-flat in int gMaterialData[3];
-flat in int gCastShadow[3];
+layout(triangles) in;
+layout(triangle_strip, max_vertices = 3) out;
 
-out vec3 fUvw;
-flat out int fMaterialData;
+layout (location = 0) flat in vec3 gPosition[3];
+layout (location = 1) flat in vec3 gUv[3];
+layout (location = 2) flat in int gMaterialData[3];
+layout (location = 3) flat in int gCastShadow[3];
+
+layout (location = 0) out vec3 fUvw;
+layout (location = 1) flat out int fMaterialData;
 
 #if SHADOW_TRANSPARENCY
-    flat in float gOpacity[3];
-    out float fOpacity;
+    layout (location = 4) flat in float gOpacity[3];
+    layout (location = 3) out float fOpacity;
 #endif
 
 void main() {

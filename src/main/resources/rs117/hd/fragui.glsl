@@ -22,7 +22,7 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-#version 330
+#include VERSION_HEADER
 
 #include UI_SCALING_MODE
 
@@ -30,21 +30,22 @@
 #define SAMPLING_CATROM 2
 #define SAMPLING_XBR 3
 
-uniform sampler2D uiTexture;
+layout (binding = 6) uniform sampler2D uiTexture;
 
-uniform int samplingMode;
-uniform ivec2 sourceDimensions;
-uniform ivec2 targetDimensions;
-uniform float colorBlindnessIntensity;
-uniform vec4 alphaOverlay;
+
+layout(location = 0) uniform ivec2 sourceDimensions;
+layout(location = 1) uniform ivec2 targetDimensions;
+layout(location = 2) uniform int samplingMode;
+layout(location = 3) uniform float colorBlindnessIntensity;
+layout(location = 4) uniform vec4 alphaOverlay;
 
 #include scaling/bicubic.glsl
 #include utils/constants.glsl
 #include utils/color_blindness.glsl
 
 #if SHADOW_MAP_OVERLAY
-uniform sampler2D shadowMap;
-uniform ivec4 shadowMapOverlayDimensions;
+layout (binding = 3) uniform sampler2D shadowMap;
+layout (location = 5) uniform ivec4 shadowMapOverlayDimensions;
 #endif
 
 #if UI_SCALING_MODE == SAMPLING_XBR
@@ -53,9 +54,9 @@ uniform ivec4 shadowMapOverlayDimensions;
 in XBRTable xbrTable;
 #endif
 
-in vec2 TexCoord;
+layout (location = 0) in vec2 TexCoord;
 
-out vec4 FragColor;
+layout (location = 0) out vec4 FragColor;
 
 vec4 alphaBlend(vec4 src, vec4 dst) {
     return vec4(

@@ -29,7 +29,7 @@ vec4 sampleWater(int waterTypeIndex, vec3 viewDir) {
 
     vec2 uv1 = worldUvs(3).yx - animationFrame(28 * waterType.duration);
     vec2 uv2 = worldUvs(3) + animationFrame(24 * waterType.duration);
-    vec2 uv3 = IN.uv;
+    vec2 uv3 = INuv;
 
     vec2 flowMapUv = worldUvs(15) + animationFrame(50 * waterType.duration);
     float flowMapStrength = 0.025;
@@ -54,7 +54,7 @@ vec4 sampleWater(int waterTypeIndex, vec3 viewDir) {
     float viewDotNormals = dot(viewDir, normals);
 
     vec2 distortion = uvFlow * .00075;
-    float shadow = sampleShadowMap(IN.position, waterTypeIndex, distortion, lightDotNormals);
+    float shadow = sampleShadowMap(INposition, waterTypeIndex, distortion, lightDotNormals);
     float inverseShadow = 1 - shadow;
 
     vec3 vSpecularStrength = vec3(waterType.specularStrength);
@@ -84,7 +84,7 @@ vec4 sampleWater(int waterTypeIndex, vec3 viewDir) {
     vec3 pointLightsSpecularOut = vec3(0);
     for (int i = 0; i < pointLightsCount; i++) {
         vec4 pos = PointLightArray[i].position;
-        vec3 lightToFrag = pos.xyz - IN.position;
+        vec3 lightToFrag = pos.xyz - INposition;
         float distanceSquared = dot(lightToFrag, lightToFrag);
         float radiusSquared = pos.w;
         if (distanceSquared <= radiusSquared) {
@@ -143,7 +143,7 @@ vec4 sampleWater(int waterTypeIndex, vec3 viewDir) {
 
     vec3 baseColor = waterType.surfaceColor * compositeLight;
     baseColor = mix(baseColor, surfaceColor, waterType.fresnelAmount);
-    float shoreLineMask = 1 - dot(IN.texBlend, vHsl / 127.f);
+    float shoreLineMask = 1 - dot(INtexBlend, vHsl / 127.f);
     float maxFoamAmount = 0.8;
     float foamAmount = min(shoreLineMask, maxFoamAmount);
     float foamDistance = 0.7;
@@ -172,7 +172,7 @@ void sampleUnderwater(inout vec3 outputColor, WaterType waterType, float depth, 
     // underwater terrain
     float lowestColorLevel = 500;
     float midColorLevel = 150;
-    float surfaceLevel = IN.position.y - depth; // e.g. -1600
+    float surfaceLevel = INposition.y - depth; // e.g. -1600
 
     if (depth < midColorLevel) {
         outputColor *= mix(vec3(1), waterType.depthColor, translateRange(0, midColorLevel, depth));
@@ -182,13 +182,13 @@ void sampleUnderwater(inout vec3 outputColor, WaterType waterType, float depth, 
         outputColor = vec3(0);
     }
 
-    if (underwaterCaustics) {
+    if (underwaterCaustics != 0) {
         const float scale = 1.75;
         const float maxCausticsDepth = 128 * 4;
 
         vec2 causticsUv = worldUvs(scale);
 
-        float depthMultiplier = (IN.position.y - surfaceLevel - maxCausticsDepth) / -maxCausticsDepth;
+        float depthMultiplier = (INposition.y - surfaceLevel - maxCausticsDepth) / -maxCausticsDepth;
         depthMultiplier *= depthMultiplier;
 
         causticsUv *= .75;

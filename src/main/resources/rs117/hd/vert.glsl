@@ -24,17 +24,17 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#version 330
+#include VERSION_HEADER
 
 layout (location = 0) in vec3 vPosition;
 layout (location = 1) in int vHsl;
 layout (location = 2) in vec4 vUv;
 layout (location = 3) in vec4 vNormal;
 
-out vec3 gPosition;
-out int gHsl;
-out vec4 gUv;
-out vec4 gNormal;
+layout (location = 0) out vec3 gPosition;
+layout (location = 1) out int gHsl;
+layout (location = 2) out vec4 gUv;
+layout (location = 3) out vec4 gNormal;
 
 void main() {
     gPosition = vPosition;

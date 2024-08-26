@@ -9,7 +9,7 @@ struct PointLight
     float pad;
 };
 
-layout(std140) uniform PointLightUniforms {
+layout(std140, binding = 0) uniform PointLightUniforms {
     PointLight PointLightArray[LIGHT_COUNT];
 };
 

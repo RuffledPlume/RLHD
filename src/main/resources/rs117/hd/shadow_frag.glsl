@@ -23,18 +23,18 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-#version 330
+#include VERSION_HEADER
 
 #include utils/constants.glsl
 
 #if SHADOW_MODE == SHADOW_MODE_DETAILED
-    uniform sampler2DArray textureArray;
-    in vec3 fUvw;
-    flat in int fMaterialData;
+    layout (binding = 9) uniform sampler2DArray textureArray;
+    layout (location = 0) in vec3 fUvw;
+    layout (location = 1) flat in int fMaterialData;
 #endif
 
 #if SHADOW_TRANSPARENCY
-    in float fOpacity;
+    layout (location = 3) in float fOpacity;
 #endif
 
 void main() {
@@ -50,7 +50,7 @@ void main() {
             // Vanilla tree textures rely on UVs being clamped horizontally,
             // which HD doesn't do, so we instead opt to hide these fragments
             if ((fMaterialData >> MATERIAL_FLAG_VANILLA_UVS & 1) == 1)
-                uvw.x = clamp(uvw.x, 0, .984375);
+                uvw.x = clamp(uvw.x, 0.0, 0.984375);
 
             opacity = texture(textureArray, uvw).a;
 

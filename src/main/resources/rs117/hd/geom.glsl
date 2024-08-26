@@ -24,37 +24,33 @@
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#version 330
+#include VERSION_HEADER
+
+#include uniforms/materials.glsl
+#include uniforms/scene.glsl
 
 layout(triangles) in;
 layout(triangle_strip, max_vertices = 3) out;
-
-uniform mat4 projectionMatrix;
-uniform float elapsedTime;
-uniform vec3 cameraPos;
 
 #include utils/constants.glsl
 #define USE_VANILLA_UV_PROJECTION
 #include utils/uvs.glsl
 #include utils/color_utils.glsl
 
-in vec3 gPosition[3];
-in int gHsl[3];
-in vec4 gUv[3];
-in vec4 gNormal[3];
+layout(location = 0) in vec3 gPosition[3];
+layout(location = 1) in int gHsl[3];
+layout(location = 2) in vec4 gUv[3];
+layout(location = 3) in vec4 gNormal[3];
 
-flat out ivec3 vHsl;
-flat out ivec3 vMaterialData;
-flat out ivec3 vTerrainData;
-flat out vec3 T;
-flat out vec3 B;
-
-out FragmentData {
-    vec3 position;
-    vec2 uv;
-    vec3 normal;
-    vec3 texBlend;
-} OUT;
+layout(location = 0) flat out ivec3 vHsl;
+layout(location = 1) flat out ivec3 vMaterialData;
+layout(location = 2) flat out ivec3 vTerrainData;
+layout(location = 3) flat out vec3 T;
+layout(location = 4) flat out vec3 B;
+layout(location = 5) out vec3 OUTposition;
+layout(location = 6) out vec2 OUTuv;
+layout(location = 7) out vec3 OUTnormal;
+layout(location = 8) out vec3 OUTtexBlend;
 
 void main() {
     vec3 vUv[3];
@@ -91,16 +87,16 @@ void main() {
     for (int i = 0; i < 3; i++) {
         // Flat normals must be applied separately per vertex
         vec3 normal = gNormal[i].xyz;
-        OUT.position = gPosition[i];
-        OUT.uv = vUv[i].xy;
+        OUTposition = gPosition[i];
+        OUTuv = vUv[i].xy;
         #if FLAT_SHADING
-        OUT.normal = N;
+        OUTnormal = N;
         #else
-        OUT.normal = length(normal) == 0 ? N : normalize(normal);
+        OUTnormal = length(normal) == 0 ? N : normalize(normal);
         #endif
-        OUT.texBlend = vec3(0);
-        OUT.texBlend[i] = 1;
-        gl_Position = projectionMatrix * vec4(OUT.position, 1);
+        OUTtexBlend = vec3(0);
+        OUTtexBlend[i] = 1;
+        gl_Position = projectionMatrix * vec4(OUTposition, 1);
         EmitVertex();
     }
 

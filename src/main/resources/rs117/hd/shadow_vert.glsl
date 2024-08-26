@@ -23,7 +23,7 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-#version 330
+#include VERSION_HEADER
 
 layout (location = 0) in vec3 vPosition;
 layout (location = 1) in int vHsl;
@@ -34,18 +34,18 @@ layout (location = 3) in vec4 vNormal;
 
 #if SHADOW_MODE == SHADOW_MODE_DETAILED
     // Pass to geometry shader
-    flat out vec3 gPosition;
-    flat out vec3 gUv;
-    flat out int gMaterialData;
-    flat out int gCastShadow;
+    layout (location = 0) flat out vec3 gPosition;
+    layout (location = 1) flat out vec3 gUv;
+    layout (location = 2) flat out int gMaterialData;
+    layout (location = 3) flat out int gCastShadow;
     #if SHADOW_TRANSPARENCY
-        flat out float gOpacity;
+        layout (location = 4) flat out float gOpacity;
     #endif
 #else
     uniform mat4 lightProjectionMatrix;
     #if SHADOW_TRANSPARENCY
         // Pass to fragment shader
-        out float fOpacity;
+        layout (location = 4) out float fOpacity;
     #endif
 #endif
 

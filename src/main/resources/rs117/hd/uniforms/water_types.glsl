@@ -25,7 +25,7 @@ struct WaterType
     int underwaterFlowMap;
 };
 
-layout(std140) uniform WaterTypeUniforms {
+layout(std140, binding = 4) uniform WaterTypeUniforms {
     WaterType WaterTypeArray[WATER_TYPE_COUNT];
 };
 

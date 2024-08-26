@@ -22,7 +22,7 @@
  * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
  * SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  */
-#version 330
+#include VERSION_HEADER
 
 #include UI_SCALING_MODE
 
@@ -31,8 +31,8 @@
 #define SAMPLING_CATROM 2
 #define SAMPLING_XBR 3
 
-uniform ivec2 sourceDimensions;
-uniform ivec2 targetDimensions;
+layout (location = 0) uniform ivec2 sourceDimensions;
+layout (location = 1) uniform ivec2 targetDimensions;
 
 layout (location = 0) in vec3 aPos;
 layout (location = 1) in vec2 aTexCoord;
@@ -43,7 +43,7 @@ layout (location = 1) in vec2 aTexCoord;
 out XBRTable xbrTable;
 #endif
 
-out vec2 TexCoord;
+layout (location = 0) out vec2 TexCoord;
 
 void main()
 {

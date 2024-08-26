@@ -22,7 +22,7 @@ struct Material
     float pad;
 };
 
-layout(std140) uniform MaterialUniforms {
+layout(std140, binding = 1) uniform MaterialUniforms {
     Material MaterialArray[MATERIAL_COUNT];
 };
 
