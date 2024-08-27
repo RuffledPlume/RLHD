@@ -9,6 +9,7 @@ import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
 import javax.inject.Singleton;
 
 @Singleton
@@ -96,6 +97,7 @@ public class ThreadPool {
 		}
 	}
 
+	private int actualThreadCount = 0;
 	private final int fixedThreadCount;
 	private final ExecutorService executorService;
 	private final Map<Class<?>, TaskPool> taskPoolMap = new HashMap<>();
@@ -104,7 +106,12 @@ public class ThreadPool {
 
 	public ThreadPool() {
 		fixedThreadCount = Runtime.getRuntime().availableProcessors() - 1; // Minus 1 since we want to avoid context switching the client thread
-		executorService = Executors.newFixedThreadPool(fixedThreadCount);
+		executorService = Executors.newFixedThreadPool(fixedThreadCount, r -> {
+			Thread thread = new Thread(r);
+			thread.setName("ThreadPool-" + actualThreadCount++);
+			thread.setPriority(Thread.MAX_PRIORITY);
+			return thread;
+		});
 	}
 
 	public int getFixedThreadCount() {
@@ -178,6 +185,6 @@ public class ThreadPool {
 		synchronized (inflightWrappers) {
 			inflightWrappers.add(wrapper);
 		}
-		executorService.submit(wrapper);
+		executorService.execute(wrapper);
 	}
 }
