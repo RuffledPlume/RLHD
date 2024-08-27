@@ -1855,8 +1855,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	}
 
 	private void prepareInterfaceTexture(int canvasWidth, int canvasHeight) {
-		frameTimer.begin(Timer.UPLOAD_UI);
-
 		if (canvasWidth != lastCanvasWidth || canvasHeight != lastCanvasHeight) {
 			lastCanvasWidth = canvasWidth;
 			lastCanvasHeight = canvasHeight;
@@ -1873,12 +1871,13 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		final BufferProvider bufferProvider = client.getBufferProvider();
 		if(configUseInterfaceAsyncCopy) {
 			if(interfaceAsyncCopy == null) {
-				interfaceAsyncCopy = new AsyncInterfaceCopy(threadPool);
+				interfaceAsyncCopy = new AsyncInterfaceCopy(frameTimer, threadPool);
 			}
 			interfaceAsyncCopy.prepare(bufferProvider, interfacePbo, interfaceTexture);
-			frameTimer.end(Timer.UPLOAD_UI);
 			return;
 		}
+
+		frameTimer.begin(Timer.UPLOAD_UI);
 		final int[] pixels = bufferProvider.getPixels();
 		final int width = bufferProvider.getWidth();
 		final int height = bufferProvider.getHeight();
@@ -1888,7 +1887,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		if (mappedBuffer == null) {
 			log.error("Unable to map interface PBO. Skipping UI...");
 		} else {
+			frameTimer.begin(Timer.COPY_UI);
 			mappedBuffer.asIntBuffer().put(pixels, 0, width * height);
+			frameTimer.end(Timer.COPY_UI);
 			glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
 			glBindTexture(GL_TEXTURE_2D, interfaceTexture);
 			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, 0);
@@ -2289,7 +2290,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 		try {
 			// Make sure the interface texture has finished being prepared before submitting
-			if(interfaceAsyncCopy != null) {
+			if(interfaceAsyncCopy != null && configUseInterfaceAsyncCopy) {
 				interfaceAsyncCopy.complete();
 			}
 
