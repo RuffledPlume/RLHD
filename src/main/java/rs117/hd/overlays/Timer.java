@@ -21,6 +21,7 @@ public enum Timer {
 	IMPOSTOR_TRACKING,
 	REPLACE_FISHING_SPOTS,
 	COPY_UI,
+	RENDER_FRAME(true),
 	UPLOAD_GEOMETRY(true),
 	UPLOAD_UI(true, "Upload UI"),
 	COMPUTE(true),
