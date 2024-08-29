@@ -122,7 +122,6 @@ import rs117.hd.utils.ModelHash;
 import rs117.hd.utils.PopupUtils;
 import rs117.hd.utils.Props;
 import rs117.hd.utils.ResourcePath;
-import rs117.hd.utils.ThreadPool;
 import rs117.hd.utils.buffer.GLBuffer;
 import rs117.hd.utils.buffer.GpuIntBuffer;
 
@@ -266,9 +265,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	@Inject
 	public HdPluginConfig config;
 
-	@Inject
-	private ThreadPool threadPool;
-
 	@Getter
 	private Gson gson;
 
@@ -364,6 +360,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	private ByteBuffer uniformBufferLights;
 
 	private AsyncInterfaceCopy interfaceAsyncCopy;
+	private boolean shouldSkipInterfaceUpload;
 
 	@Getter
 	@Nullable
@@ -542,6 +539,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				awtContext.createGLContext();
 
 				canvas.setIgnoreRepaint(true);
+
+				if(interfaceAsyncCopy == null) {
+					interfaceAsyncCopy = new AsyncInterfaceCopy(frameTimer);
+				}
 
 				// lwjgl defaults to lwjgl- + user.name, but this breaks if the username would cause an invalid path
 				// to be created.
@@ -1880,16 +1881,12 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			glBindTexture(GL_TEXTURE_2D, 0);
 		}
 
-		final BufferProvider bufferProvider = client.getBufferProvider();
-		if(configUseInterfaceAsyncCopy) {
-			if(interfaceAsyncCopy == null) {
-				interfaceAsyncCopy = new AsyncInterfaceCopy(frameTimer, threadPool);
-			}
-			interfaceAsyncCopy.prepare(bufferProvider, interfacePbo, interfaceTexture);
+		if(shouldSkipInterfaceUpload) {
 			return;
 		}
 
 		frameTimer.begin(Timer.UPLOAD_UI);
+		final BufferProvider bufferProvider = client.getBufferProvider();
 		final int[] pixels = bufferProvider.getPixels();
 		final int width = bufferProvider.getWidth();
 		final int height = bufferProvider.getHeight();
@@ -2314,16 +2311,15 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 			log.error("Unable to swap buffers:", ex);
 		}
-
-		// Make sure the interface texture has finished being prepared before submitting
-		if(interfaceAsyncCopy != null && configUseInterfaceAsyncCopy) {
-			interfaceAsyncCopy.complete();
-		}
-
+		
 		glBindFramebuffer(GL_FRAMEBUFFER, awtContext.getFramebuffer(false));
 
 		frameTimer.end(Timer.DRAW_FRAME);
 		frameTimer.endFrameAndReset();
+
+		if(configUseInterfaceAsyncCopy) {
+			interfaceAsyncCopy.prepare(client.getBufferProvider(), interfacePbo, interfaceTexture);
+		}
 
 		// Before clearing the map, reclaim all the modelInfos
 		modelInfoBin.addAll(frameModelInfoMap.values());
@@ -3366,10 +3362,14 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 	@Subscribe(priority = -1) // Run after the low detail plugin
 	public void onBeforeRender(BeforeRender beforeRender) {
-		if (client.getScene() == null)
-			return;
-		// The game runs significantly slower with lower planes in Chambers of Xeric
-		client.getScene().setMinLevel(isInChambersOfXeric ? client.getPlane() : client.getScene().getMinLevel());
+		if (client.getScene() != null) {
+			// The game runs significantly slower with lower planes in Chambers of Xeric
+			client.getScene().setMinLevel(isInChambersOfXeric ? client.getPlane() : client.getScene().getMinLevel());
+		}
+
+		if(interfaceAsyncCopy != null) {
+			shouldSkipInterfaceUpload = interfaceAsyncCopy.complete();
+		}
 	}
 
 	@Subscribe
