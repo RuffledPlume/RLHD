@@ -497,6 +497,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	private double lastFrameClientTime;
 	private int gameTicksUntilSceneReload = 0;
 	private long colorFilterChangedAt;
+	private int currentZoom;
 
 	@Provides
 	HdPluginConfig provideConfig(ConfigManager configManager) {
@@ -1515,6 +1516,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		final Scene scene = client.getScene();
 		scene.setDrawDistance(getDrawDistance());
 
+		currentZoom = (configShadowsEnabled && configExpandShadowDraw) ? client.get3dZoom() / 2 : client.get3dZoom();
+
 		boolean updateUniforms = true;
 
 		if (sceneContext.enableAreaHiding) {
@@ -1920,6 +1923,17 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 		if(sceneContext == null){
 			frameTimer.begin(Timer.RENDER_FRAME);
+		} else {
+			// Cache the current camera settings, so that on the next frame we will check if we can reuse the visibility cache
+			sceneContext.setCameraCache(
+				SINE[client.getCameraPitch()],
+				COSINE[client.getCameraPitch()],
+				SINE[client.getCameraYaw()],
+				COSINE[client.getCameraYaw()],
+				client.getCameraX(),
+				client.getCameraZ(),
+				client.getCameraY(),
+				currentZoom);
 		}
 
 		if (lastFrameTimeMillis > 0) {
@@ -2906,6 +2920,11 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		if (orthographicProjection)
 			return true;
 
+		if(sceneContext.compareCameraCache(pitchSin, pitchCos, yawSin, yawCos, cameraX, cameraY, cameraZ, currentZoom)){
+			return sceneContext.tileIsVisible[plane][tileExX][tileExY];
+		}
+
+		frameTimer.begin(Timer.VISIBILITY_CHECK);
 		int[][][] tileHeights = scene.getTileHeights();
 		int x = ((tileExX - SCENE_OFFSET) << Perspective.LOCAL_COORD_BITS) + 64;
 		int z = ((tileExY - SCENE_OFFSET) << Perspective.LOCAL_COORD_BITS) + 64;
@@ -2926,7 +2945,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 		int tileRadius = 96; // ~ 64 * sqrt(2)
 
-		int currentZoom = (configShadowsEnabled && configExpandShadowDraw) ? client.get3dZoom() / 2 : client.get3dZoom();
 		int Rasterizer3D_clipMidX2 = client.getRasterizer3D_clipMidX2();
 		int Rasterizer3D_clipNegativeMidX = client.getRasterizer3D_clipNegativeMidX();
 		int Rasterizer3D_clipNegativeMidY = client.getRasterizer3D_clipNegativeMidY();
@@ -2937,6 +2955,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		final int depth = depthRadiusOffset + ((pitchSin * y + pitchCos * transformedZ) >> 16);
 
 		// Check if the tile is within the near plane of the frustum
+		boolean visible = false;
 		if (depth > NEAR_PLANE) {
 			final int transformedX = (z * yawSin + yawCos * x) >> 16;
 			final int leftFrustumBound = (transformedX - tileRadius) * currentZoom;
@@ -2949,11 +2968,12 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 					final int topFrustumBound = ((transformedY + (pitchSin * tileRadius)) >> 16) * currentZoom;
 
 					// Check top bound (we skip bottom bound to avoid computing model heights)
-					return topFrustumBound > Rasterizer3D_clipNegativeMidY * depth;
+					visible = topFrustumBound > Rasterizer3D_clipNegativeMidY * depth;
 				}
 			}
 		}
-		return false;
+		frameTimer.end(Timer.VISIBILITY_CHECK);
+		return sceneContext.tileIsVisible[plane][tileExX][tileExY] = visible;
 	}
 
 	/**
@@ -2966,7 +2986,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		if (orthographicProjection)
 			return false;
 
-		int currentZoom = (configShadowsEnabled && configExpandShadowDraw) ? client.get3dZoom() / 2 : client.get3dZoom();
 		int Rasterizer3D_clipMidX2 = client.getRasterizer3D_clipMidX2();
 		int Rasterizer3D_clipNegativeMidX = client.getRasterizer3D_clipNegativeMidX();
 		int Rasterizer3D_clipNegativeMidY = client.getRasterizer3D_clipNegativeMidY();
