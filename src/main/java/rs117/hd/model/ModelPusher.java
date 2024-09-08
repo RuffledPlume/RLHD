@@ -19,6 +19,7 @@ import rs117.hd.HdPluginConfig;
 import rs117.hd.data.WaterType;
 import rs117.hd.data.materials.Material;
 import rs117.hd.data.materials.UvType;
+import rs117.hd.opengl.RenderThread;
 import rs117.hd.overlays.FrameTimer;
 import rs117.hd.overlays.Timer;
 import rs117.hd.scene.ProceduralGenerator;
@@ -219,7 +220,7 @@ public class ModelPusher {
 		long uvHash = 0;
 
 		if (shouldCache) {
-			assert client.isClientThread() : "Model caching isn't thread-safe";
+			assert client.isClientThread() || RenderThread.isRenderThread() : "Model caching isn't thread-safe";
 
 			vertexHash = modelHasher.vertexHash;
 			IntBuffer vertexData = this.modelCache.getIntBuffer(vertexHash);

@@ -863,6 +863,17 @@ public interface HdPluginConfig extends Config
 		return false;
 	}
 
+	String KEY_USE_RENDER_THREAD = "experimentalUseRenderThread";
+	@ConfigItem(
+		keyName = KEY_USE_RENDER_THREAD,
+		name = "Use Render Thread",
+		description = "Improves performance by moving UI copy to a thread pool",
+		section = experimentalSettings
+	)
+	default boolean useRenderThread() {
+		return false;
+	}
+
 	String KEY_FASTER_MODEL_HASHING = "experimentalFasterModelHashing";
 	@ConfigItem(
 		keyName = KEY_FASTER_MODEL_HASHING,

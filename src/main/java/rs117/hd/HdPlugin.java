@@ -92,6 +92,7 @@ import rs117.hd.model.ModelHasher;
 import rs117.hd.model.ModelOffsets;
 import rs117.hd.model.ModelPusher;
 import rs117.hd.opengl.AsyncInterfaceCopy;
+import rs117.hd.opengl.RenderThread;
 import rs117.hd.opengl.compute.ComputeMode;
 import rs117.hd.opengl.compute.OpenCLManager;
 import rs117.hd.opengl.shader.Shader;
@@ -264,6 +265,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 	@Inject
 	public HdPluginConfig config;
+
+	@Inject
+	private RenderThread renderThread;
 
 	@Getter
 	private Gson gson;
@@ -1647,6 +1651,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	public void postDrawScene() {
 		if (sceneContext == null)
 			return;
+			
+		renderThread.complete();
 
 		frameTimer.end(Timer.DRAW_SCENE);
 		frameTimer.begin(Timer.UPLOAD_GEOMETRY);
@@ -1778,27 +1784,25 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 	@Override
 	public void drawScenePaint(Scene scene, SceneTilePaint paint, int plane, int tileX, int tileY) {
-		if (redrawPreviousFrame || paint.getBufferLen() <= 0)
-			return;
+		if (!redrawPreviousFrame) {
+			DrawTilePaintCommand command = renderThread.popCommand(DrawTilePaintCommand.class, this);
+			command.paint = paint;
+			command.tileX = tileX;
+			command.tileY = tileY;
+			command.plane = plane;
+			command.push();
+		}
+	}
 
-		final int vertexCount = paint.getBufferLen();
-
-		eightIntWrite[0] = paint.getBufferOffset();
-		eightIntWrite[1] = paint.getUvBufferOffset();
-		eightIntWrite[2] = vertexCount / 3;
-		eightIntWrite[3] = renderBufferOffset;
-		eightIntWrite[4] = 0;
-		eightIntWrite[5] = tileX * LOCAL_TILE_SIZE;
-		eightIntWrite[6] = 0;
-		eightIntWrite[7] = tileY * LOCAL_TILE_SIZE;
-
-		++numPassthroughModels;
-		modelPassthroughBuffer
-			.ensureCapacity(8)
-			.getBuffer()
-			.put(eightIntWrite, 0, 8);
-
-		renderBufferOffset += vertexCount;
+	@Override
+	public void drawSceneTileModel(Scene scene, SceneTileModel model, int tileX, int tileY) {
+		if (!redrawPreviousFrame) {
+			DrawTileCommand command = renderThread.popCommand(DrawTileCommand.class, this);
+			command.tile = model;
+			command.tileX = tileX;
+			command.tileY = tileY;
+			command.push();
+		}
 	}
 
 	public void initShaderHotswapping() {
@@ -1814,61 +1818,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				}
 			});
 		});
-	}
-
-	@Override
-	public void drawSceneTileModel(Scene scene, SceneTileModel model, int tileX, int tileY) {
-		int bufferLength = model.getBufferLen();
-		if (redrawPreviousFrame || bufferLength <= 0)
-			return;
-
-		final int localX = tileX * LOCAL_TILE_SIZE;
-		final int localZ = tileY * LOCAL_TILE_SIZE;
-		final int modelBufferOffset = model.getBufferOffset();
-		final int modelUVBufferOffset = model.getUvBufferOffset();
-
-		// we packed a boolean into the buffer length of tiles so we can tell
-		// which tiles have procedurally-generated underwater terrain.
-		// unpack the boolean:
-		final boolean underwaterTerrain = (bufferLength & 1) == 1;
-		// restore the bufferLength variable:
-		bufferLength = bufferLength >> 1;
-
-		if (underwaterTerrain) {
-			// draw underwater terrain tile before surface tile
-
-			// buffer length includes the generated underwater terrain, so it must be halved
-			bufferLength /= 2;
-
-			sixteenIntWrite[0] = modelBufferOffset + bufferLength;
-			sixteenIntWrite[1] = modelUVBufferOffset + bufferLength;
-			sixteenIntWrite[2] = bufferLength / 3;
-			sixteenIntWrite[3] = renderBufferOffset;
-			sixteenIntWrite[4] = 0;
-			sixteenIntWrite[5] = localX;
-			sixteenIntWrite[6] = 0;
-			sixteenIntWrite[7] = localZ;
-
-			renderBufferOffset += bufferLength;
-		}
-
-		final int writeOffset = underwaterTerrain ? 8 : 0;
-		sixteenIntWrite[writeOffset] = modelBufferOffset;
-		sixteenIntWrite[writeOffset + 1] = modelUVBufferOffset;
-		sixteenIntWrite[writeOffset + 2] = bufferLength / 3;
-		sixteenIntWrite[writeOffset + 3] = renderBufferOffset;
-		sixteenIntWrite[writeOffset + 4] = 0;
-		sixteenIntWrite[writeOffset + 5] = localX;
-		sixteenIntWrite[writeOffset + 6] = 0;
-		sixteenIntWrite[writeOffset + 7] = localZ;
-
-		modelPassthroughBuffer
-			.ensureCapacity(16)
-			.getBuffer()
-			.put(sixteenIntWrite, 0, underwaterTerrain ? 16 : 8);
-
-		renderBufferOffset += bufferLength;
-		numPassthroughModels += underwaterTerrain ? 2 : 1;
 	}
 
 	private void prepareInterfaceTexture(int canvasWidth, int canvasHeight) {
@@ -2641,6 +2590,12 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		configSeasonalHemisphere = config.seasonalHemisphere();
 		configUseInterfaceAsyncCopy = config.useInterfaceAsyncCopy();
 
+		if(config.useRenderThread()) {
+			renderThread.startUp();
+		} else {
+			renderThread.shutDown();
+		}
+
 		var newColorFilter = config.colorFilter();
 		if (newColorFilter != configColorFilter) {
 			configColorFilterPrevious = configColorFilter;
@@ -3048,183 +3003,19 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				return;
 		}
 
-		if (enableDetailedTimers)
-			frameTimer.begin(Timer.GET_MODEL);
-
-		Model model, offsetModel;
-		try {
-			// getModel may throw an exception from vanilla client code
-			if (renderable instanceof Model) {
-				model = (Model) renderable;
-				offsetModel = model.getUnskewedModel();
-				if (offsetModel == null)
-					offsetModel = model;
-			} else {
-				offsetModel = model = renderable.getModel();
-			}
-			if (model == null || model.getFaceCount() == 0) {
-				// skip models with zero faces
-				// this does seem to happen sometimes (mostly during loading)
-				// should save some CPU cycles here and there
-				return;
-			}
-		} catch (Exception ex) {
-			// Vanilla happens to handle exceptions thrown here gracefully, but we handle them explicitly anyway
-			return;
-		} finally {
-			if (enableDetailedTimers)
-				frameTimer.end(Timer.GET_MODEL);
-		}
-
-		// Apply height to renderable from the model
-		if (model != renderable)
-			renderable.setModelHeight(model.getModelHeight());
-
-		model.calculateBoundsCylinder();
-
-		if (projection instanceof IntProjection) {
-			var p = (IntProjection) projection;
-			if (isOutsideViewport(
-				model,
-				p.getPitchSin(),
-				p.getPitchCos(),
-				p.getYawSin(),
-				p.getYawCos(),
-				x - p.getCameraX(),
-				y - p.getCameraY(),
-				z - p.getCameraZ()
-			)) {
-				return;
-			}
-		}
-
-		client.checkClickbox(projection, model, orientation, x, y, z, hash);
-
 		if (redrawPreviousFrame)
 			return;
 
-		if (enableDetailedTimers)
-			frameTimer.begin(Timer.DRAW_RENDERABLE);
-
-		eightIntWrite[3] = renderBufferOffset;
-		eightIntWrite[4] = orientation;
-		eightIntWrite[5] = x;
-		eightIntWrite[6] = y;
-		eightIntWrite[7] = z;
-
-		final int plane = ModelHash.getPlane(hash);
-		int faceCount;
-		if (sceneContext.id == (offsetModel.getSceneId() & SceneUploader.SCENE_ID_MASK)) {
-			// The model is part of the static scene buffer
-			assert model == renderable;
-
-			faceCount = Math.min(MAX_FACE_COUNT, offsetModel.getFaceCount());
-			final int vertexOffset = offsetModel.getBufferOffset();
-			final int uvOffset = offsetModel.getUvBufferOffset();
-			final boolean hillskew = offsetModel != model;
-
-			eightIntWrite[0] = vertexOffset;
-			eightIntWrite[1] = uvOffset;
-			eightIntWrite[2] = faceCount;
-			eightIntWrite[4] |= (hillskew ? 1 : 0) << 26 | plane << 24;
-		} else {
-			// Temporary model (animated or otherwise not a static Model already in the scene buffer)
-			if (enableDetailedTimers)
-				frameTimer.begin(Timer.MODEL_BATCHING);
-			ModelOffsets modelOffsets = null;
-			long batchHash = 0;
-			if (configModelBatching || configModelCaching) {
-				modelHasher.setModel(model);
-				// Disable model batching for models which have been excluded from the scene buffer,
-				// because we want to avoid having to fetch the model override
-				if (configModelBatching && offsetModel.getSceneId() != SceneUploader.EXCLUDED_FROM_SCENE_BUFFER) {
-					batchHash = modelHasher.vertexHash;
-					modelOffsets = frameModelInfoMap.get(batchHash);
-				}
-			}
-			if (enableDetailedTimers)
-				frameTimer.end(Timer.MODEL_BATCHING);
-
-			if (modelOffsets != null && modelOffsets.faceCount == model.getFaceCount()) {
-				faceCount = modelOffsets.faceCount;
-				eightIntWrite[0] = modelOffsets.vertexOffset;
-				eightIntWrite[1] = modelOffsets.uvOffset;
-				eightIntWrite[2] = modelOffsets.faceCount;
-			} else {
-				if (enableDetailedTimers)
-					frameTimer.begin(Timer.MODEL_PUSHING);
-
-				int uuid = ModelHash.generateUuid(client, hash, renderable);
-				int[] worldPos = sceneContext.localToWorld(x, z, plane, worldPosInts);
-				ModelOverride modelOverride = modelOverrideManager.getOverride(uuid, worldPos);
-				if (modelOverride.hide)
-					return;
-
-				final int vertexOffset = dynamicOffsetVertices + sceneContext.getVertexOffset();
-				int uvOffset = dynamicOffsetUvs + sceneContext.getUvOffset();
-
-				int preOrientation = 0;
-				if (ModelHash.getType(hash) == ModelHash.TYPE_OBJECT) {
-					final int tileExX = (x >> LOCAL_COORD_BITS) + SCENE_OFFSET;
-					final int tileExY = (z >> LOCAL_COORD_BITS) + SCENE_OFFSET;
-					if (0 <= tileExX && tileExX < EXTENDED_SCENE_SIZE && 0 <= tileExY && tileExY < EXTENDED_SCENE_SIZE) {
-						Tile tile = sceneContext.scene.getExtendedTiles()[plane][tileExX][tileExY];
-						int config;
-						if (tile != null && (config = sceneContext.getObjectConfig(tile, hash)) != -1) {
-							preOrientation = HDUtils.getBakedOrientation(config);
-						} else if (plane > 0) {
-							// Might be on a bridge tile
-							tile = sceneContext.scene.getExtendedTiles()[plane - 1][tileExX][tileExY];
-							if (tile != null && tile.getBridge() != null && (config = sceneContext.getObjectConfig(tile, hash)) != -1)
-								preOrientation = HDUtils.getBakedOrientation(config);
-						}
-					}
-				}
-
-				modelPusher.pushModel(sceneContext, null, uuid, model, modelOverride, preOrientation, true);
-
-				faceCount = sceneContext.modelPusherResults[0];
-				if (sceneContext.modelPusherResults[1] == 0)
-					uvOffset = -1;
-
-				if (enableDetailedTimers)
-					frameTimer.end(Timer.MODEL_PUSHING);
-
-				eightIntWrite[0] = vertexOffset;
-				eightIntWrite[1] = uvOffset;
-				eightIntWrite[2] = faceCount;
-
-				// add this temporary model to the map for batching purposes
-				if (configModelBatching) {
-					// Check if there is any within the bin, before allocating a new one
-					int binSize = modelInfoBin.size();
-					if(binSize > 0) {
-						// Grab off the end, to avoid shifting everything over to the left
-						modelOffsets = modelInfoBin.get(binSize - 1);
-						modelInfoBin.remove(binSize - 1);
-					} else {
-						// None left in the bin, allocate a new one
-						modelOffsets = new ModelOffsets();
-					}
-					modelOffsets.faceCount = faceCount;
-					modelOffsets.vertexOffset = vertexOffset;
-					modelOffsets.uvOffset = uvOffset;
-
-					frameModelInfoMap.put(batchHash, modelOffsets);
-				}
-			}
-		}
-
-		if (enableDetailedTimers)
-			frameTimer.end(Timer.DRAW_RENDERABLE);
-
-		if (eightIntWrite[0] == -1)
-			return; // Hidden model
-
-		bufferForTriangles(faceCount)
-			.ensureCapacity(8)
-			.getBuffer().put(eightIntWrite, 0, 8);
-		renderBufferOffset += faceCount * 3;
+		DrawModelCommand command = renderThread.popCommand(DrawModelCommand.class, this);
+		command.projection = (IntProjection) projection;
+		command.renderable = renderable;
+		command.orientation = orientation;
+		command.hash = hash;
+		command.uuid = ModelHash.generateUuid(client, hash, renderable);
+		command.x = x;
+		command.y = y;
+		command.z = z;
+		command.push();
 	}
 
 	/**
@@ -3592,5 +3383,269 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				return true;
 			}
 		);
+	}
+
+	class DrawTileCommand extends RenderThread.DrawCommand {
+		public SceneTileModel tile;
+		public int tileX;
+		public int tileY;
+
+		@Override
+		public final void process() {
+			int bufferLength = tile.getBufferLen();
+			if(bufferLength <= 0){
+				return;
+			}
+
+			final int bufferOffset = tile.getBufferOffset();
+			final int uvBufferOffset = tile.getUvBufferOffset();
+			final int localX = tileX * LOCAL_TILE_SIZE;
+			final int localZ = tileY * LOCAL_TILE_SIZE;
+
+			// we packed a boolean into the buffer length of tiles so we can tell
+			// which tiles have procedurally-generated underwater terrain.
+			// unpack the boolean:
+			final boolean underwaterTerrain = (bufferLength & 1) == 1;
+			// restore the bufferLength variable:
+			bufferLength = bufferLength >> 1;
+
+			if (underwaterTerrain) {
+				// draw underwater terrain tile before surface tile
+
+				// buffer length includes the generated underwater terrain, so it must be halved
+				bufferLength /= 2;
+
+				modelPassthroughBuffer.ensureCapacity(8).getBuffer()
+					.put(bufferOffset + bufferLength)
+					.put(uvBufferOffset + bufferLength)
+					.put(bufferLength / 3)
+					.put(renderBufferOffset)
+					.put(0)
+					.put(localX)
+					.put(0)
+					.put(localZ);
+
+				renderBufferOffset += bufferLength;
+				numPassthroughModels++;
+			}
+
+			modelPassthroughBuffer.ensureCapacity(8).getBuffer()
+				.put(bufferOffset)
+				.put(uvBufferOffset)
+				.put(bufferLength / 3)
+				.put(renderBufferOffset)
+				.put(0)
+				.put(localX)
+				.put(0)
+				.put(localZ);
+
+			renderBufferOffset += bufferLength;
+			numPassthroughModels++;
+		}
+	}
+
+	class DrawTilePaintCommand extends RenderThread.DrawCommand {
+		public SceneTilePaint paint;
+		public int tileX;
+		public int tileY;
+		public int plane;
+
+		@Override
+		public final void process() {
+			final int bufferLength = paint.getBufferLen();
+			if(bufferLength > 0) {
+				modelPassthroughBuffer.ensureCapacity(8).getBuffer()
+					.put(paint.getBufferOffset())
+					.put(paint.getUvBufferOffset())
+					.put(bufferLength / 3)
+					.put(renderBufferOffset)
+					.put(0)
+					.put(tileX * LOCAL_TILE_SIZE)
+					.put(0)
+					.put(tileY * LOCAL_TILE_SIZE);
+				renderBufferOffset += bufferLength;
+				numPassthroughModels++;
+			}
+		}
+	}
+
+	class DrawModelCommand extends RenderThread.DrawCommand {
+		public IntProjection projection;
+		public Renderable renderable;
+		public Model model;
+		public Model offsetModel;
+		public long hash;
+		public int orientation;
+		public int x, y, z;
+		public int uuid;
+
+		@Override
+		public boolean canRunOnRenderThread() {
+			return !(renderable instanceof DynamicObject);
+		}
+
+		@Override
+		public final void process() {
+			if (enableDetailedTimers)
+				frameTimer.begin(Timer.GET_MODEL);
+
+			try {
+				// getModel may throw an exception from vanilla client code
+				if (renderable instanceof Model) {
+					model = (Model) renderable;
+					offsetModel = model.getUnskewedModel();
+					if (offsetModel == null)
+						offsetModel = model;
+				} else {
+					offsetModel = model = renderable.getModel();
+				}
+				if (model == null || model.getFaceCount() == 0) {
+					// skip models with zero faces
+					// this does seem to happen sometimes (mostly during loading)
+					// should save some CPU cycles here and there
+					return;
+				}
+			} catch (Exception ex) {
+				// Vanilla happens to handle exceptions thrown here gracefully, but we handle them explicitly anyway
+				return;
+			} finally {
+				if (enableDetailedTimers)
+					frameTimer.end(Timer.GET_MODEL);
+			}
+
+			if (projection != null) {
+				var p = projection;
+				if (isOutsideViewport(
+					model,
+					p.getPitchSin(),
+					p.getPitchCos(),
+					p.getYawSin(),
+					p.getYawCos(),
+					x - p.getCameraX(),
+					y - p.getCameraY(),
+					z - p.getCameraZ()
+				)) {
+					return;
+				}
+			}
+
+			client.checkClickbox(projection, model, orientation, x, y, z, hash);
+
+			if (enableDetailedTimers)
+				frameTimer.end(Timer.DRAW_RENDERABLE);
+
+			int faceCount;
+			int vertexOffset;
+			int uvOffset;
+			if (sceneContext.id == (offsetModel.getSceneId() & SceneUploader.SCENE_ID_MASK)) {
+				final int plane = ModelHash.getPlane(hash);
+				final boolean hillskew = offsetModel != model;
+				faceCount = Math.min(MAX_FACE_COUNT, offsetModel.getFaceCount());
+				vertexOffset = offsetModel.getBufferOffset();
+				uvOffset = offsetModel.getUvBufferOffset();
+				orientation |= ((hillskew ? 1 : 0) << 26 | plane << 24);
+			} else {
+
+				// Temporary model (animated or otherwise not a static Model already in the scene buffer)
+				if (enableDetailedTimers)
+					frameTimer.begin(Timer.MODEL_BATCHING);
+
+				ModelOffsets modelOffsets = null;
+				long batchHash = 0;
+				if (configModelBatching || configModelCaching) {
+					modelHasher.setModel(model);
+					// Disable model batching for models which have been excluded from the scene buffer,
+					// because we want to avoid having to fetch the model override
+					if (configModelBatching && offsetModel.getSceneId() != SceneUploader.EXCLUDED_FROM_SCENE_BUFFER) {
+						batchHash = modelHasher.vertexHash;
+						modelOffsets = frameModelInfoMap.get(batchHash);
+					}
+				}
+				if (enableDetailedTimers)
+					frameTimer.end(Timer.MODEL_BATCHING);
+
+				if (modelOffsets != null && modelOffsets.faceCount == model.getFaceCount()) {
+					vertexOffset = modelOffsets.vertexOffset;
+					uvOffset = modelOffsets.uvOffset;
+					faceCount = modelOffsets.faceCount;
+				} else {
+					if (enableDetailedTimers)
+						frameTimer.begin(Timer.MODEL_PUSHING);
+
+					final int plane = ModelHash.getPlane(hash);
+					vertexOffset = dynamicOffsetVertices + sceneContext.getVertexOffset();
+					uvOffset = dynamicOffsetUvs + sceneContext.getUvOffset();
+
+					int[] worldPos = sceneContext.localToWorld(x, z, plane, worldPosInts);
+					ModelOverride modelOverride = modelOverrideManager.getOverride(uuid, worldPos);
+					if (modelOverride.hide)
+						return;
+
+					int preOrientation = 0;
+					if (ModelHash.getType(hash) == ModelHash.TYPE_OBJECT) {
+						final int tileExX = (x >> LOCAL_COORD_BITS) + SCENE_OFFSET;
+						final int tileExY = (z >> LOCAL_COORD_BITS) + SCENE_OFFSET;
+						if (0 <= tileExX && tileExX < EXTENDED_SCENE_SIZE && 0 <= tileExY && tileExY < EXTENDED_SCENE_SIZE) {
+							Tile tile = sceneContext.scene.getExtendedTiles()[plane][tileExX][tileExY];
+							int config;
+							if (tile != null && (config = sceneContext.getObjectConfig(tile, hash)) != -1) {
+								preOrientation = HDUtils.getBakedOrientation(config);
+							} else if (plane > 0) {
+								// Might be on a bridge tile
+								tile = sceneContext.scene.getExtendedTiles()[plane - 1][tileExX][tileExY];
+								if (tile != null && tile.getBridge() != null && (config = sceneContext.getObjectConfig(tile, hash)) != -1)
+									preOrientation = HDUtils.getBakedOrientation(config);
+							}
+						}
+					}
+
+					modelPusher.pushModel(sceneContext, null, uuid, model, modelOverride, preOrientation, true);
+
+					faceCount = sceneContext.modelPusherResults[0];
+					if (sceneContext.modelPusherResults[1] == 0)
+						uvOffset = -1;
+
+					if (enableDetailedTimers)
+						frameTimer.end(Timer.MODEL_PUSHING);
+
+					// add this temporary model to the map for batching purposes
+					if (configModelBatching) {
+						// Check if there is any within the bin, before allocating a new one
+						int binSize = modelInfoBin.size();
+						if (binSize > 0) {
+							// Grab off the end, to avoid shifting everything over to the left
+							modelOffsets = modelInfoBin.get(binSize - 1);
+							modelInfoBin.remove(binSize - 1);
+						} else {
+							// None left in the bin, allocate a new one
+							modelOffsets = new ModelOffsets();
+						}
+						modelOffsets.faceCount = faceCount;
+						modelOffsets.vertexOffset = vertexOffset;
+						modelOffsets.uvOffset = uvOffset;
+						frameModelInfoMap.put(batchHash, modelOffsets);
+					}
+				}
+			}
+
+			if(vertexOffset > 0) {
+				bufferForTriangles(faceCount)
+						.ensureCapacity(8)
+						.getBuffer()
+						.put(vertexOffset)
+						.put(uvOffset)
+						.put(faceCount)
+						.put(renderBufferOffset)
+						.put(orientation)
+						.put(x)
+						.put(y)
+						.put(z);
+
+				renderBufferOffset += faceCount * 3;
+			}
+
+			if (enableDetailedTimers)
+				frameTimer.end(Timer.DRAW_RENDERABLE);
+		}
 	}
 }
