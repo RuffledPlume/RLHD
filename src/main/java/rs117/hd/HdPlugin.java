@@ -49,6 +49,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.inject.Inject;
@@ -92,6 +95,7 @@ import rs117.hd.model.ModelHasher;
 import rs117.hd.model.ModelOffsets;
 import rs117.hd.model.ModelPusher;
 import rs117.hd.opengl.AsyncInterfaceCopy;
+import rs117.hd.opengl.DrawCommandType;
 import rs117.hd.opengl.RenderThread;
 import rs117.hd.opengl.compute.ComputeMode;
 import rs117.hd.opengl.compute.OpenCLManager;
@@ -486,6 +490,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	private final ConcurrentHashMap.KeySetView<String, ?> pendingConfigChanges = ConcurrentHashMap.newKeySet();
 	private final Map<Long, ModelOffsets> frameModelInfoMap = new HashMap<>();
 	private List<ModelOffsets> modelInfoBin = new ArrayList<>();
+
+	private volatile boolean dynamicModelDone = true;
+	private volatile boolean dynamicModelIsWaiting = false;
+	private Semaphore dynamicModelSema = new Semaphore(0);
 
 	// Camera position and orientation may be reused from the old scene while hopping, prior to drawScene being called
 	public final float[] cameraPosition = new float[3];
@@ -1651,7 +1659,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	public void postDrawScene() {
 		if (sceneContext == null)
 			return;
-			
+
 		renderThread.complete();
 
 		frameTimer.end(Timer.DRAW_SCENE);
@@ -1785,23 +1793,26 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	@Override
 	public void drawScenePaint(Scene scene, SceneTilePaint paint, int plane, int tileX, int tileY) {
 		if (!redrawPreviousFrame) {
-			DrawTilePaintCommand command = renderThread.popCommand(DrawTilePaintCommand.class, this);
+			frameTimer.begin(Timer.RENDER_THREAD_PUSH);
+			DrawTilePaintCommand command = DrawCommandType.DrawTilePaint.get();
 			command.paint = paint;
 			command.tileX = tileX;
 			command.tileY = tileY;
-			command.plane = plane;
-			command.push();
+			frameTimer.end(Timer.RENDER_THREAD_PUSH);
+			renderThread.queueCommand(command);
 		}
 	}
 
 	@Override
 	public void drawSceneTileModel(Scene scene, SceneTileModel model, int tileX, int tileY) {
 		if (!redrawPreviousFrame) {
-			DrawTileCommand command = renderThread.popCommand(DrawTileCommand.class, this);
+			frameTimer.begin(Timer.RENDER_THREAD_PUSH);
+			DrawTileCommand command = DrawCommandType.DrawTile.get();
 			command.tile = model;
 			command.tileX = tileX;
 			command.tileY = tileY;
-			command.push();
+			frameTimer.end(Timer.RENDER_THREAD_PUSH);
+			renderThread.queueCommand(command);
 		}
 	}
 
@@ -2590,6 +2601,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		configSeasonalHemisphere = config.seasonalHemisphere();
 		configUseInterfaceAsyncCopy = config.useInterfaceAsyncCopy();
 
+		DrawCommandType.spawnAllPools(this);
 		if(config.useRenderThread()) {
 			renderThread.startUp();
 		} else {
@@ -3006,16 +3018,16 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		if (redrawPreviousFrame)
 			return;
 
-		DrawModelCommand command = renderThread.popCommand(DrawModelCommand.class, this);
+		DrawModelCommand command = DrawCommandType.DrawModel.get();
 		command.projection = (IntProjection) projection;
 		command.renderable = renderable;
 		command.orientation = orientation;
 		command.hash = hash;
-		command.uuid = ModelHash.generateUuid(client, hash, renderable);
+		command.uuid = !(renderable instanceof Model) ? ModelHash.generateUuid(client, hash, renderable) : 0;
 		command.x = x;
 		command.y = y;
 		command.z = z;
-		command.push();
+		renderThread.queueCommand(command);
 	}
 
 	/**
@@ -3385,13 +3397,13 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		);
 	}
 
-	class DrawTileCommand extends RenderThread.DrawCommand {
+	public final class DrawTileCommand extends RenderThread.DrawCommand {
 		public SceneTileModel tile;
 		public int tileX;
 		public int tileY;
 
 		@Override
-		public final void process() {
+		public void process() {
 			int bufferLength = tile.getBufferLen();
 			if(bufferLength <= 0){
 				return;
@@ -3444,14 +3456,13 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		}
 	}
 
-	class DrawTilePaintCommand extends RenderThread.DrawCommand {
+	public final class DrawTilePaintCommand extends RenderThread.DrawCommand {
 		public SceneTilePaint paint;
 		public int tileX;
 		public int tileY;
-		public int plane;
 
 		@Override
-		public final void process() {
+		public void process() {
 			final int bufferLength = paint.getBufferLen();
 			if(bufferLength > 0) {
 				modelPassthroughBuffer.ensureCapacity(8).getBuffer()
@@ -3469,48 +3480,76 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		}
 	}
 
-	class DrawModelCommand extends RenderThread.DrawCommand {
+	public final class DrawModelCommand extends RenderThread.DrawCommand {
 		public IntProjection projection;
 		public Renderable renderable;
-		public Model model;
-		public Model offsetModel;
 		public long hash;
 		public int orientation;
 		public int x, y, z;
 		public int uuid;
 
+		private Model model;
+		private Model offsetModel;
+
 		@Override
-		public boolean canRunOnRenderThread() {
-			return !(renderable instanceof DynamicObject);
+		public RenderThread.PrepareResult prepare(boolean forced) {
+			if(!(renderable instanceof Model)) {
+				try {
+					if(!dynamicModelDone) {
+						if (forced) {
+							dynamicModelIsWaiting = true;
+							if(!dynamicModelSema.tryAcquire(1, TimeUnit.MILLISECONDS)){
+								dynamicModelIsWaiting = false;
+								return RenderThread.PrepareResult.Skip;
+							}
+							dynamicModelSema.drainPermits();
+							dynamicModelIsWaiting = false;
+						} else {
+							return RenderThread.PrepareResult.Waiting;
+						}
+					}
+
+					dynamicModelDone = false;
+					offsetModel = model = renderable.getModel();
+				} catch (Throwable e) {
+					throw new RuntimeException(e);
+				}
+			}
+			return RenderThread.PrepareResult.Ready;
 		}
 
 		@Override
-		public final void process() {
-			if (enableDetailedTimers)
-				frameTimer.begin(Timer.GET_MODEL);
+		public void finished() {
+			if(!(renderable instanceof Model)) {
+				dynamicModelDone = true;
+				if(dynamicModelIsWaiting) {
+					dynamicModelSema.release();
+				}
+			}
 
-			try {
-				// getModel may throw an exception from vanilla client code
-				if (renderable instanceof Model) {
+			projection = null;
+			renderable = null;
+			model = null;
+			offsetModel = null;
+
+			super.finished();
+		}
+
+		@Override
+		public void process() {
+			if(renderable instanceof Model) {
+				try {
 					model = (Model) renderable;
 					offsetModel = model.getUnskewedModel();
 					if (offsetModel == null)
 						offsetModel = model;
-				} else {
-					offsetModel = model = renderable.getModel();
+				} catch (Throwable e) {
+					log.error(e.toString());
 				}
-				if (model == null || model.getFaceCount() == 0) {
-					// skip models with zero faces
-					// this does seem to happen sometimes (mostly during loading)
-					// should save some CPU cycles here and there
-					return;
-				}
-			} catch (Exception ex) {
-				// Vanilla happens to handle exceptions thrown here gracefully, but we handle them explicitly anyway
+			}
+
+			if (model == null || model.getFaceCount() == 0) {
 				return;
-			} finally {
-				if (enableDetailedTimers)
-					frameTimer.end(Timer.GET_MODEL);
 			}
 
 			if (projection != null) {
