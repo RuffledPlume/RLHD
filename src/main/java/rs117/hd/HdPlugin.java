@@ -43,6 +43,8 @@ import java.nio.IntBuffer;
 import java.nio.ShortBuffer;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -380,7 +382,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 	private int dynamicOffsetVertices;
 	private int dynamicOffsetUvs;
-	private int renderBufferOffset;
 
 	private int lastCanvasWidth;
 	private int lastCanvasHeight;
@@ -450,6 +451,74 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	private final ConcurrentHashMap.KeySetView<String, ?> pendingConfigChanges = ConcurrentHashMap.newKeySet();
 	private final Map<Long, ModelOffsets> frameModelInfoMap = new HashMap<>();
 
+	static class ModelInfo {
+		public int vertexOffset;
+		public int uvOffset;
+		public int vertexCount;
+		public int flags;
+		public int x;
+		public int y;
+		public int z;
+		public boolean isTile;
+	}
+
+	static class ModelRenderList {
+		private final List<ModelInfo> models = new ArrayList<>();
+		private int bufferOffset;
+		private int bufferCount;
+
+		public void reset() {
+			bufferOffset = 0;
+			bufferCount = 0;
+		}
+	}
+
+	private final ArrayDeque<ModelInfo> modelInfoBin = new ArrayDeque<>();
+
+	private final ModelRenderList opaqueTileRenderList = new ModelRenderList();
+	private final ModelRenderList transparentTileRenderList = new ModelRenderList();
+	private final ModelRenderList opaqueRenderableRenderList = new ModelRenderList();
+	private final ModelRenderList transparentRenderableRenderList = new ModelRenderList();
+
+	private int renderBufferOffset;
+
+	private void appendModelInfo(GpuIntBuffer buffer, ModelInfo info, int faceCount) {
+		buffer.ensureCapacity(8).getBuffer()
+			.put(info.vertexOffset)
+			.put(info.uvOffset)
+			.put(faceCount)
+			.put(renderBufferOffset)
+			.put(info.flags)
+			.put(info.x).put(info.y).put(info.z);
+		renderBufferOffset += info.vertexCount;
+		numPassthroughModels = numPassthroughModels + (info.isTile ? 1 : 0);
+		modelInfoBin.add(info);
+	}
+
+	private void uploadModelRenderList(ModelRenderList renderList, boolean backwards) {
+		renderList.bufferOffset = renderBufferOffset;
+		if (backwards) {
+			for (int i = renderList.models.size() - 1; i >= 0; i--) {
+				ModelInfo info = renderList.models.get(i);
+				int faceCount = info.vertexCount / 3;
+				appendModelInfo(info.isTile ? modelPassthroughBuffer : bufferForTriangles(faceCount), info, faceCount);
+			}
+		} else {
+			for (int i = 0; i < renderList.models.size(); i++) {
+				ModelInfo info = renderList.models.get(i);
+				int faceCount = info.vertexCount / 3;
+				appendModelInfo(info.isTile ? modelPassthroughBuffer : bufferForTriangles(faceCount), info, faceCount);
+			}
+		}
+		renderList.models.clear();
+		renderList.bufferCount = renderBufferOffset - renderList.bufferOffset;
+	}
+
+
+	private ModelInfo getModelInfo() {
+		return modelInfoBin.isEmpty() ? new ModelInfo() : modelInfoBin.pop();
+	}
+
 	// Camera position and orientation may be reused from the old scene while hopping, prior to drawScene being called
 	public final float[] cameraPosition = new float[3];
 	public final float[] cameraOrientation = new float[2];
@@ -484,6 +553,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 					return false;
 
 				renderBufferOffset = 0;
+				opaqueTileRenderList.reset();
+				transparentTileRenderList.reset();
+				opaqueRenderableRenderList.reset();
+				transparentRenderableRenderList.reset();
 				fboSceneHandle = rboSceneColorHandle = rboSceneDepthHandle = 0;
 				fboShadowMap = 0;
 				numPassthroughModels = 0;
@@ -1598,6 +1671,13 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			sceneContext.stagingBufferUvs.clear();
 			sceneContext.stagingBufferNormals.clear();
 
+			// Loop through opaqueRenderList backwards, since we want it to draw front to back to eliminate overdraw
+			uploadModelRenderList(opaqueTileRenderList, true);
+			uploadModelRenderList(opaqueRenderableRenderList, true);
+
+			uploadModelRenderList(transparentTileRenderList, false);
+			uploadModelRenderList(transparentRenderableRenderList, false);
+
 			// Model buffers
 			modelPassthroughBuffer.flip();
 			updateBuffer(hModelPassthroughBuffer, GL_ARRAY_BUFFER, modelPassthroughBuffer.getBuffer(), GL_STREAM_DRAW, CL_MEM_READ_ONLY);
@@ -1690,25 +1770,24 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 	@Override
 	public void drawScenePaint(Scene scene, SceneTilePaint paint, int plane, int tileX, int tileY) {
-		if (redrawPreviousFrame || paint.getBufferLen() <= 0)
+		if (redrawPreviousFrame || sceneContext == null || paint.getBufferLen() <= 0)
 			return;
 
-		int vertexCount = paint.getBufferLen();
+		ModelInfo info = getModelInfo();
+		info.vertexOffset = paint.getBufferOffset();
+		info.uvOffset = paint.getUvBufferOffset();
+		info.vertexCount = paint.getBufferLen();
+		info.flags = 0;
+		info.x = tileX * LOCAL_TILE_SIZE;
+		info.y = 0;
+		info.z = tileY * LOCAL_TILE_SIZE;
+		info.isTile = true;
 
-		++numPassthroughModels;
-		modelPassthroughBuffer
-			.ensureCapacity(16)
-			.getBuffer()
-			.put(paint.getBufferOffset())
-			.put(paint.getUvBufferOffset())
-			.put(vertexCount / 3)
-			.put(renderBufferOffset)
-			.put(0)
-			.put(tileX * LOCAL_TILE_SIZE)
-			.put(0)
-			.put(tileY * LOCAL_TILE_SIZE);
-
-		renderBufferOffset += vertexCount;
+		if(sceneContext.tileIsWater[plane][tileX + SCENE_OFFSET][tileY + SCENE_OFFSET]) {
+			transparentTileRenderList.models.add(info);
+		} else {
+			opaqueTileRenderList.models.add(info);
+		}
 	}
 
 	public void initShaderHotswapping() {
@@ -1735,10 +1814,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		final int localY = 0;
 		final int localZ = tileY * LOCAL_TILE_SIZE;
 
-		GpuIntBuffer b = modelPassthroughBuffer;
-		b.ensureCapacity(16);
-		IntBuffer buffer = b.getBuffer();
-
 		int bufferLength = model.getBufferLen();
 
 		// we packed a boolean into the buffer length of tiles so we can tell
@@ -1754,28 +1829,38 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			// buffer length includes the generated underwater terrain, so it must be halved
 			bufferLength /= 2;
 
-			++numPassthroughModels;
+			ModelInfo info = getModelInfo();
 
-			buffer.put(model.getBufferOffset() + bufferLength);
-			buffer.put(model.getUvBufferOffset() + bufferLength);
-			buffer.put(bufferLength / 3);
-			buffer.put(renderBufferOffset);
-			buffer.put(0);
-			buffer.put(localX).put(localY).put(localZ);
+			info.vertexOffset = model.getBufferOffset() + bufferLength;
+			info.uvOffset = model.getUvBufferOffset() + bufferLength;
+			info.vertexCount = bufferLength;
+			info.flags = 0;
+			info.x = localX;
+			info.y = localY;
+			info.z = localZ;
+			info.isTile = true;
 
-			renderBufferOffset += bufferLength;
+			transparentTileRenderList.models.add(info);
 		}
 
-		++numPassthroughModels;
+		{
+			ModelInfo info = getModelInfo();
 
-		buffer.put(model.getBufferOffset());
-		buffer.put(model.getUvBufferOffset());
-		buffer.put(bufferLength / 3);
-		buffer.put(renderBufferOffset);
-		buffer.put(0);
-		buffer.put(localX).put(localY).put(localZ);
+			info.vertexOffset = model.getBufferOffset();
+			info.uvOffset = model.getUvBufferOffset();
+			info.vertexCount = bufferLength;
+			info.flags = 0;
+			info.x = localX;
+			info.y = localY;
+			info.z = localZ;
+			info.isTile = true;
 
-		renderBufferOffset += bufferLength;
+			if(underwaterTerrain) {
+				transparentTileRenderList.models.add(info);
+			} else {
+				opaqueTileRenderList.models.add(info);
+			}
+		}
 	}
 
 	private void prepareInterfaceTexture(int canvasWidth, int canvasHeight) {
@@ -2133,6 +2218,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			// Clear scene
 			frameTimer.begin(Timer.CLEAR_SCENE);
 
+			glDepthMask(true);
 			float[] gammaCorrectedFogColor = pow(fogColor, gammaCorrection);
 			glClearColor(
 				gammaCorrectedFogColor[0],
@@ -2142,6 +2228,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			);
 			glClearDepthf(0);
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+			glDepthMask(false);
 			frameTimer.end(Timer.CLEAR_SCENE);
 
 			frameTimer.begin(Timer.RENDER_SCENE);
@@ -2181,19 +2268,22 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 					sceneContext.staticCustomTilesOffset,
 					sceneContext.staticCustomTilesVertexCount
 				);
-
-				// Draw the rest of the scene with depth testing, but not against itself
-				glDepthMask(false);
-				glDrawArrays(
-					GL_TRIANGLES,
-					sceneContext.staticVertexCount,
-					renderBufferOffset - sceneContext.staticVertexCount
-				);
-			} else {
-				// Draw everything without depth testing
-				glDisable(GL_DEPTH_TEST);
-				glDrawArrays(GL_TRIANGLES, 0, renderBufferOffset);
 			}
+
+			// Draw all Opaque geometry first, with depth writing & testing
+			glEnable(GL_DEPTH_TEST);
+			glDepthFunc(GL_GREATER);
+			glDepthMask(true);
+
+			// TODO: Switch between tile & renderable shader programs
+			glDrawArrays( GL_TRIANGLES, opaqueTileRenderList.bufferOffset, opaqueTileRenderList.bufferCount);
+			glDrawArrays( GL_TRIANGLES, opaqueRenderableRenderList.bufferOffset, opaqueRenderableRenderList.bufferCount);
+
+			// Draw all Transparent geometry without depth writing, but with testing to cull against
+			glDepthMask(false);
+
+			glDrawArrays( GL_TRIANGLES, transparentTileRenderList.bufferOffset, transparentTileRenderList.bufferCount);
+			glDrawArrays( GL_TRIANGLES, transparentRenderableRenderList.bufferOffset, transparentRenderableRenderList.bufferCount);
 
 			frameTimer.end(Timer.RENDER_SCENE);
 
@@ -2312,8 +2402,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	}
 
 	/**
-	 * Convert the front framebuffer to an Image
-	 */
+     * Convert the front framebuffer to an Image
+     */
 	private Image screenshot()
 	{
 		int width  = client.getCanvasWidth();
@@ -2362,6 +2452,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	public void onGameStateChanged(GameStateChanged gameStateChanged) {
 		if (gameStateChanged.getGameState() == GameState.LOGIN_SCREEN) {
 			renderBufferOffset = 0;
+			opaqueTileRenderList.reset();
+			transparentTileRenderList.reset();
+			opaqueRenderableRenderList.reset();
+			transparentRenderableRenderList.reset();
 			hasLoggedIn = false;
 			environmentManager.reset();
 		}
@@ -2891,8 +2985,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	}
 
 	/**
-	 * Check is a model is visible and should be drawn.
-	 */
+     * Check is a model is visible and should be drawn.
+     */
 	private boolean isOutsideViewport(Model model, int pitchSin, int pitchCos, int yawSin, int yawCos, int x, int y, int z) {
 		if (sceneContext == null)
 			return true;
@@ -2931,17 +3025,17 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	}
 
 	/**
-	 * Draw a Renderable in the scene
-	 *
-	 * @param projection
-	 * @param scene
-	 * @param renderable  Can be an Actor (Player or NPC), DynamicObject, GraphicsObject, TileItem, Projectile or a raw Model.
-	 * @param orientation Rotation around the up-axis, from 0 to 2048 exclusive, 2048 indicating a complete rotation.
-	 * @param x           The Renderable's X offset relative to {@link Client#getCameraX()}.
-	 * @param y           The Renderable's Y offset relative to {@link Client#getCameraZ()}.
-	 * @param z           The Renderable's Z offset relative to {@link Client#getCameraY()}.
-	 * @param hash        A unique hash of the renderable consisting of some useful information. See {@link rs117.hd.utils.ModelHash} for more details.
-	 */
+     * Draw a Renderable in the scene
+     *
+     * @param projection
+     * @param scene
+     * @param renderable  Can be an Actor (Player or NPC), DynamicObject, GraphicsObject, TileItem, Projectile or a raw Model.
+     * @param orientation Rotation around the up-axis, from 0 to 2048 exclusive, 2048 indicating a complete rotation.
+     * @param x           The Renderable's X offset relative to {@link Client#getCameraX()}.
+     * @param y           The Renderable's Y offset relative to {@link Client#getCameraZ()}.
+     * @param z           The Renderable's Z offset relative to {@link Client#getCameraY()}.
+     * @param hash        A unique hash of the renderable consisting of some useful information. See {@link rs117.hd.utils.ModelHash} for more details.
+     */
 	@Override
 	public void draw(Projection projection, @Nullable Scene scene, Renderable renderable, int orientation, int x, int y, int z, long hash) {
 		if (sceneContext == null)
@@ -3020,27 +3114,35 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		if (enableDetailedTimers)
 			frameTimer.begin(Timer.DRAW_RENDERABLE);
 
-		eightIntWrite[3] = renderBufferOffset;
-		eightIntWrite[4] = orientation;
-		eightIntWrite[5] = x;
-		eightIntWrite[6] = y;
-		eightIntWrite[7] = z;
 
 		int plane = ModelHash.getPlane(hash);
-		int faceCount;
+		int uuid = ModelHash.generateUuid(client, hash, renderable);
+		int[] worldPos = sceneContext.localToWorld(x, z, plane);
+		ModelOverride modelOverride = modelOverrideManager.getOverride(uuid, worldPos);
+		if (modelOverride.hide) {
+			return;
+		}
+
+		// TODO: I'd like to discern this without needing to check the ModelOverride when the model is part of the static geom
+		boolean isOpaque = modelOverride != ModelOverride.NONE && !modelOverride.baseMaterial.hasTransparency && !modelOverride.textureMaterial.hasTransparency;
+		ModelInfo info = getModelInfo();
+		info.flags = orientation;
+		info.x = x;
+		info.y = y;
+		info.z = z;
+		info.isTile = false;
+
 		if (sceneContext.id == (offsetModel.getSceneId() & SceneUploader.SCENE_ID_MASK)) {
 			// The model is part of the static scene buffer
 			assert model == renderable;
 
-			faceCount = Math.min(MAX_FACE_COUNT, offsetModel.getFaceCount());
-			int vertexOffset = offsetModel.getBufferOffset();
-			int uvOffset = offsetModel.getUvBufferOffset();
 			boolean hillskew = offsetModel != model;
+			int faceCount = Math.min(MAX_FACE_COUNT, offsetModel.getFaceCount());
 
-			eightIntWrite[0] = vertexOffset;
-			eightIntWrite[1] = uvOffset;
-			eightIntWrite[2] = faceCount;
-			eightIntWrite[4] |= (hillskew ? 1 : 0) << 26 | plane << 24;
+			info.vertexOffset = offsetModel.getBufferOffset();
+			info.uvOffset = offsetModel.getUvBufferOffset();
+			info.vertexCount = faceCount * 3;
+			info.flags |= (hillskew ? 1 : 0) << 26 | plane << 24;
 		} else {
 			// Temporary model (animated or otherwise not a static Model already in the scene buffer)
 			if (enableDetailedTimers)
@@ -3060,19 +3162,13 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				frameTimer.end(Timer.MODEL_BATCHING);
 
 			if (modelOffsets != null && modelOffsets.faceCount == model.getFaceCount()) {
-				faceCount = modelOffsets.faceCount;
-				eightIntWrite[0] = modelOffsets.vertexOffset;
-				eightIntWrite[1] = modelOffsets.uvOffset;
-				eightIntWrite[2] = modelOffsets.faceCount;
+				info.vertexOffset = modelOffsets.vertexOffset;
+				info.uvOffset = modelOffsets.uvOffset;
+				info.vertexCount = modelOffsets.faceCount * 3;
+				isOpaque = modelOffsets.isOpaque;
 			} else {
 				if (enableDetailedTimers)
 					frameTimer.begin(Timer.MODEL_PUSHING);
-
-				int uuid = ModelHash.generateUuid(client, hash, renderable);
-				int[] worldPos = sceneContext.localToWorld(x, z, plane);
-				ModelOverride modelOverride = modelOverrideManager.getOverride(uuid, worldPos);
-				if (modelOverride.hide)
-					return;
 
 				int vertexOffset = dynamicOffsetVertices + sceneContext.getVertexOffset();
 				int uvOffset = dynamicOffsetUvs + sceneContext.getUvOffset();
@@ -3097,38 +3193,41 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 				modelPusher.pushModel(sceneContext, null, uuid, model, modelOverride, preOrientation, true);
 
-				faceCount = sceneContext.modelPusherResults[0];
+				int faceCount = sceneContext.modelPusherResults[0];
 				if (sceneContext.modelPusherResults[1] == 0)
 					uvOffset = -1;
 
 				if (enableDetailedTimers)
 					frameTimer.end(Timer.MODEL_PUSHING);
 
-				eightIntWrite[0] = vertexOffset;
-				eightIntWrite[1] = uvOffset;
-				eightIntWrite[2] = faceCount;
+				info.vertexOffset = vertexOffset;
+				info.uvOffset = uvOffset;
+				info.vertexCount = faceCount * 3;
 
 				// add this temporary model to the map for batching purposes
 				if (configModelBatching)
-					frameModelInfoMap.put(batchHash, new ModelOffsets(faceCount, vertexOffset, uvOffset));
+					frameModelInfoMap.put(batchHash, new ModelOffsets(faceCount, vertexOffset, uvOffset, isOpaque));
 			}
 		}
 
 		if (enableDetailedTimers)
 			frameTimer.end(Timer.DRAW_RENDERABLE);
 
-		if (eightIntWrite[0] == -1)
+		if (eightIntWrite[0] == -1) {
+			modelInfoBin.add(info);
 			return; // Hidden model
+		}
 
-		bufferForTriangles(faceCount)
-			.ensureCapacity(8)
-			.put(eightIntWrite);
-		renderBufferOffset += faceCount * 3;
+		if(isOpaque) {
+			opaqueRenderableRenderList.models.add(info);
+		} else {
+			transparentRenderableRenderList.models.add(info);
+		}
 	}
 
 	/**
-	 * returns the correct buffer based on triangle count and updates model count
-	 */
+     * returns the correct buffer based on triangle count and updates model count
+     */
 	private GpuIntBuffer bufferForTriangles(int triangles) {
 		for (int i = 0; i < numSortingBins; i++) {
 			if (modelSortingBinFaceCounts[i] >= triangles) {
