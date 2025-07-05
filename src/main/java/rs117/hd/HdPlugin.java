@@ -479,6 +479,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	private final ModelRenderList transparentTileRenderList = new ModelRenderList();
 	private final ModelRenderList opaqueRenderableRenderList = new ModelRenderList();
 	private final ModelRenderList transparentRenderableRenderList = new ModelRenderList();
+	private final ModelRenderList ignoreDepthRenderableRenderList = new ModelRenderList();
 
 	private int renderBufferOffset;
 
@@ -557,6 +558,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				transparentTileRenderList.reset();
 				opaqueRenderableRenderList.reset();
 				transparentRenderableRenderList.reset();
+				ignoreDepthRenderableRenderList.reset();
 				fboSceneHandle = rboSceneColorHandle = rboSceneDepthHandle = 0;
 				fboShadowMap = 0;
 				numPassthroughModels = 0;
@@ -1330,7 +1332,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				// Create depth render buffer
 				rboSceneDepthHandle = glGenRenderbuffers();
 				glBindRenderbuffer(GL_RENDERBUFFER, rboSceneDepthHandle);
-				glRenderbufferStorageMultisample(GL_RENDERBUFFER, numSamples, GL_DEPTH24_STENCIL8, resolution[0], resolution[1]);
+				glRenderbufferStorageMultisample(GL_RENDERBUFFER, numSamples, GL_DEPTH_COMPONENT32, resolution[0], resolution[1]);
 				glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, rboSceneDepthHandle);
 				checkGLErrors();
 
@@ -1389,7 +1391,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			glTexImage2D(
 				GL_TEXTURE_2D,
 				0,
-				GL_DEPTH_COMPONENT24,
+				GL_DEPTH_COMPONENT32,
 				shadowMapResolution,
 				shadowMapResolution,
 				0,
@@ -1677,6 +1679,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 			uploadModelRenderList(transparentTileRenderList, false);
 			uploadModelRenderList(transparentRenderableRenderList, false);
+			uploadModelRenderList(ignoreDepthRenderableRenderList, false);
 
 			// Model buffers
 			modelPassthroughBuffer.flip();
@@ -2155,6 +2158,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				glClearDepthf(1);
 				glClear(GL_DEPTH_BUFFER_BIT);
 				glDepthFunc(GL_LEQUAL);
+				if(glCaps.OpenGL45) {
+					GL45.glClipControl(GL_LOWER_LEFT, GL45.GL_NEGATIVE_ONE_TO_ONE);
+				}
 
 				glUseProgram(glShadowProgram);
 
@@ -2189,11 +2195,14 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				glEnable(GL_CULL_FACE);
 				glEnable(GL_DEPTH_TEST);
 
-				// Draw with buffers bound to scene VAO
-				glDrawArrays(GL_TRIANGLES, 0, renderBufferOffset);
+				// Skip drawing transparent tiles since they won't contribute
+				glDrawArrays( GL_TRIANGLES, opaqueTileRenderList.bufferOffset, opaqueTileRenderList.bufferCount);
+				glDrawArrays( GL_TRIANGLES, transparentTileRenderList.bufferOffset, transparentTileRenderList.bufferCount);
+				glDrawArrays( GL_TRIANGLES, transparentRenderableRenderList.bufferOffset, transparentRenderableRenderList.bufferCount);
+				glDrawArrays( GL_TRIANGLES, ignoreDepthRenderableRenderList.bufferOffset, ignoreDepthRenderableRenderList.bufferCount);
 
-				glDisable(GL_CULL_FACE);
 				glDisable(GL_DEPTH_TEST);
+				glDisable(GL_CULL_FACE);
 
 				glBindFramebuffer(GL_FRAMEBUFFER, awtContext.getFramebuffer(false));
 
@@ -2245,6 +2254,12 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			// Draw with buffers bound to scene VAO
 			glBindVertexArray(vaoSceneHandle);
 
+			glEnable(GL_DEPTH_TEST);
+			glDepthFunc(GL_GREATER);
+			if(glCaps.OpenGL45) {
+				GL45.glClipControl(GL_LOWER_LEFT, GL45.GL_NEGATIVE_ONE_TO_ONE);
+			}
+
 			// When there are custom tiles, we need depth testing to draw them in the correct order, but the rest of the
 			// scene doesn't support depth testing, so we only write depths for custom tiles.
 			if (sceneContext.staticCustomTilesVertexCount > 0) {
@@ -2276,8 +2291,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			glDepthMask(true);
 
 			// TODO: Switch between tile & renderable shader programs
-			glDrawArrays( GL_TRIANGLES, opaqueTileRenderList.bufferOffset, opaqueTileRenderList.bufferCount);
 			glDrawArrays( GL_TRIANGLES, opaqueRenderableRenderList.bufferOffset, opaqueRenderableRenderList.bufferCount);
+			glDrawArrays( GL_TRIANGLES, opaqueTileRenderList.bufferOffset, opaqueTileRenderList.bufferCount);
 
 			// Draw all Transparent geometry without depth writing, but with testing to cull against
 			glDepthMask(false);
@@ -2285,12 +2300,15 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			glDrawArrays( GL_TRIANGLES, transparentTileRenderList.bufferOffset, transparentTileRenderList.bufferCount);
 			glDrawArrays( GL_TRIANGLES, transparentRenderableRenderList.bufferOffset, transparentRenderableRenderList.bufferCount);
 
+			glDisable(GL_DEPTH_TEST);
+
+			glDrawArrays( GL_TRIANGLES, ignoreDepthRenderableRenderList.bufferOffset, ignoreDepthRenderableRenderList.bufferCount);
+
 			frameTimer.end(Timer.RENDER_SCENE);
 
 			glDisable(GL_BLEND);
 			glDisable(GL_CULL_FACE);
 			glDisable(GL_MULTISAMPLE);
-			glDisable(GL_DEPTH_TEST);
 			glDepthMask(true);
 			glUseProgram(0);
 
@@ -2456,6 +2474,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			transparentTileRenderList.reset();
 			opaqueRenderableRenderList.reset();
 			transparentRenderableRenderList.reset();
+			ignoreDepthRenderableRenderList.reset();
 			hasLoggedIn = false;
 			environmentManager.reset();
 		}
@@ -3116,6 +3135,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 
 		int plane = ModelHash.getPlane(hash);
+		int tileX = ModelHash.getSceneX(hash) + SCENE_OFFSET;
+		int tileY = ModelHash.getSceneY(hash) + SCENE_OFFSET;
 		int uuid = ModelHash.generateUuid(client, hash, renderable);
 		int[] worldPos = sceneContext.localToWorld(x, z, plane);
 		ModelOverride modelOverride = modelOverrideManager.getOverride(uuid, worldPos);
@@ -3123,8 +3144,43 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			return;
 		}
 
+		boolean ignoreDepth = false; // TODO: Will need to move the tile into ignoreDepth too
+		if(sceneContext.scene != null) {
+			int[][][] tileHeights = sceneContext.scene.getTileHeights();
+			if (tileHeights != null && tileIsVisible[plane][tileX][tileY]) {
+				int tileHeight = tileHeights[plane][tileX][tileY] - LOCAL_HALF_TILE_SIZE;
+				int bottom = y - model.getBottomY();
+				if (tileHeight > bottom) {
+					ignoreDepth = true;
+				}
+			}
+		}
+
 		// TODO: I'd like to discern this without needing to check the ModelOverride when the model is part of the static geom
-		boolean isOpaque = modelOverride != ModelOverride.NONE && !modelOverride.baseMaterial.hasTransparency && !modelOverride.textureMaterial.hasTransparency;
+		byte[] modelFaceTransparencies = model.getFaceTransparencies();
+		boolean isOpaque = modelFaceTransparencies == null || modelFaceTransparencies.length == 0;
+
+		if(modelOverride != ModelOverride.NONE && isOpaque) {
+			isOpaque = !modelOverride.baseMaterial.hasTransparency && !modelOverride.textureMaterial.hasTransparency;
+			if(isOpaque) {
+				if(modelOverride.colorOverrides != null) {
+					for (var override : modelOverride.colorOverrides) {
+						isOpaque = !override.baseMaterial.hasTransparency && !override.textureMaterial.hasTexture;
+						if (!isOpaque) {
+							break;
+						}
+					}
+				}
+				if(isOpaque && modelOverride.materialOverrides != null) {
+					for(var override : modelOverride.materialOverrides.values()) {
+						isOpaque = !override.baseMaterial.hasTransparency && !override.textureMaterial.hasTexture;
+						if(!isOpaque) {
+							break;
+						}
+					}
+				}
+			}
+		}
 		ModelInfo info = getModelInfo();
 		info.flags = orientation;
 		info.x = x;
@@ -3218,10 +3274,14 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			return; // Hidden model
 		}
 
-		if(isOpaque) {
-			opaqueRenderableRenderList.models.add(info);
+		if(ignoreDepth) {
+			ignoreDepthRenderableRenderList.models.add(info);
 		} else {
-			transparentRenderableRenderList.models.add(info);
+			if (isOpaque) {
+				opaqueRenderableRenderList.models.add(info);
+			} else {
+				transparentRenderableRenderList.models.add(info);
+			}
 		}
 	}
 
