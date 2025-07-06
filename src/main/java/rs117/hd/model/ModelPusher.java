@@ -210,7 +210,7 @@ public class ModelPusher {
 		if (!skipUVs)
 			sceneContext.stagingBufferUvs.ensureCapacity(bufferSize);
 
-		boolean isModelTransparent = baseMaterial.hasTransparency || textureMaterial.hasTexture;
+		boolean isModelTransparent = baseMaterial.hasTransparency || textureMaterial.hasTransparency;
 		boolean foundCachedVertexData = false;
 		boolean foundCachedNormalData = false;
 		boolean foundCachedUvData = skipUVs;
@@ -310,7 +310,7 @@ public class ModelPusher {
 			for (int face = 0; face < faceCount; face++) {
 				int[] data = getFaceVertices(sceneContext, tile, uuid, model, modelOverride, face);
 				sceneContext.stagingBufferVertices.put(data);
-				doesVertexDataHaveTransparency = doesVertexDataHaveTransparency || (data[3] >> 16) != 0 || (data[7] >> 16) != 0 || (data[11] >> 16) != 0;
+				doesVertexDataHaveTransparency = doesVertexDataHaveTransparency || (data[3] >> 24) != 0 || (data[7] >> 24) != 0 || (data[11] >> 24) != 0;
 				if (shouldCacheVertexData)
 					fullVertexData.put(data);
 			}
