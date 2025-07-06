@@ -328,8 +328,15 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		.getPathOrDefault("rlhd.shader-path", () -> path(HdPlugin.class))
 		.chroot();
 
+	enum SceneShaderType {
+		TILE,
+		TILE_WATER,
+		RENDERABLE,
+		COUNT
+	}
+
 	public int glSceneDepthProgram;
-	public int glSceneProgram;
+	public int[] glScenePrograms = new int[SceneShaderType.COUNT.ordinal()];
 	public int glUiProgram;
 	public int glShadowProgram;
 	public int glModelPassthroughComputeProgram;
@@ -400,11 +407,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	private int viewportWidth;
 	private int viewportHeight;
 
-	private int uniShadowMap;
 	private int uniShadowBlockGlobals;
 
 	private int uniUiTexture;
-	private int uniTextureArray;
 	private int uniUiBlockUi;
 
 	// Configs used frequently enough to be worth caching
@@ -947,7 +952,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			.define("WIREFRAME", config.wireframe())
 			.addIncludePath(SHADER_PATH);
 
-		glSceneProgram = PROGRAM.compile(template);
+		for(int i = 0; i < glScenePrograms.length; i++) {
+			glScenePrograms[i] = PROGRAM.compile(template.copy().define("SCENE_PROGRAM_TYPE", i));
+		}
 		glSceneDepthProgram = DEPTH_PROGRAM.compile(template);
 		glUiProgram = UI_PROGRAM.compile(template);
 
@@ -981,19 +988,37 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		initUniforms();
 
 		// Bind texture samplers before validating, else the validation fails
-		glUseProgram(glSceneProgram);
-		glUniform1i(uniTextureArray, TEXTURE_UNIT_GAME - TEXTURE_UNIT_BASE);
-		glUniform1i(uniShadowMap, TEXTURE_UNIT_SHADOW_MAP - TEXTURE_UNIT_BASE);
 
-		// Bind a VOA, else validation may fail on older Intel-based Macs
-		glBindVertexArray(vaoSceneHandle);
+		for (int glSceneProgram : glScenePrograms) {
+			glUseProgram(glSceneProgram);
 
-		// Validate program
-		glValidateProgram(glSceneProgram);
-		if (glGetProgrami(glSceneProgram, GL_VALIDATE_STATUS) == GL_FALSE) {
-			String err = glGetProgramInfoLog(glSceneProgram);
-			throw new ShaderException(err);
+			int uniShadowMap = glGetUniformLocation(glSceneProgram, "shadowMap");
+			int uniTextureArray = glGetUniformLocation(glSceneProgram, "textureArray");
+			int uniSceneBlockMaterials = glGetUniformBlockIndex(glSceneProgram, "MaterialUniforms");
+			int uniSceneBlockWaterTypes = glGetUniformBlockIndex(glSceneProgram, "WaterTypeUniforms");
+			int uniSceneBlockPointLights = glGetUniformBlockIndex(glSceneProgram, "PointLightUniforms");
+			int uniSceneBlockGlobals = glGetUniformBlockIndex(glSceneProgram, "GlobalUniforms");
+
+			glUniformBlockBinding(glSceneProgram, uniSceneBlockMaterials, UNIFORM_BLOCK_MATERIALS);
+			glUniformBlockBinding(glSceneProgram, uniSceneBlockWaterTypes, UNIFORM_BLOCK_WATER_TYPES);
+			glUniformBlockBinding(glSceneProgram, uniSceneBlockPointLights, UNIFORM_BLOCK_LIGHTS);
+			glUniformBlockBinding(glSceneProgram, uniSceneBlockGlobals, UNIFORM_BLOCK_GLOBAL);
+
+			glUniform1i(uniTextureArray, TEXTURE_UNIT_GAME - TEXTURE_UNIT_BASE);
+			glUniform1i(uniShadowMap, TEXTURE_UNIT_SHADOW_MAP - TEXTURE_UNIT_BASE);
+
+			// Bind a VOA, else validation may fail on older Intel-based Macs
+			glBindVertexArray(vaoSceneHandle);
+
+			// Validate program
+			glValidateProgram(glSceneProgram);
+			if (glGetProgrami(glSceneProgram, GL_VALIDATE_STATUS) == GL_FALSE) {
+				String err = glGetProgramInfoLog(glSceneProgram);
+				throw new ShaderException(err);
+			}
 		}
+
+
 
 		glUseProgram(glUiProgram);
 		glUniform1i(uniUiTexture, TEXTURE_UNIT_UI - TEXTURE_UNIT_BASE);
@@ -1002,21 +1027,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	}
 
 	private void initUniforms() {
-		uniShadowMap = glGetUniformLocation(glSceneProgram, "shadowMap");
-		uniTextureArray = glGetUniformLocation(glSceneProgram, "textureArray");
-
 		uniUiTexture = glGetUniformLocation(glUiProgram, "uiTexture");
 		uniUiBlockUi = glGetUniformBlockIndex(glUiProgram, "UIUniforms");
-
-		int uniSceneBlockMaterials = glGetUniformBlockIndex(glSceneProgram, "MaterialUniforms");
-		int uniSceneBlockWaterTypes = glGetUniformBlockIndex(glSceneProgram, "WaterTypeUniforms");
-		int uniSceneBlockPointLights = glGetUniformBlockIndex(glSceneProgram, "PointLightUniforms");
-		int uniSceneBlockGlobals = glGetUniformBlockIndex(glSceneProgram, "GlobalUniforms");
-
-		glUniformBlockBinding(glSceneProgram, uniSceneBlockMaterials, UNIFORM_BLOCK_MATERIALS);
-		glUniformBlockBinding(glSceneProgram, uniSceneBlockWaterTypes, UNIFORM_BLOCK_WATER_TYPES);
-		glUniformBlockBinding(glSceneProgram, uniSceneBlockPointLights, UNIFORM_BLOCK_LIGHTS);
-		glUniformBlockBinding(glSceneProgram, uniSceneBlockGlobals, UNIFORM_BLOCK_GLOBAL);
 
 		int uniDepthSceneBlockGlobals = glGetUniformBlockIndex(glSceneDepthProgram, "GlobalUniforms");
 		glUniformBlockBinding(glSceneDepthProgram, uniDepthSceneBlockGlobals, UNIFORM_BLOCK_GLOBAL);
@@ -1043,9 +1055,11 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	}
 
 	private void destroyPrograms() {
-		if (glSceneProgram != 0)
-			glDeleteProgram(glSceneProgram);
-		glSceneProgram = 0;
+		for(int i = 0; i < glScenePrograms.length; i++) {
+			if (glScenePrograms[i] != 0)
+				glDeleteProgram(glScenePrograms[i]);
+			glScenePrograms[i] = 0;
+		}
 
 		if (glSceneDepthProgram != 0)
 			glDeleteProgram(glSceneDepthProgram);
@@ -1075,7 +1089,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 	public void recompilePrograms() throws ShaderException, IOException {
 		// Avoid recompiling if we haven't already compiled once
-		if (glSceneProgram == 0)
+		if (glScenePrograms[0] == 0)
 			return;
 
 		destroyPrograms();
@@ -2314,7 +2328,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 			frameTimer.begin(Timer.RENDER_SCENE);
 
-			glUseProgram(glSceneProgram);
+			glUseProgram(glScenePrograms[SceneShaderType.TILE.ordinal()]);
 
 			// Draw gap filler tiles & Draw custom tiles
 			if (sceneContext.staticCustomTilesVertexCount > 0) {
@@ -2333,15 +2347,23 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				);
 			}
 
+			glDisable(GL_BLEND);
+			glUseProgram(glScenePrograms[SceneShaderType.RENDERABLE.ordinal()]);
 			drawModelRenderList(opaqueRenderableRenderList, false);
+
+			glUseProgram(glScenePrograms[SceneShaderType.TILE.ordinal()]);
 			drawModelRenderList(opaqueTileRenderList, false);
 
 			// Draw all Transparent geometry without depth writing, but with testing to cull against
+			glEnable(GL_BLEND);
 			glDepthMask(false);
 			glDepthFunc(GL_GREATER); // All Objects to draw over geometry providing that its infront of opaque
 
+			glUseProgram(glScenePrograms[SceneShaderType.TILE_WATER.ordinal()]);
 			drawModelRenderList(transparentTileRenderList, false);
-			drawModelRenderList(transparentTileRenderList, false);
+
+			glUseProgram(glScenePrograms[SceneShaderType.RENDERABLE.ordinal()]);
+			drawModelRenderList(transparentRenderableRenderList, false);
 
 			frameTimer.end(Timer.RENDER_SCENE);
 

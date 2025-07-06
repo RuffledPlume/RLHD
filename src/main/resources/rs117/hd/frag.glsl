@@ -76,8 +76,15 @@ void main() {
     vec3 viewDir = normalize(cameraPos - IN.position);
 
     Material material1 = getMaterial(vMaterialData[0] >> MATERIAL_INDEX_SHIFT);
+#if SCENE_PROGRAM_TYPE != RENDERABLE_PROGRAM
     Material material2 = getMaterial(vMaterialData[1] >> MATERIAL_INDEX_SHIFT);
     Material material3 = getMaterial(vMaterialData[2] >> MATERIAL_INDEX_SHIFT);
+#else
+    Material material2 = material1;
+    Material material3 = material1;
+#endif
+
+
 
     // Water data
     bool isTerrain = (vTerrainData[0] & 1) != 0; // 1 = 0b1
@@ -104,9 +111,13 @@ void main() {
 
     vec4 outputColor = vec4(1);
 
+#if SCENE_PROGRAM_TYPE == TILE_PROGRAM || SCENE_PROGRAM_TYPE == TILE_TRANSPARENT
     if (isWater) {
         outputColor = sampleWater(waterTypeIndex, viewDir);
-    } else {
+    }
+    else
+#endif
+    {
         vec2 blendedUv = IN.uv;
 
         float mipBias = 0;
@@ -130,6 +141,7 @@ void main() {
         uv2 = (uv2 - .5) * material2.textureScale.xy + .5;
         uv3 = (uv3 - .5) * material3.textureScale.xy + .5;
 
+#if SCENE_PROGRAM_TYPE == TILE_PROGRAM || SCENE_PROGRAM_TYPE == TILE_TRANSPARENT
         // get flowMap map
         vec2 flowMapUv = uv1 - animationFrame(material1.flowMapDuration);
         float flowMapStrength = material1.flowMapStrength;
@@ -144,6 +156,7 @@ void main() {
         uv1 += uvFlow * flowMapStrength;
         uv2 += uvFlow * flowMapStrength;
         uv3 += uvFlow * flowMapStrength;
+#endif
 
         // Set up tangent-space transformation matrix
         vec3 N = normalize(IN.normal);
@@ -151,7 +164,7 @@ void main() {
 
         float selfShadowing = 0;
         vec3 fragPos = IN.position;
-        #if PARALLAX_OCCLUSION_MAPPING
+#if PARALLAX_OCCLUSION_MAPPING && SCENE_PROGRAM_TYPE != TILE_TRANSPARENT
         mat3 invTBN = inverse(TBN);
         vec3 tsViewDir = invTBN * viewDir;
         vec3 tsLightDir = invTBN * -lightDir;
@@ -170,7 +183,7 @@ void main() {
         fragDelta.z = max(0, fragDelta.z);
 
         fragPos += TBN * fragDelta;
-        #endif
+#endif
 
         // get vertex colors
         vec4 baseColor1 = vec4(srgbToLinear(packedHslToSrgb(vHsl[0])), 1 - float(vHsl[0] >> 24 & 0xff) / 255.);
@@ -185,6 +198,7 @@ void main() {
         texColor2.rgb *= material2.brightness;
         texColor3.rgb *= material3.brightness;
 
+#if SCENE_PROGRAM_TYPE == TILE_PROGRAM || SCENE_PROGRAM_TYPE == TILE_TRANSPARENT
         ivec3 isOverlay = ivec3(
             vMaterialData[0] >> MATERIAL_FLAG_IS_OVERLAY & 1,
             vMaterialData[1] >> MATERIAL_FLAG_IS_OVERLAY & 1,
@@ -221,7 +235,10 @@ void main() {
             overlayBlend *= overlayBlendMultiplier;
             overlayBlend = clamp(overlayBlend, 0, 1);
         }
-
+#else
+        vec3 underlayBlend = IN.texBlend;
+        vec3 overlayBlend = IN.texBlend;
+#endif
 
         // get fragment colors by combining vertex colors and texture samples
         vec4 texA = getMaterialShouldOverrideBaseColor(material1) ? texColor1 : vec4(texColor1.rgb * baseColor1.rgb, min(texColor1.a, baseColor1.a));
@@ -235,6 +252,7 @@ void main() {
 
         float overlayMix = 0;
 
+#if SCENE_PROGRAM_TYPE == TILE_PROGRAM || SCENE_PROGRAM_TYPE == TILE_TRANSPARENT
         if (overlayCount > 0 && underlayCount > 0)
         {
             ivec3 isPrimary = isUnderlay;
@@ -251,6 +269,7 @@ void main() {
             result = clamp(result * 2 - 1, 0, 1);
             overlayMix = result;
         }
+#endif
 
         outputColor = mix(underlayColor, overlayColor, overlayMix);
 
@@ -309,15 +328,18 @@ void main() {
         // ambient light
         vec3 ambientLightOut = ambientColor * ambientStrength;
 
+#if SCENE_PROGRAM_TYPE != TILE_TRANSPARENT
         float aoFactor =
             IN.texBlend.x * (material1.ambientOcclusionMap == -1 ? 1 : texture(textureArray, vec3(uv1, material1.ambientOcclusionMap)).r) +
             IN.texBlend.y * (material2.ambientOcclusionMap == -1 ? 1 : texture(textureArray, vec3(uv2, material2.ambientOcclusionMap)).r) +
             IN.texBlend.z * (material3.ambientOcclusionMap == -1 ? 1 : texture(textureArray, vec3(uv3, material3.ambientOcclusionMap)).r);
         ambientLightOut *= aoFactor;
+#endif
 
         // directional light
         vec3 dirLightColor = lightColor * lightStrength;
 
+#if SCENE_PROGRAM_TYPE != TILE_TRANSPARENT
         // underwater caustics based on directional light
         if (underwaterCaustics && underwaterEnvironment) {
             float scale = 12.8;
@@ -334,6 +356,7 @@ void main() {
             vec3 causticsColor = underwaterCausticsColor * underwaterCausticsStrength;
             dirLightColor += caustics * causticsColor * lightDotNormals * pow(lightStrength, 1.5);
         }
+#endif
 
         // apply shadows
         dirLightColor *= inverseShadow;
@@ -457,6 +480,7 @@ void main() {
         outputColor.rgb *= wireframeMask();
     #endif
 
+#if SCENE_PROGRAM_TYPE != TILE_TRANSPARENT
     // apply fog
     if (!isUnderwater) {
         // ground fog
@@ -476,6 +500,7 @@ void main() {
 
         outputColor.rgb = mix(outputColor.rgb, fogColor, combinedFog);
     }
+#endif
 
     outputColor.rgb = pow(outputColor.rgb, vec3(gammaCorrection));
 
