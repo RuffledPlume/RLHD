@@ -65,7 +65,6 @@ import static rs117.hd.utils.HDUtils.HIDDEN_HSL;
 @SuppressWarnings("UnnecessaryLocalVariable")
 public class SceneUploader {
 	public static final int SCENE_ID_MASK = 0xFFFF;
-	public static final int EXCLUDED_FROM_SCENE_BUFFER = 0xFFFFFFFF;
 
 	private static final float[] UP_NORMAL = { 0, -1, 0 };
 
@@ -92,6 +91,41 @@ public class SceneUploader {
 
 	@Inject
 	private ModelPusher modelPusher;
+
+	public static boolean getModelTransparency(int sceneId) {
+		return ((sceneId >> 31) & 1) == 1;
+	}
+
+	public static int setModelTransparency(int sceneId, boolean isTransparent) {
+		sceneId = sceneId & ~(1 << 31);
+		return sceneId | ((isTransparent ? 1 : 0) << 31);
+	}
+
+	public static int getModelOverrideHash(int sceneId) {
+		return (sceneId >> 16) & 0x7FFF;
+	}
+
+	public static int setModelOverrideHash(int sceneId, int modelOverrideHash) {
+		sceneId = sceneId & ~(0x7FFF << 16); // Clear bits 16-30
+		return sceneId | ((modelOverrideHash & 0x7FFF) << 16);
+	}
+
+	public static int setSceneContextId(int sceneId, int sceneContextId) {
+		sceneId = sceneId & ~SCENE_ID_MASK; // Clear bits 0–15
+		return sceneId | (sceneContextId & SCENE_ID_MASK);
+	}
+
+	public static int getSceneContextId(int sceneId) {
+		return sceneId & SCENE_ID_MASK;
+	}
+
+	public static int setIsExcludedFromSceneBuffer(int sceneId) {
+		return (sceneId & ~SCENE_ID_MASK) | SCENE_ID_MASK;
+	}
+
+	public static boolean isExcludedFromSceneBuffer(int sceneId) {
+		return getSceneContextId(sceneId) == SCENE_ID_MASK;
+	}
 
 	public void upload(SceneContext sceneContext) {
 		Stopwatch stopwatch = Stopwatch.createStarted();
@@ -322,19 +356,22 @@ public class SceneUploader {
 		if (model.getUnskewedModel() != null)
 			model = model.getUnskewedModel();
 
-		if (model.getSceneId() == EXCLUDED_FROM_SCENE_BUFFER)
+		if (isExcludedFromSceneBuffer(model.getSceneId()))
 			return;
 
 		int[] worldPos = sceneContext.localToWorld(tile.getLocalLocation(), tile.getPlane());
 		ModelOverride modelOverride = modelOverrideManager.getOverride(uuid, worldPos);
-		int sceneId = modelOverride.hashCode() << 16 | sceneContext.id;
+
+		int sceneId = setSceneContextId(0, sceneContext.id);
+		assert getSceneContextId(sceneId) == sceneContext.id;
+		sceneId = setModelOverrideHash(sceneId, modelOverride.hashCode());
 
 		// check if the model has already been uploaded
-		if ((model.getSceneId() & SCENE_ID_MASK) == sceneContext.id) {
+		if (getSceneContextId(model.getSceneId()) == sceneContext.id) {
 			// if the same model is being uploaded, but with a different area-specific model override,
 			// exclude it from the scene buffer to avoid conflicts
 			if (model.getSceneId() != sceneId)
-				model.setSceneId(EXCLUDED_FROM_SCENE_BUFFER);
+				model.setSceneId(setIsExcludedFromSceneBuffer(0));
 			return;
 		}
 
@@ -347,6 +384,8 @@ public class SceneUploader {
 			modelPusher.pushModel(sceneContext, tile, uuid, model, modelOverride, orientation, false);
 			if (sceneContext.modelPusherResults[1] == 0)
 				uvOffset = -1;
+
+			sceneId = setModelTransparency(sceneId, sceneContext.modelPusherResults[2] == 1);
 		}
 
 		model.setBufferOffset(vertexOffset);

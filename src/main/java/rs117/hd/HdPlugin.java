@@ -3202,12 +3202,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		int plane = ModelHash.getPlane(hash);
 		int tileExX = (x >> LOCAL_COORD_BITS) + SCENE_OFFSET;
 		int tileExY = (z >> LOCAL_COORD_BITS) + SCENE_OFFSET;
-		int uuid = ModelHash.generateUuid(client, hash, renderable);
-		int[] worldPos = sceneContext.localToWorld(x, z, plane);
-		ModelOverride modelOverride = modelOverrideManager.getOverride(uuid, worldPos);
-		if (modelOverride.hide) {
-			return;
-		}
 
 		/*
 		int TileRadius = model.getRadius() / LOCAL_TILE_SIZE;
@@ -3228,31 +3222,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			}
 		}*/
 
-		// TODO: I'd like to discern this without needing to check the ModelOverride when the model is part of the static geom
-		byte[] modelFaceTransparencies = model.getFaceTransparencies();
-		boolean isOpaque = modelFaceTransparencies == null || modelFaceTransparencies.length == 0;
-
-		if(modelOverride != ModelOverride.NONE && isOpaque) {
-			isOpaque = !modelOverride.baseMaterial.hasTransparency && !modelOverride.textureMaterial.hasTransparency;
-			if(isOpaque) {
-				if(modelOverride.colorOverrides != null) {
-					for (var override : modelOverride.colorOverrides) {
-						isOpaque = !override.baseMaterial.hasTransparency && !override.textureMaterial.hasTexture;
-						if (!isOpaque) {
-							break;
-						}
-					}
-				}
-				if(isOpaque && modelOverride.materialOverrides != null) {
-					for(var override : modelOverride.materialOverrides.values()) {
-						isOpaque = !override.baseMaterial.hasTransparency && !override.textureMaterial.hasTexture;
-						if(!isOpaque) {
-							break;
-						}
-					}
-				}
-			}
-		}
+		boolean isModelTransparent = SceneUploader.getModelTransparency(model.getSceneId());
 		ModelInfo info = ModelInfo.pop();
 		info.flags = orientation;
 		info.x = x;
@@ -3260,7 +3230,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		info.z = z;
 		info.isTile = false;
 
-		if (sceneContext.id == (offsetModel.getSceneId() & SceneUploader.SCENE_ID_MASK)) {
+		if (sceneContext.id == SceneUploader.getSceneContextId(offsetModel.getSceneId())) {
 			// The model is part of the static scene buffer
 			assert model == renderable;
 
@@ -3281,7 +3251,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				modelHasher.setModel(model);
 				// Disable model batching for models which have been excluded from the scene buffer,
 				// because we want to avoid having to fetch the model override
-				if (configModelBatching && offsetModel.getSceneId() != SceneUploader.EXCLUDED_FROM_SCENE_BUFFER) {
+				if (configModelBatching && !SceneUploader.isExcludedFromSceneBuffer(offsetModel.getSceneId())) {
 					batchHash = modelHasher.vertexHash;
 					modelOffsets = frameModelInfoMap.get(batchHash);
 				}
@@ -3293,10 +3263,16 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				info.vertexOffset = modelOffsets.vertexOffset;
 				info.uvOffset = modelOffsets.uvOffset;
 				info.vertexCount = modelOffsets.faceCount * 3;
-				isOpaque = modelOffsets.isOpaque;
 			} else {
 				if (enableDetailedTimers)
 					frameTimer.begin(Timer.MODEL_PUSHING);
+
+				int uuid = ModelHash.generateUuid(client, hash, renderable);
+				int[] worldPos = sceneContext.localToWorld(x, z, plane);
+				ModelOverride modelOverride = modelOverrideManager.getOverride(uuid, worldPos);
+				if (modelOverride.hide) {
+					return;
+				}
 
 				int vertexOffset = dynamicOffsetVertices + sceneContext.getVertexOffset();
 				int uvOffset = dynamicOffsetUvs + sceneContext.getUvOffset();
@@ -3323,6 +3299,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				if (sceneContext.modelPusherResults[1] == 0)
 					uvOffset = -1;
 
+				isModelTransparent = isModelTransparent || sceneContext.modelPusherResults[2] == 1;
+
 				if (enableDetailedTimers)
 					frameTimer.end(Timer.MODEL_PUSHING);
 
@@ -3332,7 +3310,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 				// add this temporary model to the map for batching purposes
 				if (configModelBatching)
-					frameModelInfoMap.put(batchHash, new ModelOffsets(faceCount, vertexOffset, uvOffset, isOpaque));
+					frameModelInfoMap.put(batchHash, new ModelOffsets(faceCount, vertexOffset, uvOffset));
 			}
 		}
 
@@ -3344,10 +3322,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			return; // Hidden model
 		}
 
-		if (isOpaque) {
-			opaqueRenderableRenderList.models.add(info);
-		} else {
+		if (isModelTransparent) {
 			transparentRenderableRenderList.models.add(info);
+		} else {
+			opaqueRenderableRenderList.models.add(info);
 		}
 	}
 

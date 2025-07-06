@@ -3,6 +3,8 @@ package rs117.hd.model;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.inject.Inject;
@@ -208,6 +210,7 @@ public class ModelPusher {
 		if (!skipUVs)
 			sceneContext.stagingBufferUvs.ensureCapacity(bufferSize);
 
+		boolean isModelTransparent = baseMaterial.hasTransparency || textureMaterial.hasTexture;
 		boolean foundCachedVertexData = false;
 		boolean foundCachedNormalData = false;
 		boolean foundCachedUvData = skipUVs;
@@ -220,8 +223,12 @@ public class ModelPusher {
 
 			vertexHash = modelHasher.vertexHash;
 			IntBuffer vertexData = this.modelCache.getIntBuffer(vertexHash);
-			foundCachedVertexData = vertexData != null && vertexData.remaining() == bufferSize;
+			foundCachedVertexData = vertexData != null && (vertexData.remaining() - 1) == bufferSize;
 			if (foundCachedVertexData) {
+				//Transparency is packed into the end of the vertex data stream
+				isModelTransparent = isModelTransparent || vertexData.get(bufferSize) == 1;
+				vertexData.limit(bufferSize);
+
 				sceneContext.stagingBufferVertices.put(vertexData);
 				vertexData.rewind();
 			}
@@ -237,8 +244,12 @@ public class ModelPusher {
 			if (!foundCachedUvData) {
 				uvHash = modelHasher.calculateUvCacheHash(preOrientation, modelOverride);
 				FloatBuffer uvData = this.modelCache.getFloatBuffer(uvHash);
-				foundCachedUvData = uvData != null && uvData.remaining() == bufferSize;
+				foundCachedUvData = uvData != null && (uvData.remaining() - 1) == bufferSize;
 				if (foundCachedUvData) {
+					//Transparency is packed into the end of the uv data stream
+					isModelTransparent = isModelTransparent || uvData.get(bufferSize) == 1;
+					uvData.limit(bufferSize);
+
 					texturedFaceCount = faceCount;
 					sceneContext.stagingBufferUvs.put(uvData);
 					uvData.rewind();
@@ -248,6 +259,7 @@ public class ModelPusher {
 			if (foundCachedVertexData && foundCachedNormalData && foundCachedUvData) {
 				sceneContext.modelPusherResults[0] = faceCount;
 				sceneContext.modelPusherResults[1] = texturedFaceCount;
+				sceneContext.modelPusherResults[2] = isModelTransparent ? 1 : 0;
 				return;
 			}
 		}
@@ -265,7 +277,7 @@ public class ModelPusher {
 			shouldCacheUvData = !foundCachedUvData;
 
 			if (shouldCacheVertexData) {
-				fullVertexData = this.modelCache.reserveIntBuffer(vertexHash, bufferSize);
+				fullVertexData = this.modelCache.reserveIntBuffer(vertexHash, bufferSize + 1);
 				if (fullVertexData == null) {
 					log.error("failed to reserve vertex buffer");
 					shouldCacheVertexData = false;
@@ -281,7 +293,7 @@ public class ModelPusher {
 			}
 
 			if (shouldCacheUvData) {
-				fullUvData = this.modelCache.reserveFloatBuffer(uvHash, bufferSize);
+				fullUvData = this.modelCache.reserveFloatBuffer(uvHash, bufferSize + 1);
 				if (fullUvData == null) {
 					log.error("failed to reserve uv buffer");
 					shouldCacheUvData = false;
@@ -289,6 +301,7 @@ public class ModelPusher {
 			}
 		}
 
+		boolean doesVertexDataHaveTransparency = false;
 		if (!foundCachedVertexData) {
 			if (plugin.enableDetailedTimers)
 				frameTimer.begin(Timer.MODEL_PUSHING_VERTEX);
@@ -297,11 +310,11 @@ public class ModelPusher {
 			for (int face = 0; face < faceCount; face++) {
 				int[] data = getFaceVertices(sceneContext, tile, uuid, model, modelOverride, face);
 				sceneContext.stagingBufferVertices.put(data);
+				doesVertexDataHaveTransparency = doesVertexDataHaveTransparency || (data[3] >> 16) != 0 || (data[7] >> 16) != 0 || (data[11] >> 16) != 0;
 				if (shouldCacheVertexData)
 					fullVertexData.put(data);
 			}
 			modelOverride.revertRotation(model);
-
 			if (plugin.enableDetailedTimers)
 				frameTimer.end(Timer.MODEL_PUSHING_VERTEX);
 		}
@@ -321,6 +334,7 @@ public class ModelPusher {
 				frameTimer.end(Timer.MODEL_PUSHING_NORMAL);
 		}
 
+		boolean doesUVDataHaveTransparency = false;
 		if (!foundCachedUvData) {
 			if (plugin.enableDetailedTimers)
 				frameTimer.begin(Timer.MODEL_PUSHING_UV);
@@ -363,6 +377,7 @@ public class ModelPusher {
 					uvType = faceOverride.uvType;
 					if (uvType == UvType.VANILLA || (textureId != -1 && faceOverride.retainVanillaUvs))
 						uvType = isVanillaUVMapped && textureFaces[face] != -1 ? UvType.VANILLA : UvType.GEOMETRY;
+					doesUVDataHaveTransparency = doesUVDataHaveTransparency || material.hasTransparency;
 				}
 
 				int materialData = packMaterialData(material, textureId, faceOverride, uvType, false);
@@ -386,15 +401,21 @@ public class ModelPusher {
 				frameTimer.end(Timer.MODEL_PUSHING_UV);
 		}
 
-		if (shouldCacheVertexData)
+		if (shouldCacheVertexData) {
+			fullVertexData.put(doesVertexDataHaveTransparency ? 1 : 0);
 			fullVertexData.flip();
-		if (shouldCacheNormalData)
+		}
+		if (shouldCacheNormalData) {
 			fullNormalData.flip();
-		if (shouldCacheUvData)
+		}
+		if (shouldCacheUvData) {
+			fullUvData.put(doesUVDataHaveTransparency ? 1 : 0);
 			fullUvData.flip();
+		}
 
 		sceneContext.modelPusherResults[0] = faceCount;
 		sceneContext.modelPusherResults[1] = texturedFaceCount;
+		sceneContext.modelPusherResults[2] = isModelTransparent | doesVertexDataHaveTransparency | doesUVDataHaveTransparency ? 1 : 0;
 	}
 
 	private void getNormalDataForFace(SceneContext sceneContext, Model model, @NonNull ModelOverride modelOverride, int face) {
