@@ -2182,11 +2182,14 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				uboGlobal.colorFilterFade.set(clamp(timeSinceChange / COLOR_FILTER_FADE_DURATION, 0, 1));
 			}
 
-			GL45.glClipControl(GL_LOWER_LEFT, GL45.GL_NEGATIVE_ONE_TO_ONE);
+			if(glCaps.OpenGL45) {
+				GL45.glClipControl(GL_LOWER_LEFT, GL45.GL_NEGATIVE_ONE_TO_ONE);
+			}
 
 			// Calculate projection matrix
+			float drawDistance = getDrawDistance();
 			float[] projectionMatrix = Mat4.scale(client.getScale(), client.getScale(), 1.0f);
-			Mat4.mul(projectionMatrix, Mat4.perspectiveReverseZ(viewportWidth, viewportHeight, NEAR_PLANE, getDrawDistance() * LOCAL_TILE_SIZE));
+			Mat4.mul(projectionMatrix, Mat4.perspectiveReverseZ(viewportWidth, viewportHeight, NEAR_PLANE, drawDistance * LOCAL_TILE_SIZE));
 
 			// Apply View Matrix to turn into ViewProjection Matrix
 			Mat4.mul(projectionMatrix, Mat4.rotateX(cameraOrientation[1]));
@@ -2229,7 +2232,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				float scale = HDUtils.lerp(maxScale, minScale, scaleMultiplier);
 				float[] lightProjectionMatrix = Mat4.identity();
 				Mat4.mul(lightProjectionMatrix, Mat4.scale(scale, scale, scale));
-				//Mat4.mul(lightProjectionMatrix, Mat4.normalize_unit_range());
+				Mat4.mul(lightProjectionMatrix, Mat4.orthographic(width, height, depthScale));
 				Mat4.mul(lightProjectionMatrix, lightViewMatrix);
 				Mat4.mul(lightProjectionMatrix, Mat4.translate(-(width / 2f + west), 0, -(height / 2f + south)));
 
@@ -2258,6 +2261,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			}
 
 			glUseProgram(glSceneDepthProgram);
+
+			if(glCaps.OpenGL45) {
+				GL45.glClipControl(GL_LOWER_LEFT, GL45.GL_ZERO_TO_ONE);
+			}
 
 			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboSceneHandle);
 			glToggle(GL_MULTISAMPLE, numSamples > 1);
@@ -2366,6 +2373,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			drawModelRenderList(transparentRenderableRenderList, false);
 
 			frameTimer.end(Timer.RENDER_SCENE);
+
+			if(glCaps.OpenGL45) {
+				GL45.glClipControl(GL_LOWER_LEFT, GL45.GL_NEGATIVE_ONE_TO_ONE);
+			}
 
 			glDisable(GL_BLEND);
 			glDisable(GL_CULL_FACE);
