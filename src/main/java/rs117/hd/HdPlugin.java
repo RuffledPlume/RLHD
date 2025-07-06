@@ -46,6 +46,7 @@ import java.time.ZonedDateTime;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -301,6 +302,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		.add(GL_GEOMETRY_SHADER, "geom.glsl")
 		.add(GL_FRAGMENT_SHADER, "frag.glsl");
 
+	private static final Shader DEPTH_PROGRAM = new Shader()
+		.add(GL_VERTEX_SHADER, "depth_vert.glsl");
+
 	private static final Shader SHADOW_PROGRAM_FAST = new Shader()
 		.add(GL_VERTEX_SHADER, "shadow_vert.glsl")
 		.add(GL_FRAGMENT_SHADER, "shadow_frag.glsl");
@@ -324,6 +328,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		.getPathOrDefault("rlhd.shader-path", () -> path(HdPlugin.class))
 		.chroot();
 
+	public int glSceneDepthProgram;
 	public int glSceneProgram;
 	public int glUiProgram;
 	public int glShadowProgram;
@@ -402,11 +407,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	private int uniTextureArray;
 	private int uniUiBlockUi;
 
-	private int uniSceneBlockMaterials;
-	private int uniSceneBlockWaterTypes;
-	private int uniSceneBlockPointLights;
-	private int uniSceneBlockGlobals;
-
 	// Configs used frequently enough to be worth caching
 	public boolean configGroundTextures;
 	public boolean configGroundBlending;
@@ -452,14 +452,25 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	private final Map<Long, ModelOffsets> frameModelInfoMap = new HashMap<>();
 
 	static class ModelInfo {
+		private static final ArrayDeque<ModelInfo> modelInfoBin = new ArrayDeque<>();
+
 		public int vertexOffset;
 		public int uvOffset;
 		public int vertexCount;
+		public int renderBufferOffset;
 		public int flags;
 		public int x;
 		public int y;
 		public int z;
 		public boolean isTile;
+
+		public void free() {
+			modelInfoBin.add(this);
+		}
+
+		public static ModelInfo pop() {
+			return modelInfoBin.isEmpty() ? new ModelInfo() : modelInfoBin.pop();
+		}
 	}
 
 	static class ModelRenderList {
@@ -468,56 +479,57 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		private int bufferCount;
 
 		public void reset() {
+			ModelInfo.modelInfoBin.addAll(models);
+			models.clear();
 			bufferOffset = 0;
 			bufferCount = 0;
 		}
 	}
 
-	private final ArrayDeque<ModelInfo> modelInfoBin = new ArrayDeque<>();
 
 	private final ModelRenderList opaqueTileRenderList = new ModelRenderList();
 	private final ModelRenderList transparentTileRenderList = new ModelRenderList();
 	private final ModelRenderList opaqueRenderableRenderList = new ModelRenderList();
 	private final ModelRenderList transparentRenderableRenderList = new ModelRenderList();
-	private final ModelRenderList ignoreDepthRenderableRenderList = new ModelRenderList();
 
 	private int renderBufferOffset;
-
-	private void appendModelInfo(GpuIntBuffer buffer, ModelInfo info, int faceCount) {
-		buffer.ensureCapacity(8).getBuffer()
-			.put(info.vertexOffset)
-			.put(info.uvOffset)
-			.put(faceCount)
-			.put(renderBufferOffset)
-			.put(info.flags)
-			.put(info.x).put(info.y).put(info.z);
-		renderBufferOffset += info.vertexCount;
-		numPassthroughModels = numPassthroughModels + (info.isTile ? 1 : 0);
-		modelInfoBin.add(info);
-	}
 
 	private void uploadModelRenderList(ModelRenderList renderList, boolean backwards) {
 		renderList.bufferOffset = renderBufferOffset;
 		if (backwards) {
-			for (int i = renderList.models.size() - 1; i >= 0; i--) {
-				ModelInfo info = renderList.models.get(i);
-				int faceCount = info.vertexCount / 3;
-				appendModelInfo(info.isTile ? modelPassthroughBuffer : bufferForTriangles(faceCount), info, faceCount);
-			}
-		} else {
-			for (int i = 0; i < renderList.models.size(); i++) {
-				ModelInfo info = renderList.models.get(i);
-				int faceCount = info.vertexCount / 3;
-				appendModelInfo(info.isTile ? modelPassthroughBuffer : bufferForTriangles(faceCount), info, faceCount);
-			}
+			Collections.reverse(renderList.models);
 		}
-		renderList.models.clear();
+
+		for (ModelInfo info : renderList.models) {
+			int faceCount = info.vertexCount / 3;
+			(info.isTile ? modelPassthroughBuffer : bufferForTriangles(faceCount)).ensureCapacity(8).getBuffer()
+				.put(info.vertexOffset)
+				.put(info.uvOffset)
+				.put(faceCount)
+				.put(renderBufferOffset)
+				.put(info.flags)
+				.put(info.x).put(info.y).put(info.z);
+			info.renderBufferOffset = renderBufferOffset;
+			renderBufferOffset += info.vertexCount;
+			numPassthroughModels = numPassthroughModels + (info.isTile ? 1 : 0);
+		}
 		renderList.bufferCount = renderBufferOffset - renderList.bufferOffset;
 	}
 
+	private void drawModelRenderList(ModelRenderList renderList, boolean debug) {
+		if(debug) {
+			for (ModelInfo info : renderList.models) {
+				glDrawArrays(GL_TRIANGLES, info.renderBufferOffset, info.vertexCount);
+			}
+		} else {
+			glDrawArrays(GL_TRIANGLES, renderList.bufferOffset, renderList.bufferCount);
+		}
+	}
 
-	private ModelInfo getModelInfo() {
-		return modelInfoBin.isEmpty() ? new ModelInfo() : modelInfoBin.pop();
+	enum TileModelOverlapState {
+		Unknown,
+		None,
+		Overlapping
 	}
 
 	// Camera position and orientation may be reused from the old scene while hopping, prior to drawScene being called
@@ -528,6 +540,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	private int cameraZoom;
 	private boolean tileVisibilityCached;
 	private final boolean[][][] tileIsVisible = new boolean[MAX_Z][EXTENDED_SCENE_SIZE][EXTENDED_SCENE_SIZE];
+	private final TileModelOverlapState[][][] tileHasOverlappingModel = new TileModelOverlapState[MAX_Z][EXTENDED_SCENE_SIZE][EXTENDED_SCENE_SIZE];
 
 	public double elapsedTime;
 	public double elapsedClientTime;
@@ -558,7 +571,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				transparentTileRenderList.reset();
 				opaqueRenderableRenderList.reset();
 				transparentRenderableRenderList.reset();
-				ignoreDepthRenderableRenderList.reset();
 				fboSceneHandle = rboSceneColorHandle = rboSceneDepthHandle = 0;
 				fboShadowMap = 0;
 				numPassthroughModels = 0;
@@ -936,6 +948,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			.addIncludePath(SHADER_PATH);
 
 		glSceneProgram = PROGRAM.compile(template);
+		glSceneDepthProgram = DEPTH_PROGRAM.compile(template);
 		glUiProgram = UI_PROGRAM.compile(template);
 
 		switch (configShadowMode) {
@@ -995,10 +1008,18 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		uniUiTexture = glGetUniformLocation(glUiProgram, "uiTexture");
 		uniUiBlockUi = glGetUniformBlockIndex(glUiProgram, "UIUniforms");
 
-		uniSceneBlockMaterials = glGetUniformBlockIndex(glSceneProgram, "MaterialUniforms");
-		uniSceneBlockWaterTypes = glGetUniformBlockIndex(glSceneProgram, "WaterTypeUniforms");
-		uniSceneBlockPointLights = glGetUniformBlockIndex(glSceneProgram, "PointLightUniforms");
-		uniSceneBlockGlobals = glGetUniformBlockIndex(glSceneProgram, "GlobalUniforms");
+		int uniSceneBlockMaterials = glGetUniformBlockIndex(glSceneProgram, "MaterialUniforms");
+		int uniSceneBlockWaterTypes = glGetUniformBlockIndex(glSceneProgram, "WaterTypeUniforms");
+		int uniSceneBlockPointLights = glGetUniformBlockIndex(glSceneProgram, "PointLightUniforms");
+		int uniSceneBlockGlobals = glGetUniformBlockIndex(glSceneProgram, "GlobalUniforms");
+
+		glUniformBlockBinding(glSceneProgram, uniSceneBlockMaterials, UNIFORM_BLOCK_MATERIALS);
+		glUniformBlockBinding(glSceneProgram, uniSceneBlockWaterTypes, UNIFORM_BLOCK_WATER_TYPES);
+		glUniformBlockBinding(glSceneProgram, uniSceneBlockPointLights, UNIFORM_BLOCK_LIGHTS);
+		glUniformBlockBinding(glSceneProgram, uniSceneBlockGlobals, UNIFORM_BLOCK_GLOBAL);
+
+		int uniDepthSceneBlockGlobals = glGetUniformBlockIndex(glSceneDepthProgram, "GlobalUniforms");
+		glUniformBlockBinding(glSceneDepthProgram, uniDepthSceneBlockGlobals, UNIFORM_BLOCK_GLOBAL);
 
 		if (computeMode == ComputeMode.OPENGL) {
 			for (int sortingProgram : glModelSortingComputePrograms) {
@@ -1025,6 +1046,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		if (glSceneProgram != 0)
 			glDeleteProgram(glSceneProgram);
 		glSceneProgram = 0;
+
+		if (glSceneDepthProgram != 0)
+			glDeleteProgram(glSceneDepthProgram);
+		glSceneDepthProgram = 0;
 
 		if (glUiProgram != 0)
 			glDeleteProgram(glUiProgram);
@@ -1543,6 +1568,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				// still redraw the previous frame's scene to emulate the client behavior of not painting over the
 				// viewport buffer.
 				renderBufferOffset = sceneContext.staticVertexCount;
+				opaqueTileRenderList.reset();
+				transparentTileRenderList.reset();
+				opaqueRenderableRenderList.reset();
+				transparentRenderableRenderList.reset();
 
 				// TODO: this could be done only once during scene swap, but is a bit of a pain to do
 				// Push unordered models that should always be drawn at the start of each frame.
@@ -1679,7 +1708,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 			uploadModelRenderList(transparentTileRenderList, false);
 			uploadModelRenderList(transparentRenderableRenderList, false);
-			uploadModelRenderList(ignoreDepthRenderableRenderList, false);
 
 			// Model buffers
 			modelPassthroughBuffer.flip();
@@ -1776,7 +1804,11 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		if (redrawPreviousFrame || sceneContext == null || paint.getBufferLen() <= 0)
 			return;
 
-		ModelInfo info = getModelInfo();
+		if(tileHasOverlappingModel[plane][tileX + SCENE_OFFSET][tileY + SCENE_OFFSET] == TileModelOverlapState.Overlapping){
+			return;
+		}
+
+		ModelInfo info = ModelInfo.pop();
 		info.vertexOffset = paint.getBufferOffset();
 		info.uvOffset = paint.getUvBufferOffset();
 		info.vertexCount = paint.getBufferLen();
@@ -1813,6 +1845,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		if (redrawPreviousFrame || model.getBufferLen() <= 0)
 			return;
 
+		if(tileHasOverlappingModel[0][tileX + SCENE_OFFSET][tileY + SCENE_OFFSET] == TileModelOverlapState.Overlapping){
+			return;
+		}
+
 		final int localX = tileX * LOCAL_TILE_SIZE;
 		final int localY = 0;
 		final int localZ = tileY * LOCAL_TILE_SIZE;
@@ -1832,7 +1868,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			// buffer length includes the generated underwater terrain, so it must be halved
 			bufferLength /= 2;
 
-			ModelInfo info = getModelInfo();
+			ModelInfo info = ModelInfo.pop();
 
 			info.vertexOffset = model.getBufferOffset() + bufferLength;
 			info.uvOffset = model.getUvBufferOffset() + bufferLength;
@@ -1847,7 +1883,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		}
 
 		{
-			ModelInfo info = getModelInfo();
+			ModelInfo info = ModelInfo.pop();
 
 			info.vertexOffset = model.getBufferOffset();
 			info.uvOffset = model.getUvBufferOffset();
@@ -2132,14 +2168,13 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				uboGlobal.colorFilterFade.set(clamp(timeSinceChange / COLOR_FILTER_FADE_DURATION, 0, 1));
 			}
 
+			GL45.glClipControl(GL_LOWER_LEFT, GL45.GL_NEGATIVE_ONE_TO_ONE);
+
 			// Calculate projection matrix
-			float[] projectionMatrix = Mat4.scale(client.getScale(), client.getScale(), 1);
-			if (orthographicProjection) {
-				Mat4.mul(projectionMatrix, Mat4.scale(ORTHOGRAPHIC_ZOOM, ORTHOGRAPHIC_ZOOM, -1));
-				Mat4.mul(projectionMatrix, Mat4.orthographic(viewportWidth, viewportHeight, 40000));
-			} else {
-				Mat4.mul(projectionMatrix, Mat4.perspective(viewportWidth, viewportHeight, NEAR_PLANE));
-			}
+			float[] projectionMatrix = Mat4.scale(client.getScale(), client.getScale(), 1.0f);
+			Mat4.mul(projectionMatrix, Mat4.perspectiveReverseZ(viewportWidth, viewportHeight, NEAR_PLANE, getDrawDistance() * LOCAL_TILE_SIZE));
+
+			// Apply View Matrix to turn into ViewProjection Matrix
 			Mat4.mul(projectionMatrix, Mat4.rotateX(cameraOrientation[1]));
 			Mat4.mul(projectionMatrix, Mat4.rotateY(cameraOrientation[0]));
 			Mat4.mul(projectionMatrix, Mat4.translate(
@@ -2158,9 +2193,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				glClearDepthf(1);
 				glClear(GL_DEPTH_BUFFER_BIT);
 				glDepthFunc(GL_LEQUAL);
-				if(glCaps.OpenGL45) {
-					GL45.glClipControl(GL_LOWER_LEFT, GL45.GL_NEGATIVE_ONE_TO_ONE);
-				}
 
 				glUseProgram(glShadowProgram);
 
@@ -2183,7 +2215,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				float scale = HDUtils.lerp(maxScale, minScale, scaleMultiplier);
 				float[] lightProjectionMatrix = Mat4.identity();
 				Mat4.mul(lightProjectionMatrix, Mat4.scale(scale, scale, scale));
-				Mat4.mul(lightProjectionMatrix, Mat4.orthographic(width, height, depthScale));
+				//Mat4.mul(lightProjectionMatrix, Mat4.normalize_unit_range());
 				Mat4.mul(lightProjectionMatrix, lightViewMatrix);
 				Mat4.mul(lightProjectionMatrix, Mat4.translate(-(width / 2f + west), 0, -(height / 2f + south)));
 
@@ -2199,7 +2231,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				glDrawArrays( GL_TRIANGLES, opaqueTileRenderList.bufferOffset, opaqueTileRenderList.bufferCount);
 				glDrawArrays( GL_TRIANGLES, transparentTileRenderList.bufferOffset, transparentTileRenderList.bufferCount);
 				glDrawArrays( GL_TRIANGLES, transparentRenderableRenderList.bufferOffset, transparentRenderableRenderList.bufferCount);
-				glDrawArrays( GL_TRIANGLES, ignoreDepthRenderableRenderList.bufferOffset, ignoreDepthRenderableRenderList.bufferCount);
 
 				glDisable(GL_DEPTH_TEST);
 				glDisable(GL_CULL_FACE);
@@ -2212,13 +2243,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				uboGlobal.upload();
 			}
 
-			glUseProgram(glSceneProgram);
-
-			// Bind uniforms
-			glUniformBlockBinding(glSceneProgram, uniSceneBlockMaterials, UNIFORM_BLOCK_MATERIALS);
-			glUniformBlockBinding(glSceneProgram, uniSceneBlockWaterTypes, UNIFORM_BLOCK_WATER_TYPES);
-			glUniformBlockBinding(glSceneProgram, uniSceneBlockPointLights, UNIFORM_BLOCK_LIGHTS);
-			glUniformBlockBinding(glSceneProgram, uniSceneBlockGlobals, UNIFORM_BLOCK_GLOBAL);
+			glUseProgram(glSceneDepthProgram);
 
 			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboSceneHandle);
 			glToggle(GL_MULTISAMPLE, numSamples > 1);
@@ -2237,10 +2262,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			);
 			glClearDepthf(0);
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-			glDepthMask(false);
 			frameTimer.end(Timer.CLEAR_SCENE);
 
-			frameTimer.begin(Timer.RENDER_SCENE);
+			boolean doDepthPrepass = config.performDepthPrepass();
 
 			// We just allow the GL to do face culling. Note this requires the priority renderer
 			// to have logic to disregard culled faces in the priority depth testing.
@@ -2255,17 +2279,46 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			glBindVertexArray(vaoSceneHandle);
 
 			glEnable(GL_DEPTH_TEST);
-			glDepthFunc(GL_GREATER);
-			if(glCaps.OpenGL45) {
-				GL45.glClipControl(GL_LOWER_LEFT, GL45.GL_NEGATIVE_ONE_TO_ONE);
+
+			if(doDepthPrepass) {
+				frameTimer.begin(Timer.RENDER_DEPTH_PREPASS);
+				glDepthFunc(GL_GREATER);
+
+				// Draw gap filler tiles & Draw custom tiles
+				if (sceneContext.staticCustomTilesVertexCount > 0) {
+					if (sceneContext.staticGapFillerTilesVertexCount > 0) {
+						glDrawArrays(
+							GL_TRIANGLES,
+							sceneContext.staticGapFillerTilesOffset,
+							sceneContext.staticGapFillerTilesVertexCount
+						);
+					}
+
+					glDrawArrays(
+						GL_TRIANGLES,
+						sceneContext.staticCustomTilesOffset,
+						sceneContext.staticCustomTilesVertexCount
+					);
+				}
+
+				// Draw Opaque Models
+				drawModelRenderList(opaqueRenderableRenderList, false);
+				drawModelRenderList(opaqueTileRenderList, false);
+				frameTimer.end(Timer.RENDER_DEPTH_PREPASS);
+
 			}
 
-			// When there are custom tiles, we need depth testing to draw them in the correct order, but the rest of the
-			// scene doesn't support depth testing, so we only write depths for custom tiles.
+			// Depth Pre-Pass completed, switch depth func to equal only
+			glDepthFunc(doDepthPrepass ? GL_EQUAL : GL_GREATER);
+			glDepthMask(!doDepthPrepass);
+
+			frameTimer.begin(Timer.RENDER_SCENE);
+
+			glUseProgram(glSceneProgram);
+
+			// Draw gap filler tiles & Draw custom tiles
 			if (sceneContext.staticCustomTilesVertexCount > 0) {
-				// Draw gap filler tiles first, without depth testing
 				if (sceneContext.staticGapFillerTilesVertexCount > 0) {
-					glDisable(GL_DEPTH_TEST);
 					glDrawArrays(
 						GL_TRIANGLES,
 						sceneContext.staticGapFillerTilesOffset,
@@ -2273,11 +2326,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 					);
 				}
 
-				glEnable(GL_DEPTH_TEST);
-				glDepthFunc(GL_GREATER);
-
-				// Draw custom tiles, writing depth
-				glDepthMask(true);
 				glDrawArrays(
 					GL_TRIANGLES,
 					sceneContext.staticCustomTilesOffset,
@@ -2285,30 +2333,22 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				);
 			}
 
-			// Draw all Opaque geometry first, with depth writing & testing
-			glEnable(GL_DEPTH_TEST);
-			glDepthFunc(GL_GREATER);
-			glDepthMask(true);
-
-			// TODO: Switch between tile & renderable shader programs
-			glDrawArrays( GL_TRIANGLES, opaqueRenderableRenderList.bufferOffset, opaqueRenderableRenderList.bufferCount);
-			glDrawArrays( GL_TRIANGLES, opaqueTileRenderList.bufferOffset, opaqueTileRenderList.bufferCount);
+			drawModelRenderList(opaqueRenderableRenderList, false);
+			drawModelRenderList(opaqueTileRenderList, false);
 
 			// Draw all Transparent geometry without depth writing, but with testing to cull against
 			glDepthMask(false);
+			glDepthFunc(GL_GREATER); // All Objects to draw over geometry providing that its infront of opaque
 
-			glDrawArrays( GL_TRIANGLES, transparentTileRenderList.bufferOffset, transparentTileRenderList.bufferCount);
-			glDrawArrays( GL_TRIANGLES, transparentRenderableRenderList.bufferOffset, transparentRenderableRenderList.bufferCount);
-
-			glDisable(GL_DEPTH_TEST);
-
-			glDrawArrays( GL_TRIANGLES, ignoreDepthRenderableRenderList.bufferOffset, ignoreDepthRenderableRenderList.bufferCount);
+			drawModelRenderList(transparentTileRenderList, false);
+			drawModelRenderList(transparentTileRenderList, false);
 
 			frameTimer.end(Timer.RENDER_SCENE);
 
 			glDisable(GL_BLEND);
 			glDisable(GL_CULL_FACE);
 			glDisable(GL_MULTISAMPLE);
+			glDisable(GL_DEPTH_TEST);
 			glDepthMask(true);
 			glUseProgram(0);
 
@@ -2474,7 +2514,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			transparentTileRenderList.reset();
 			opaqueRenderableRenderList.reset();
 			transparentRenderableRenderList.reset();
-			ignoreDepthRenderableRenderList.reset();
 			hasLoggedIn = false;
 			environmentManager.reset();
 		}
@@ -2567,6 +2606,13 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		tileVisibilityCached = false;
 		lightManager.loadSceneLights(nextSceneContext, sceneContext);
 		fishingSpotReplacer.despawnRuneLiteObjects();
+
+		// Reset Tile Overlapping State
+		for(int plane = 0; plane < MAX_Z; plane++) {
+			for(int tileX = 0; tileX < EXTENDED_SCENE_SIZE; tileX++) {
+				Arrays.fill(tileHasOverlappingModel[plane][tileX], TileModelOverlapState.Unknown);
+			}
+		}
 
 		if (sceneContext != null)
 			sceneContext.destroy();
@@ -3010,9 +3056,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		if (sceneContext == null)
 			return true;
 
-		if (orthographicProjection)
-			return false;
-
 		final int leftClip = client.getRasterizer3D_clipNegativeMidX();
 		final int rightClip = client.getRasterizer3D_clipMidX2();
 		final int topClip = client.getRasterizer3D_clipNegativeMidY();
@@ -3135,8 +3178,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 
 		int plane = ModelHash.getPlane(hash);
-		int tileX = ModelHash.getSceneX(hash) + SCENE_OFFSET;
-		int tileY = ModelHash.getSceneY(hash) + SCENE_OFFSET;
+		int tileExX = (x >> LOCAL_COORD_BITS) + SCENE_OFFSET;
+		int tileExY = (z >> LOCAL_COORD_BITS) + SCENE_OFFSET;
 		int uuid = ModelHash.generateUuid(client, hash, renderable);
 		int[] worldPos = sceneContext.localToWorld(x, z, plane);
 		ModelOverride modelOverride = modelOverrideManager.getOverride(uuid, worldPos);
@@ -3144,17 +3187,24 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			return;
 		}
 
-		boolean ignoreDepth = false; // TODO: Will need to move the tile into ignoreDepth too
-		if(sceneContext.scene != null) {
-			int[][][] tileHeights = sceneContext.scene.getTileHeights();
-			if (tileHeights != null && tileIsVisible[plane][tileX][tileY]) {
-				int tileHeight = tileHeights[plane][tileX][tileY] - LOCAL_HALF_TILE_SIZE;
-				int bottom = y - model.getBottomY();
-				if (tileHeight > bottom) {
-					ignoreDepth = true;
+		/*
+		int TileRadius = model.getRadius() / LOCAL_TILE_SIZE;
+		for(int tileOffsetX = TileRadius; tileOffsetX < 1; tileOffsetX++) {
+			for(int tileOffsetY = TileRadius; tileOffsetY < 1; tileOffsetY++) {
+				if (tileHasOverlappingModel[plane][tileExX + tileOffsetX][tileExY + tileOffsetY] == TileModelOverlapState.Unknown) {
+					int[][][] tileHeights = sceneContext.scene.getTileHeights();
+					if (tileHeights != null && tileIsVisible[plane][tileExX + tileOffsetX][tileExY + tileOffsetY]) {
+						int tileHeight = tileHeights[plane][tileExX + tileOffsetX][tileExY + tileOffsetY] - LOCAL_HALF_TILE_SIZE;
+						int bottom = y - model.getBottomY();
+						if (tileHeight > bottom) {
+							tileHasOverlappingModel[plane][tileExX + tileOffsetX][tileExY + tileOffsetY] = TileModelOverlapState.Overlapping;
+						} else {
+							tileHasOverlappingModel[plane][tileExX + tileOffsetX][tileExY + tileOffsetY] = TileModelOverlapState.None;
+						}
+					}
 				}
 			}
-		}
+		}*/
 
 		// TODO: I'd like to discern this without needing to check the ModelOverride when the model is part of the static geom
 		byte[] modelFaceTransparencies = model.getFaceTransparencies();
@@ -3181,7 +3231,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				}
 			}
 		}
-		ModelInfo info = getModelInfo();
+		ModelInfo info = ModelInfo.pop();
 		info.flags = orientation;
 		info.x = x;
 		info.y = y;
@@ -3231,8 +3281,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 				int preOrientation = 0;
 				if (ModelHash.getType(hash) == ModelHash.TYPE_OBJECT) {
-					int tileExX = (x >> LOCAL_COORD_BITS) + SCENE_OFFSET;
-					int tileExY = (z >> LOCAL_COORD_BITS) + SCENE_OFFSET;
 					if (0 <= tileExX && tileExX < EXTENDED_SCENE_SIZE && 0 <= tileExY && tileExY < EXTENDED_SCENE_SIZE) {
 						Tile tile = sceneContext.scene.getExtendedTiles()[plane][tileExX][tileExY];
 						int config;
@@ -3270,18 +3318,14 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			frameTimer.end(Timer.DRAW_RENDERABLE);
 
 		if (eightIntWrite[0] == -1) {
-			modelInfoBin.add(info);
+			info.free();
 			return; // Hidden model
 		}
 
-		if(ignoreDepth) {
-			ignoreDepthRenderableRenderList.models.add(info);
+		if (isOpaque) {
+			opaqueRenderableRenderList.models.add(info);
 		} else {
-			if (isOpaque) {
-				opaqueRenderableRenderList.models.add(info);
-			} else {
-				transparentRenderableRenderList.models.add(info);
-			}
+			transparentRenderableRenderList.models.add(info);
 		}
 	}
 
