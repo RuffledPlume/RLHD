@@ -3114,43 +3114,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	}
 
 	/**
-     * Check is a model is visible and should be drawn.
-     */
-	private boolean isOutsideViewport(Model model, int pitchSin, int pitchCos, int yawSin, int yawCos, int x, int y, int z) {
-		if (sceneContext == null)
-			return true;
-
-		final int leftClip = client.getRasterizer3D_clipNegativeMidX();
-		final int rightClip = client.getRasterizer3D_clipMidX2();
-		final int topClip = client.getRasterizer3D_clipNegativeMidY();
-		final int bottomClip = client.getRasterizer3D_clipMidY2();
-
-		final int modelRadius = model.getXYZMag();
-		final int transformedZ = yawCos * z - yawSin * x >> 16;
-		final int depth = pitchCos * modelRadius + pitchSin * y + pitchCos * transformedZ >> 16;
-
-		if (depth > NEAR_PLANE) {
-			final int transformedX = z * yawSin + yawCos * x >> 16;
-			final int leftPoint = transformedX - modelRadius;
-			if (leftPoint * cameraZoom < rightClip * depth) {
-				final int rightPoint = transformedX + modelRadius;
-				if (rightPoint * cameraZoom > leftClip * depth) {
-					final int transformedY = pitchCos * y - transformedZ * pitchSin >> 16;
-					final int transformedRadius = pitchSin * modelRadius;
-					final int bottomExtent = pitchCos * model.getBottomY() + transformedRadius >> 16;
-					final int bottomPoint = transformedY + bottomExtent;
-					if (bottomPoint * cameraZoom > topClip * depth) {
-						final int topExtent = pitchCos * model.getModelHeight() + transformedRadius >> 16;
-						final int topPoint = transformedY - topExtent;
-						return topPoint * cameraZoom >= bottomClip * depth; // inverted check
-					}
-				}
-			}
-		}
-		return true;
-	}
-
-	/**
      * Draw a Renderable in the scene
      *
      * @param projection
@@ -3216,20 +3179,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 		model.calculateBoundsCylinder();
 
-		if (projection instanceof IntProjection) {
-			var p = (IntProjection) projection;
-			if (isOutsideViewport(
-				model,
-				p.getPitchSin(),
-				p.getPitchCos(),
-				p.getYawSin(),
-				p.getYawCos(),
-				x - p.getCameraX(),
-				y - p.getCameraY(),
-				z - p.getCameraZ()
-			)) {
-				return;
-			}
+		if(!HDUtils.isModelVisible(x, y, z, model, cullingPlanes)) {
+			return;
 		}
 
 		client.checkClickbox(projection, model, orientation, x, y, z, hash);
