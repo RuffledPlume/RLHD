@@ -131,6 +131,7 @@ import rs117.hd.utils.ModelHash;
 import rs117.hd.utils.PopupUtils;
 import rs117.hd.utils.Props;
 import rs117.hd.utils.ResourcePath;
+import rs117.hd.utils.Vector;
 import rs117.hd.utils.buffer.GLBuffer;
 import rs117.hd.utils.buffer.GpuIntBuffer;
 
@@ -546,6 +547,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	private boolean tileVisibilityCached;
 	private final boolean[][][] tileIsVisible = new boolean[MAX_Z][EXTENDED_SCENE_SIZE][EXTENDED_SCENE_SIZE];
 	private final TileModelOverlapState[][][] tileHasOverlappingModel = new TileModelOverlapState[MAX_Z][EXTENDED_SCENE_SIZE][EXTENDED_SCENE_SIZE];
+	private float[] projectionMatrix;
+	private float[][] cullingPlanes = new float[6][4];
+	private float nearestCameraZ = Float.POSITIVE_INFINITY;
+	private float furthestCameraZ = Float.POSITIVE_INFINITY;
 
 	public double elapsedTime;
 	public double elapsedClientTime;
@@ -1530,6 +1535,32 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		texTileHeightMap = 0;
 	}
 
+	private void calculateSceneProjectionMatrix(boolean extractCullingPlanes) {
+		float MaxFarPlane = getDrawDistance() * LOCAL_TILE_SIZE;
+		float planeOffset = -LOCAL_TILE_SIZE;
+		float nearPlane   = Float.isInfinite(nearestCameraZ)  ? NEAR_PLANE  : Math.max(nearestCameraZ + planeOffset, NEAR_PLANE);
+		float farPlane    = Float.isInfinite(furthestCameraZ) ? MaxFarPlane : Math.min(furthestCameraZ + planeOffset, MaxFarPlane);
+
+		projectionMatrix = Mat4.scale(client.getScale(), client.getScale(), 1.0f);
+		Mat4.mul(projectionMatrix, Mat4.perspectiveReverseZ(viewportWidth, viewportHeight, nearPlane, farPlane));
+
+		// Apply View Matrix to turn into ViewProjection Matrix
+		Mat4.mul(projectionMatrix, Mat4.rotateX(cameraOrientation[1]));
+		Mat4.mul(projectionMatrix, Mat4.rotateY(cameraOrientation[0]));
+		Mat4.mul(projectionMatrix, Mat4.translate(
+			-cameraPosition[0],
+			-cameraPosition[1],
+			-cameraPosition[2]
+		));
+
+		if(extractCullingPlanes) {
+			Mat4.extractPlanes(projectionMatrix,
+				cullingPlanes[0], cullingPlanes[1],
+				cullingPlanes[2], cullingPlanes[3],
+				cullingPlanes[4], cullingPlanes[5]);
+		}
+	}
+
 	@Override
 	public void drawScene(double cameraX, double cameraY, double cameraZ, double cameraPitch, double cameraYaw, int plane) {
 		if (sceneContext == null)
@@ -1609,6 +1640,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 					System.arraycopy(newCameraPosition, 0, cameraPosition, 0, cameraPosition.length);
 					System.arraycopy(newCameraOrientation, 0, cameraOrientation, 0, cameraOrientation.length);
 					cameraZoom = newZoom;
+					nearestCameraZ = Float.POSITIVE_INFINITY;
+					furthestCameraZ = Float.NEGATIVE_INFINITY;
+					calculateSceneProjectionMatrix(true);
 					tileVisibilityCached = false;
 				}
 
@@ -1822,14 +1856,18 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			return;
 		}
 
+		final int localX = tileX * LOCAL_TILE_SIZE;
+		final int localY = 0;
+		final int localZ = tileY * LOCAL_TILE_SIZE;
+
 		ModelInfo info = ModelInfo.pop();
 		info.vertexOffset = paint.getBufferOffset();
 		info.uvOffset = paint.getUvBufferOffset();
 		info.vertexCount = paint.getBufferLen();
 		info.flags = 0;
-		info.x = tileX * LOCAL_TILE_SIZE;
-		info.y = 0;
-		info.z = tileY * LOCAL_TILE_SIZE;
+		info.x = localX;
+		info.y = localY;
+		info.z = localZ;
 		info.isTile = true;
 
 		if(sceneContext.tileIsWater[plane][tileX + SCENE_OFFSET][tileY + SCENE_OFFSET]) {
@@ -2187,18 +2225,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			}
 
 			// Calculate projection matrix
-			float drawDistance = getDrawDistance();
-			float[] projectionMatrix = Mat4.scale(client.getScale(), client.getScale(), 1.0f);
-			Mat4.mul(projectionMatrix, Mat4.perspectiveReverseZ(viewportWidth, viewportHeight, NEAR_PLANE, drawDistance * LOCAL_TILE_SIZE));
-
-			// Apply View Matrix to turn into ViewProjection Matrix
-			Mat4.mul(projectionMatrix, Mat4.rotateX(cameraOrientation[1]));
-			Mat4.mul(projectionMatrix, Mat4.rotateY(cameraOrientation[0]));
-			Mat4.mul(projectionMatrix, Mat4.translate(
-				-cameraPosition[0],
-				-cameraPosition[1],
-				-cameraPosition[2]
-			));
+			calculateSceneProjectionMatrix(false);
 			uboGlobal.projectionMatrix.set(projectionMatrix);
 
 			if (configShadowsEnabled && fboShadowMap != 0 && environmentManager.currentDirectionalStrength > 0) {
@@ -3034,12 +3061,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			return tileIsVisible[plane][tileExX][tileExY];
 
 		int[][][] tileHeights = scene.getTileHeights();
-		int x = ((tileExX - SCENE_OFFSET) << Perspective.LOCAL_COORD_BITS) + 64;
-		int z = ((tileExY - SCENE_OFFSET) << Perspective.LOCAL_COORD_BITS) + 64;
-		int y = Math.max(
-			Math.max(tileHeights[plane][tileExX][tileExY], tileHeights[plane][tileExX][tileExY + 1]),
-			Math.max(tileHeights[plane][tileExX + 1][tileExY], tileHeights[plane][tileExX + 1][tileExY + 1])
-		) + GROUND_MIN_Y;
+		int x = ((tileExX - SCENE_OFFSET) << Perspective.LOCAL_COORD_BITS);
+		int z = ((tileExY - SCENE_OFFSET) << Perspective.LOCAL_COORD_BITS);
+		int y = GROUND_MIN_Y;
 
 		if (sceneContext.scene == scene) {
 			int depthLevel = sceneContext.underwaterDepthLevels[plane][tileExX][tileExY];
@@ -3047,35 +3071,42 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				y += ProceduralGenerator.DEPTH_LEVEL_SLOPE[depthLevel - 1] - GROUND_MIN_Y;
 		}
 
-		x -= (int) cameraPosition[0];
-		y -= (int) cameraPosition[1];
-		z -= (int) cameraPosition[2];
+		int h0 = y + tileHeights[plane][tileExX][tileExY];
+		int h1 = y + tileHeights[plane][tileExX + 1][tileExY];
+		int h2 = y + tileHeights[plane][tileExX][tileExY + 1];
+		int h3 = y + tileHeights[plane][tileExX + 1][tileExY + 1];
 
-		final int tileRadius = 96; // ~ 64 * sqrt(2)
-		final int leftClip = client.getRasterizer3D_clipNegativeMidX();
-		final int rightClip = client.getRasterizer3D_clipMidX2();
-		final int topClip = client.getRasterizer3D_clipNegativeMidY();
+		boolean visible = HDUtils.IsTileVisible(x, z, h0, h1, h2, h3, cullingPlanes);
+		if(visible) {
+			float[][] tileVerts = {
+				{ x, h0, z, 1.0f },
+				{ x + LOCAL_TILE_SIZE, h1, z, 1.0f },
+				{ x, h2, z + LOCAL_TILE_SIZE, 1.0f },
+				{ x + LOCAL_TILE_SIZE, h3, z + LOCAL_TILE_SIZE, 1.0f }
+			};
 
-		// Transform the local coordinates using the yaw (horizontal rotation)
-		final int transformedZ = yawCos * z - yawSin * x >> 16;
-		final int depth = pitchCos * tileRadius + pitchSin * y + pitchCos * transformedZ >> 16;
+			float minX = Float.POSITIVE_INFINITY, minY = Float.POSITIVE_INFINITY, minNDC = Float.POSITIVE_INFINITY;
+			float maxX = Float.NEGATIVE_INFINITY, maxY = Float.NEGATIVE_INFINITY, maxNDC = Float.NEGATIVE_INFINITY;
+			for (float[] point : tileVerts) {
+				Mat4.mulVec(point, projectionMatrix, point);
+				float ndc = point[3];
+				float cs_x = point[0] / ndc;
+				float cs_y = point[1] / ndc;
+				minX = Math.min(minX, cs_x);
+				minY = Math.min(minY, cs_y);
+				maxX = Math.max(maxX, cs_x);
+				maxY = Math.max(maxY, cs_y);
 
-		boolean visible = false;
+				minNDC = Math.min(minNDC, ndc);
+				maxNDC = Math.max(maxNDC, ndc);
+			}
 
-		// Check if the tile is within the near plane of the frustum
-		if (depth > NEAR_PLANE) {
-			final int transformedX = z * yawSin + yawCos * x >> 16;
-			final int leftPoint = transformedX - tileRadius;
-			// Check left and right bounds
-			if (leftPoint * cameraZoom < rightClip * depth) {
-				final int rightPoint = transformedX + tileRadius;
-				if (rightPoint * cameraZoom > leftClip * depth) {
-					// Transform the local Y using pitch (vertical rotation)
-					final int transformedY = pitchCos * y - transformedZ * pitchSin;
-					final int bottomPoint = transformedY + pitchSin * tileRadius >> 16;
-					// Check top bound (we skip bottom bound to avoid computing model heights)
-					visible = bottomPoint * cameraZoom > topClip * depth;
-				}
+			// Tile Screen Size Culling
+			final float MIN_TILE_SCREEN_AREA = 0.00006f;
+			visible = (maxX - minX) * (maxY - minY) > MIN_TILE_SCREEN_AREA;
+			if (visible) {
+				nearestCameraZ  = Math.max(0.0f, Math.min(nearestCameraZ, minNDC));
+				furthestCameraZ = Math.max(1.0f, Math.max(furthestCameraZ, maxNDC));
 			}
 		}
 

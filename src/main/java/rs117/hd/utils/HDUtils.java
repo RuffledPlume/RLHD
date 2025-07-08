@@ -501,4 +501,34 @@ public class HDUtils {
 		}
 		return hsl;
 	}
+
+	public static boolean isSphereInsideFrustum(float x, float y, float z, float radius, float[][] cullingPlanes)
+	{
+		for (float[] plane : cullingPlanes) {
+			if (distanceToPlane(plane, x, y, z) < -radius) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	public static boolean IsTileVisible(int x, int z, int h0, int h1, int h2, int h3, float[][] cullingPlanes) {
+		for (float[] plane : cullingPlanes) {
+			if (distanceToPlane(plane, x, h0, z) >= -LOCAL_HALF_TILE_SIZE ||
+				distanceToPlane(plane, x + LOCAL_TILE_SIZE, h1, z) >= -LOCAL_HALF_TILE_SIZE ||
+				distanceToPlane(plane, x, h2, z + LOCAL_TILE_SIZE) >= -LOCAL_HALF_TILE_SIZE ||
+				distanceToPlane(plane, x + LOCAL_TILE_SIZE, h3, z + LOCAL_TILE_SIZE) >= -LOCAL_HALF_TILE_SIZE) {
+				// At least one point is inside this plane; continue testing other planes
+				continue;
+			}
+			return false; // All points outside this plane
+		}
+		return true;
+	}
+
+	private static float distanceToPlane(float[] plane, float x, float y, float z)
+	{
+		return plane[0]*x + plane[1]*y + plane[2]*z + plane[3];
+	}
 }
