@@ -468,7 +468,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		public int x;
 		public int y;
 		public int z;
-		public boolean isTile;
+		public float NDC;
 
 		public void free() {
 			modelInfoBin.add(this);
@@ -481,8 +481,21 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 	static class ModelRenderList {
 		private final List<ModelInfo> models = new ArrayList<>();
+		private final boolean isTileList;
 		private int bufferOffset;
 		private int bufferCount;
+
+		public ModelRenderList(boolean isTileList) {
+			this.isTileList = isTileList;
+		}
+
+		public void sort(boolean reverse) {
+			if(reverse) {
+				models.sort((a, b) -> Float.compare(a.NDC, b.NDC));
+			} else {
+				models.sort((a, b) -> Float.compare(b.NDC, a.NDC));
+			}
+		}
 
 		public void reset() {
 			ModelInfo.modelInfoBin.addAll(models);
@@ -493,10 +506,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	}
 
 
-	private final ModelRenderList opaqueTileRenderList = new ModelRenderList();
-	private final ModelRenderList transparentTileRenderList = new ModelRenderList();
-	private final ModelRenderList opaqueRenderableRenderList = new ModelRenderList();
-	private final ModelRenderList transparentRenderableRenderList = new ModelRenderList();
+	private final ModelRenderList opaqueTileRenderList = new ModelRenderList(true);
+	private final ModelRenderList transparentTileRenderList = new ModelRenderList(true);
+	private final ModelRenderList opaqueRenderableRenderList = new ModelRenderList(false);
+	private final ModelRenderList transparentRenderableRenderList = new ModelRenderList(false);
 
 	private int renderBufferOffset;
 
@@ -508,7 +521,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 		for (ModelInfo info : renderList.models) {
 			int faceCount = info.vertexCount / 3;
-			(info.isTile ? modelPassthroughBuffer : bufferForTriangles(faceCount)).ensureCapacity(8).getBuffer()
+			(renderList.isTileList ? modelPassthroughBuffer : bufferForTriangles(faceCount)).ensureCapacity(8).getBuffer()
 				.put(info.vertexOffset)
 				.put(info.uvOffset)
 				.put(faceCount)
@@ -517,7 +530,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				.put(info.x).put(info.y).put(info.z);
 			info.renderBufferOffset = renderBufferOffset;
 			renderBufferOffset += info.vertexCount;
-			numPassthroughModels = numPassthroughModels + (info.isTile ? 1 : 0);
+			numPassthroughModels = numPassthroughModels + (renderList.isTileList ? 1 : 0);
 		}
 		renderList.bufferCount = renderBufferOffset - renderList.bufferOffset;
 	}
@@ -1537,9 +1550,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 	private void calculateSceneProjectionMatrix(boolean extractCullingPlanes) {
 		float MaxFarPlane = getDrawDistance() * LOCAL_TILE_SIZE;
-		float planeOffset = -LOCAL_TILE_SIZE;
-		float nearPlane   = Float.isInfinite(nearestCameraZ)  ? NEAR_PLANE  : Math.max(nearestCameraZ + planeOffset, NEAR_PLANE);
-		float farPlane    = Float.isInfinite(furthestCameraZ) ? MaxFarPlane : Math.min(furthestCameraZ + planeOffset, MaxFarPlane);
+		float nearPlane   = Float.isInfinite(nearestCameraZ)  ? NEAR_PLANE  : Math.max(nearestCameraZ, NEAR_PLANE);
+		float farPlane    = Float.isInfinite(furthestCameraZ) ? MaxFarPlane : Math.min(furthestCameraZ, MaxFarPlane);
 
 		projectionMatrix = Mat4.scale(client.getScale(), client.getScale(), 1.0f);
 		Mat4.mul(projectionMatrix, Mat4.perspectiveReverseZ(viewportWidth, viewportHeight, nearPlane, farPlane));
@@ -1750,9 +1762,12 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			sceneContext.stagingBufferUvs.clear();
 			sceneContext.stagingBufferNormals.clear();
 
-			// Loop through opaqueRenderList backwards, since we want it to draw front to back to eliminate overdraw
-			uploadModelRenderList(opaqueTileRenderList, true);
-			uploadModelRenderList(opaqueRenderableRenderList, true);
+			// Sort Renderables based on their NDC Value
+			opaqueRenderableRenderList.sort(true);
+			transparentRenderableRenderList.sort(false);
+
+			uploadModelRenderList(opaqueTileRenderList, true); //Upload Tiles backwards to ensure optimal draw order
+			uploadModelRenderList(opaqueRenderableRenderList, false); // Renderables are sorted based on their NDC Value
 
 			uploadModelRenderList(transparentTileRenderList, false);
 			uploadModelRenderList(transparentRenderableRenderList, false);
@@ -1868,7 +1883,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		info.x = localX;
 		info.y = localY;
 		info.z = localZ;
-		info.isTile = true;
 
 		if(sceneContext.tileIsWater[plane][tileX + SCENE_OFFSET][tileY + SCENE_OFFSET]) {
 			transparentTileRenderList.models.add(info);
@@ -1929,7 +1943,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			info.x = localX;
 			info.y = localY;
 			info.z = localZ;
-			info.isTile = true;
 
 			transparentTileRenderList.models.add(info);
 		}
@@ -1944,7 +1957,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			info.x = localX;
 			info.y = localY;
 			info.z = localZ;
-			info.isTile = true;
 
 			if(underwaterTerrain) {
 				transparentTileRenderList.models.add(info);
@@ -3221,7 +3233,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		info.x = x;
 		info.y = y;
 		info.z = z;
-		info.isTile = false;
 
 		if (sceneContext.id == SceneUploader.getSceneContextId(offsetModel.getSceneId())) {
 			// The model is part of the static scene buffer
@@ -3315,10 +3326,27 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			return; // Hidden model
 		}
 
-		if (isModelTransparent) {
-			transparentRenderableRenderList.models.add(info);
-		} else {
-			opaqueRenderableRenderList.models.add(info);
+		{
+			// Calculate NDC for better renderable sorting
+			int bottomY = y + model.getBottomY();
+			float[] renderablePosition = {x, bottomY, z, 1.0f};
+			Mat4.mulVec(renderablePosition, projectionMatrix, renderablePosition);
+			float bottomNDC = renderablePosition[3];
+
+			renderablePosition = new float[] {x, bottomY + model.getModelHeight(), z, 1.0f};
+			Mat4.mulVec(renderablePosition, projectionMatrix, renderablePosition);
+			float topNDC = renderablePosition[3];
+
+			info.NDC = (bottomNDC + topNDC) / 2.0f;
+
+			nearestCameraZ  = Math.max(0.0f, Math.min(nearestCameraZ, info.NDC));
+			furthestCameraZ = Math.max(1.0f, Math.max(furthestCameraZ, info.NDC));
+
+			if (isModelTransparent) {
+				transparentRenderableRenderList.models.add(info);
+			} else {
+				opaqueRenderableRenderList.models.add(info);
+			}
 		}
 	}
 
