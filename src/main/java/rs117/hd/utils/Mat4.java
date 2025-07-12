@@ -97,6 +97,24 @@ public class Mat4
 		};
 	}
 
+	public static float[] perspective(float w, float h, float n, float f) {
+		return new float[] {
+			2 / w, 0, 0, 0,
+			0, -2 / h, 0.0f, 0,
+			0.0f, 0.0f, (f + n) / (f - n), 1.0f,
+			0.0f,       0.0f, (f * n) / (n - f), 0.0f
+		};
+	}
+
+	public static float[] perspectiveReverseZ(float w, float h, float n, float f) {
+		return new float[] {
+			2.0f / w, 0, 0, 0,
+			0, -2.0f / h, 0, 0,
+			0, 0, n / (n - f), 1.0f,
+			0, 0, (f * n) / (f - n), 0.0f
+		};
+	}
+
 	public static float[] orthographic(float w, float h, float n)
 	{
 		return new float[] {

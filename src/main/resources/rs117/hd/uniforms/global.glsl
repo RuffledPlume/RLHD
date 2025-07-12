@@ -6,6 +6,8 @@ layout(std140) uniform GlobalUniforms {
     int expandedMapLoadingChunks;
     float drawDistance;
     float elapsedTime;
+    int viewportWidth;
+    int viewportHeight;
 
     float colorBlindnessIntensity;
     float gammaCorrection;
@@ -32,6 +34,8 @@ layout(std140) uniform GlobalUniforms {
     float groundFogOpacity;
 
     int pointLightsCount;
+    int tileCountX;
+    int tileCountY;
     float lightningBrightness;
     vec3 lightDir;
 

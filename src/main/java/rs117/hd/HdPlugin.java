@@ -96,6 +96,7 @@ import rs117.hd.opengl.GlobalUniforms;
 import rs117.hd.opengl.LightsBuffer;
 import rs117.hd.opengl.MaterialsBuffer;
 import rs117.hd.opengl.UIUniforms;
+import rs117.hd.opengl.UniformBuffer;
 import rs117.hd.opengl.WaterTypesBuffer;
 import rs117.hd.opengl.compute.ComputeMode;
 import rs117.hd.opengl.compute.OpenCLManager;
@@ -128,6 +129,7 @@ import rs117.hd.utils.ModelHash;
 import rs117.hd.utils.PopupUtils;
 import rs117.hd.utils.Props;
 import rs117.hd.utils.ResourcePath;
+import rs117.hd.utils.Vector;
 import rs117.hd.utils.buffer.GLBuffer;
 import rs117.hd.utils.buffer.GpuIntBuffer;
 
@@ -169,8 +171,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	public static final int UNIFORM_BLOCK_MATERIALS = 1;
 	public static final int UNIFORM_BLOCK_WATER_TYPES = 2;
 	public static final int UNIFORM_BLOCK_LIGHTS = 3;
-	public static final int UNIFORM_BLOCK_GLOBAL = 4;
-	public static final int UNIFORM_BLOCK_UI = 5;
+	public static final int UNIFORM_BLOCK_TILED_LIGHTING = 4;
+	public static final int UNIFORM_BLOCK_GLOBAL = 5;
+	public static final int UNIFORM_BLOCK_UI = 6;
 
 	public static final float NEAR_PLANE = 50;
 	public static final int MAX_FACE_COUNT = 6144;
@@ -288,7 +291,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	private ComputeMode computeMode = ComputeMode.OPENGL;
 
 	private static final String LINUX_VERSION_HEADER =
-		"#version 420\n" +
+		"#version 430\n" +
 		"#extension GL_ARB_compute_shader : require\n" +
 		"#extension GL_ARB_shader_storage_buffer_object : require\n" +
 		"#extension GL_ARB_explicit_attrib_location : require\n";
@@ -356,6 +359,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	private GpuIntBuffer modelPassthroughBuffer;
 	private final GLBuffer hModelPassthroughBuffer = new GLBuffer("Model Passthrough");
 
+	private GpuIntBuffer tiledLightIndiciesBuffer;
+	private final GLBuffer hTiledLightIndices = new GLBuffer("Tiled Light Indices ");
+
 	// ordered by face count from small to large
 	public int numSortingBins;
 	public int maxComputeThreadCount;
@@ -404,6 +410,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	private int uniSceneBlockMaterials;
 	private int uniSceneBlockWaterTypes;
 	private int uniSceneBlockPointLights;
+	private int uniSceneBlockTiledLightingIndices;
 	private int uniSceneBlockGlobals;
 
 	// Configs used frequently enough to be worth caching
@@ -455,6 +462,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	public final float[] cameraOrientation = new float[2];
 	public final int[] cameraFocalPoint = new int[2];
 	private final int[] cameraShift = new int[2];
+	private float[] projectionMatrix;
 	private int cameraZoom;
 	private boolean tileVisibilityCached;
 	private final boolean[][][] tileIsVisible = new boolean[MAX_Z][EXTENDED_SCENE_SIZE][EXTENDED_SCENE_SIZE];
@@ -593,6 +601,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				developerTools.activate();
 
 				modelPassthroughBuffer = new GpuIntBuffer();
+				tiledLightIndiciesBuffer = new GpuIntBuffer();
 
 				int maxComputeThreadCount;
 				if (computeMode == ComputeMode.OPENCL) {
@@ -728,6 +737,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 					nextSceneContext.destroy();
 				nextSceneContext = null;
 			}
+
+			if(tiledLightIndiciesBuffer != null)
+				tiledLightIndiciesBuffer.destroy();
+			tiledLightIndiciesBuffer = null;
 
 			if (modelPassthroughBuffer != null)
 				modelPassthroughBuffer.destroy();
@@ -923,6 +936,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		uniSceneBlockMaterials = glGetUniformBlockIndex(glSceneProgram, "MaterialUniforms");
 		uniSceneBlockWaterTypes = glGetUniformBlockIndex(glSceneProgram, "WaterTypeUniforms");
 		uniSceneBlockPointLights = glGetUniformBlockIndex(glSceneProgram, "PointLightUniforms");
+		uniSceneBlockTiledLightingIndices = glGetUniformBlockIndex(glSceneProgram, "TiledLightingIndiciesUniforms");
 		uniSceneBlockGlobals = glGetUniformBlockIndex(glSceneProgram, "GlobalUniforms");
 
 		if (computeMode == ComputeMode.OPENGL) {
@@ -1131,6 +1145,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 		initGlBuffer(hModelPassthroughBuffer, GL_ARRAY_BUFFER, GL_STREAM_DRAW, CL_MEM_READ_ONLY);
 
+		initGlBuffer(hTiledLightIndices, GL_ARRAY_BUFFER, GL_STREAM_DRAW, CL_MEM_WRITE_ONLY);
+		glBindBufferBase(GL_UNIFORM_BUFFER, UNIFORM_BLOCK_TILED_LIGHTING, hTiledLightIndices.glBufferId);
+
 		uboMaterials.initialize(UNIFORM_BLOCK_MATERIALS);
 		uboCamera.initialize(UNIFORM_BLOCK_CAMERA, computeMode == ComputeMode.OPENCL ? openCLManager : null);
 		uboGlobal.initialize(UNIFORM_BLOCK_GLOBAL);
@@ -1157,6 +1174,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		destroyGlBuffer(hRenderBufferNormals);
 
 		destroyGlBuffer(hModelPassthroughBuffer);
+
+		destroyGlBuffer(hTiledLightIndices);
 
 		uboMaterials.destroy();
 		uboWaterTypes.destroy();
@@ -1597,6 +1616,93 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			sceneContext.stagingBufferVertices.clear();
 			sceneContext.stagingBufferUvs.clear();
 			sceneContext.stagingBufferNormals.clear();
+
+			// Calculate projection matrix
+			projectionMatrix = Mat4.scale(client.getScale(), client.getScale(), 1);
+			if (orthographicProjection) {
+				Mat4.mul(projectionMatrix, Mat4.scale(ORTHOGRAPHIC_ZOOM, ORTHOGRAPHIC_ZOOM, -1));
+				Mat4.mul(projectionMatrix, Mat4.orthographic(viewportWidth, viewportHeight, 40000));
+			} else {
+				Mat4.mul(projectionMatrix, Mat4.perspectiveReverseZ(viewportWidth, viewportHeight, NEAR_PLANE, getDrawDistance() * LOCAL_TILE_SIZE));
+			}
+			Mat4.mul(projectionMatrix, Mat4.rotateX(cameraOrientation[1]));
+			Mat4.mul(projectionMatrix, Mat4.rotateY(cameraOrientation[0]));
+			Mat4.mul(projectionMatrix, Mat4.translate(
+				-cameraPosition[0],
+				-cameraPosition[1],
+				-cameraPosition[2]
+			));
+
+			// Tiled Lighting
+			// Perform Tiled Lighting Culling here...
+			// TODO: This should be moved to a compute shader, but should serve as a baseline to compare compute results against
+			{
+				// TODO: TiledLighting is limited currently by 16 KB per UBO, therefore to support MacOS this will need to use a 3DTexture instead
+				float[][] tilePlanes = new float[4][4];
+				int maxTileLightCount = 12;
+				int tileXCount = 24; //viewportWidth / 32;  TODO: Make Screen Size Dependant again
+				int tileYCount = 13; //viewportHeight / 32; TODO: Make Screen Size Dependant again
+				int bufferSize = tileXCount * tileYCount * maxTileLightCount; // TODO: This should equal 4000
+				IntBuffer buffer = tiledLightIndiciesBuffer.ensureCapacity(4000).getBuffer();
+				for (int y = 0; y < tileYCount; y++) {
+					float negativeStepY = (2.0f * y) / tileYCount;
+					float positiveStepY = (2.0f * (y + 1)) / tileYCount;
+					for (int x = 0; x < tileXCount; x++) {
+						float negativeStepX = (2.0f * x) / tileXCount;
+						float positiveStepX = (2.0f * (x + 1)) / tileXCount;
+
+						tilePlanes[0] = new float[] { 1.0f,  0.0f, 0.0f,  negativeStepX}; // Left
+						tilePlanes[1] = new float[] {-1.0f,  0.0f, 0.0f,  positiveStepX}; // Right
+						tilePlanes[2] = new float[] { 0.0f,  1.0f, 0.0f,  negativeStepY}; // Down
+						tilePlanes[3] = new float[] { 0.0f, -1.0f, 0.0f,  positiveStepY}; // Up
+
+						for (int i = 0; i < tilePlanes.length; i++) {
+							Mat4.mulVec(tilePlanes[i], projectionMatrix, tilePlanes[i]);
+							float len = Vector.length(tilePlanes[i][0], tilePlanes[i][1], tilePlanes[i][2]);
+							Vector.div(tilePlanes[i], tilePlanes[i], len);
+						}
+
+						int tileLightIndex = 0;
+						for (int lightIdx = 0; lightIdx < sceneContext.numVisibleLights; lightIdx++) {
+							Light light = sceneContext.lights.get(lightIdx);
+							float[] lightPos = {light.pos[0] + cameraShift[0], light.pos[1], light.pos[2] + cameraShift[1], 1.0f};
+							//Mat4.mulVec(lightPos, projectionMatrix, lightPos);
+
+							boolean intersects = HDUtils.isSphereInsideFrustum(
+								lightPos[0],
+								lightPos[1],
+								lightPos[2],
+								light.radius * 0.0001f,
+								tilePlanes);
+
+							if (intersects) {
+								buffer.put(lightIdx);
+								tileLightIndex++;
+							}
+
+							if (tileLightIndex >= maxTileLightCount) {
+								break; // Tile cant fit any more lights in
+							}
+						}
+
+						for (; tileLightIndex < maxTileLightCount; tileLightIndex++) {
+							buffer.put(-1);
+						}
+					}
+				}
+
+				uboGlobal.viewportWidth.set(viewportWidth);
+				uboGlobal.viewportHeight.set(viewportHeight);
+
+				uboGlobal.tileCountX.set(tileXCount);
+				uboGlobal.tileCountY.set(tileYCount);
+			}
+
+
+
+			tiledLightIndiciesBuffer.flip();
+			updateBuffer(hTiledLightIndices, GL_ARRAY_BUFFER, tiledLightIndiciesBuffer.getBuffer(), GL_STREAM_DRAW, CL_MEM_READ_ONLY);
+			tiledLightIndiciesBuffer.clear();
 
 			// Model buffers
 			modelPassthroughBuffer.flip();
@@ -2044,21 +2150,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				uboGlobal.colorFilterFade.set(clamp(timeSinceChange / COLOR_FILTER_FADE_DURATION, 0, 1));
 			}
 
-			// Calculate projection matrix
-			float[] projectionMatrix = Mat4.scale(client.getScale(), client.getScale(), 1);
-			if (orthographicProjection) {
-				Mat4.mul(projectionMatrix, Mat4.scale(ORTHOGRAPHIC_ZOOM, ORTHOGRAPHIC_ZOOM, -1));
-				Mat4.mul(projectionMatrix, Mat4.orthographic(viewportWidth, viewportHeight, 40000));
-			} else {
-				Mat4.mul(projectionMatrix, Mat4.perspective(viewportWidth, viewportHeight, NEAR_PLANE));
-			}
-			Mat4.mul(projectionMatrix, Mat4.rotateX(cameraOrientation[1]));
-			Mat4.mul(projectionMatrix, Mat4.rotateY(cameraOrientation[0]));
-			Mat4.mul(projectionMatrix, Mat4.translate(
-				-cameraPosition[0],
-				-cameraPosition[1],
-				-cameraPosition[2]
-			));
 			uboGlobal.projectionMatrix.set(projectionMatrix);
 
 			if (configShadowsEnabled && fboShadowMap != 0 && environmentManager.currentDirectionalStrength > 0) {
@@ -2124,6 +2215,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			glUniformBlockBinding(glSceneProgram, uniSceneBlockMaterials, UNIFORM_BLOCK_MATERIALS);
 			glUniformBlockBinding(glSceneProgram, uniSceneBlockWaterTypes, UNIFORM_BLOCK_WATER_TYPES);
 			glUniformBlockBinding(glSceneProgram, uniSceneBlockPointLights, UNIFORM_BLOCK_LIGHTS);
+			glUniformBlockBinding(glSceneProgram, uniSceneBlockTiledLightingIndices, UNIFORM_BLOCK_TILED_LIGHTING);
 			glUniformBlockBinding(glSceneProgram, uniSceneBlockGlobals, UNIFORM_BLOCK_GLOBAL);
 
 			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboSceneHandle);
@@ -2312,8 +2404,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	}
 
 	/**
-	 * Convert the front framebuffer to an Image
-	 */
+     * Convert the front framebuffer to an Image
+     */
 	private Image screenshot()
 	{
 		int width  = client.getCanvasWidth();
@@ -2891,8 +2983,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	}
 
 	/**
-	 * Check is a model is visible and should be drawn.
-	 */
+     * Check is a model is visible and should be drawn.
+     */
 	private boolean isOutsideViewport(Model model, int pitchSin, int pitchCos, int yawSin, int yawCos, int x, int y, int z) {
 		if (sceneContext == null)
 			return true;
@@ -2931,17 +3023,17 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	}
 
 	/**
-	 * Draw a Renderable in the scene
-	 *
-	 * @param projection
-	 * @param scene
-	 * @param renderable  Can be an Actor (Player or NPC), DynamicObject, GraphicsObject, TileItem, Projectile or a raw Model.
-	 * @param orientation Rotation around the up-axis, from 0 to 2048 exclusive, 2048 indicating a complete rotation.
-	 * @param x           The Renderable's X offset relative to {@link Client#getCameraX()}.
-	 * @param y           The Renderable's Y offset relative to {@link Client#getCameraZ()}.
-	 * @param z           The Renderable's Z offset relative to {@link Client#getCameraY()}.
-	 * @param hash        A unique hash of the renderable consisting of some useful information. See {@link rs117.hd.utils.ModelHash} for more details.
-	 */
+     * Draw a Renderable in the scene
+     *
+     * @param projection
+     * @param scene
+     * @param renderable  Can be an Actor (Player or NPC), DynamicObject, GraphicsObject, TileItem, Projectile or a raw Model.
+     * @param orientation Rotation around the up-axis, from 0 to 2048 exclusive, 2048 indicating a complete rotation.
+     * @param x           The Renderable's X offset relative to {@link Client#getCameraX()}.
+     * @param y           The Renderable's Y offset relative to {@link Client#getCameraZ()}.
+     * @param z           The Renderable's Z offset relative to {@link Client#getCameraY()}.
+     * @param hash        A unique hash of the renderable consisting of some useful information. See {@link rs117.hd.utils.ModelHash} for more details.
+     */
 	@Override
 	public void draw(Projection projection, @Nullable Scene scene, Renderable renderable, int orientation, int x, int y, int z, long hash) {
 		if (sceneContext == null)
@@ -3127,8 +3219,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	}
 
 	/**
-	 * returns the correct buffer based on triangle count and updates model count
-	 */
+     * returns the correct buffer based on triangle count and updates model count
+     */
 	private GpuIntBuffer bufferForTriangles(int triangles) {
 		for (int i = 0; i < numSortingBins; i++) {
 			if (modelSortingBinFaceCounts[i] >= triangles) {

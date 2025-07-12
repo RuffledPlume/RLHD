@@ -16,6 +16,24 @@ public class Vector {
 		return out;
 	}
 
+	public static float[] mul(float[] out, float[] a, float[] b) {
+		for (int i = 0; i < out.length; i++)
+			out[i] = a[i] * b[i];
+		return out;
+	}
+
+	public static float[] mul(float[] out, float[] a, float val) {
+		for (int i = 0; i < out.length; i++)
+			out[i] = a[i] * val;
+		return out;
+	}
+
+	public static float[] div(float[] out, float[] a, float val) {
+		for (int i = 0; i < out.length; i++)
+			out[i] = a[i] / val;
+		return out;
+	}
+
 	/**
 	 * Computes a - b, storing it in the out array
 	 */

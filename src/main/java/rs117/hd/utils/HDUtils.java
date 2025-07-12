@@ -501,4 +501,19 @@ public class HDUtils {
 		}
 		return hsl;
 	}
+
+	public static boolean isSphereInsideFrustum(float x, float y, float z, float radius, float[][] cullingPlanes)
+	{
+		for (float[] plane : cullingPlanes) {
+			if (distanceToPlane(plane, x, y, z) < -radius) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	public static float distanceToPlane(float[] plane, float x, float y, float z) {
+		return (plane[0] * x + plane[1] * y + plane[2] * z) + plane[3];
+	}
 }
