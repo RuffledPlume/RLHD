@@ -77,6 +77,7 @@ import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.*;
 import org.lwjgl.system.Callback;
 import org.lwjgl.system.Configuration;
+import org.lwjgl.system.MemoryUtil;
 import rs117.hd.config.AntiAliasingMode;
 import rs117.hd.config.ColorFilter;
 import rs117.hd.config.SeasonalHemisphere;
@@ -137,6 +138,8 @@ import static net.runelite.api.Constants.*;
 import static net.runelite.api.Constants.SCENE_SIZE;
 import static net.runelite.api.Perspective.*;
 import static org.lwjgl.opencl.CL10.*;
+import static org.lwjgl.opengl.GL11C.glBindTexture;
+import static org.lwjgl.opengl.GL15C.glBindBuffer;
 import static org.lwjgl.opengl.GL43C.*;
 import static rs117.hd.HdPluginConfig.*;
 import static rs117.hd.scene.SceneContext.SCENE_OFFSET;
@@ -166,12 +169,12 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	public static final int TEXTURE_UNIT_GAME = TEXTURE_UNIT_BASE + 1;
 	public static final int TEXTURE_UNIT_SHADOW_MAP = TEXTURE_UNIT_BASE + 2;
 	public static final int TEXTURE_UNIT_TILE_HEIGHT_MAP = TEXTURE_UNIT_BASE + 3;
+	public static final int TEXTURE_UNIT_TILED_LIGHTING_MAP = TEXTURE_UNIT_BASE + 4;
 
 	public static final int UNIFORM_BLOCK_CAMERA = 0;
 	public static final int UNIFORM_BLOCK_MATERIALS = 1;
 	public static final int UNIFORM_BLOCK_WATER_TYPES = 2;
 	public static final int UNIFORM_BLOCK_LIGHTS = 3;
-	public static final int UNIFORM_BLOCK_TILED_LIGHTING = 4;
 	public static final int UNIFORM_BLOCK_GLOBAL = 5;
 	public static final int UNIFORM_BLOCK_UI = 6;
 
@@ -359,8 +362,11 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	private GpuIntBuffer modelPassthroughBuffer;
 	private final GLBuffer hModelPassthroughBuffer = new GLBuffer("Model Passthrough");
 
-	private GpuIntBuffer tiledLightIndiciesBuffer;
-	private final GLBuffer hTiledLightIndices = new GLBuffer("Tiled Light Indices ");
+	private int tiledLightingTex;
+	private int tileCountX;
+	private int tileCountY;
+	private int maxLightsPerTile;
+	private ShortBuffer tiledLightingBuffer;
 
 	// ordered by face count from small to large
 	public int numSortingBins;
@@ -406,11 +412,11 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	private int uniUiTexture;
 	private int uniTextureArray;
 	private int uniUiBlockUi;
+	private int uniTiledLightingTexture;
 
 	private int uniSceneBlockMaterials;
 	private int uniSceneBlockWaterTypes;
 	private int uniSceneBlockPointLights;
-	private int uniSceneBlockTiledLightingIndices;
 	private int uniSceneBlockGlobals;
 
 	// Configs used frequently enough to be worth caching
@@ -601,7 +607,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				developerTools.activate();
 
 				modelPassthroughBuffer = new GpuIntBuffer();
-				tiledLightIndiciesBuffer = new GpuIntBuffer();
 
 				int maxComputeThreadCount;
 				if (computeMode == ComputeMode.OPENCL) {
@@ -737,10 +742,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 					nextSceneContext.destroy();
 				nextSceneContext = null;
 			}
-
-			if(tiledLightIndiciesBuffer != null)
-				tiledLightIndiciesBuffer.destroy();
-			tiledLightIndiciesBuffer = null;
 
 			if (modelPassthroughBuffer != null)
 				modelPassthroughBuffer.destroy();
@@ -909,6 +910,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		glUseProgram(glSceneProgram);
 		glUniform1i(uniTextureArray, TEXTURE_UNIT_GAME - TEXTURE_UNIT_BASE);
 		glUniform1i(uniShadowMap, TEXTURE_UNIT_SHADOW_MAP - TEXTURE_UNIT_BASE);
+		glUniform1i(uniTiledLightingTexture, TEXTURE_UNIT_TILED_LIGHTING_MAP - TEXTURE_UNIT_BASE);
 
 		// Bind a VOA, else validation may fail on older Intel-based Macs
 		glBindVertexArray(vaoSceneHandle);
@@ -929,6 +931,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	private void initUniforms() {
 		uniShadowMap = glGetUniformLocation(glSceneProgram, "shadowMap");
 		uniTextureArray = glGetUniformLocation(glSceneProgram, "textureArray");
+		uniTiledLightingTexture = glGetUniformLocation(glSceneProgram, "textureTiledLighting");
 
 		uniUiTexture = glGetUniformLocation(glUiProgram, "uiTexture");
 		uniUiBlockUi = glGetUniformBlockIndex(glUiProgram, "UIUniforms");
@@ -936,7 +939,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		uniSceneBlockMaterials = glGetUniformBlockIndex(glSceneProgram, "MaterialUniforms");
 		uniSceneBlockWaterTypes = glGetUniformBlockIndex(glSceneProgram, "WaterTypeUniforms");
 		uniSceneBlockPointLights = glGetUniformBlockIndex(glSceneProgram, "PointLightUniforms");
-		uniSceneBlockTiledLightingIndices = glGetUniformBlockIndex(glSceneProgram, "TiledLightingIndiciesUniforms");
 		uniSceneBlockGlobals = glGetUniformBlockIndex(glSceneProgram, "GlobalUniforms");
 
 		if (computeMode == ComputeMode.OPENGL) {
@@ -1145,9 +1147,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 		initGlBuffer(hModelPassthroughBuffer, GL_ARRAY_BUFFER, GL_STREAM_DRAW, CL_MEM_READ_ONLY);
 
-		initGlBuffer(hTiledLightIndices, GL_ARRAY_BUFFER, GL_STREAM_DRAW, CL_MEM_WRITE_ONLY);
-		glBindBufferBase(GL_UNIFORM_BUFFER, UNIFORM_BLOCK_TILED_LIGHTING, hTiledLightIndices.glBufferId);
-
 		uboMaterials.initialize(UNIFORM_BLOCK_MATERIALS);
 		uboCamera.initialize(UNIFORM_BLOCK_CAMERA, computeMode == ComputeMode.OPENCL ? openCLManager : null);
 		uboGlobal.initialize(UNIFORM_BLOCK_GLOBAL);
@@ -1174,8 +1173,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		destroyGlBuffer(hRenderBufferNormals);
 
 		destroyGlBuffer(hModelPassthroughBuffer);
-
-		destroyGlBuffer(hTiledLightIndices);
 
 		uboMaterials.destroy();
 		uboWaterTypes.destroy();
@@ -1225,6 +1222,100 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			glDeleteTextures(interfaceTexture);
 			interfaceTexture = 0;
 		}
+	}
+
+	private void initTiledLightingTexture(int width, int height) {
+		if(tiledLightingTex != 0) {
+			glDeleteTextures(tiledLightingTex);
+			tiledLightingTex = 0;
+		}
+
+		maxLightsPerTile = 32;
+		tileCountX = width / 32;
+		tileCountY = height / 32;
+
+		glActiveTexture(TEXTURE_UNIT_TILED_LIGHTING_MAP);
+
+		tiledLightingTex = glGenTextures();
+		glBindTexture(GL_TEXTURE_3D, tiledLightingTex);
+		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexImage3D(GL_TEXTURE_3D, 0, GL_R16I, tileCountX, tileCountY, maxLightsPerTile, 0, GL_RED_INTEGER, GL_SHORT, 0);
+
+		tiledLightingBuffer = BufferUtils.createShortBuffer(tileCountX * tileCountY * maxLightsPerTile);
+
+		// Reset active texture to UI texture
+		glActiveTexture(TEXTURE_UNIT_UI);
+	}
+
+	private void updateTiledLightingTexture() {
+		if(tiledLightingTex == 0 || tiledLightingBuffer == null || sceneContext == null){
+			return;
+		}
+
+		tiledLightingBuffer.clear();
+
+		float[] invProjectionMatrix = Mat4.inverse(projectionMatrix);
+		float[][] tilePlanes = new float[4][4];
+
+		for (int y = 0; y < tileCountY; y++) {
+			float ndcMinY = (2.0f * y) / tileCountY - 1.0f;
+			float ndcMaxY = (2.0f * (y + 1)) / tileCountY - 1.0f;
+			for (int x = 0; x < tileCountX; x++) {
+				float ndcMinX = (2.0f * x) / tileCountX - 1.0f;
+				float ndcMaxX = (2.0f * (x + 1)) / tileCountX - 1.0f;
+
+				float[] tile_bl = new float[] {ndcMinX, ndcMinY, 0.0f, 1.0f};
+				float[] tile_br = new float[] {ndcMaxX, ndcMinY, 0.0f, 1.0f};
+				float[] tile_tl = new float[] {ndcMinX, ndcMaxY, 0.0f, 1.0f};
+				float[] tile_tr = new float[] {ndcMaxX, ndcMaxY, 0.0f, 1.0f};
+
+				Mat4.projectVec(tile_bl, invProjectionMatrix, tile_bl);
+				Mat4.projectVec(tile_br, invProjectionMatrix, tile_br);
+				Mat4.projectVec(tile_tl, invProjectionMatrix, tile_tl);
+				Mat4.projectVec(tile_tr, invProjectionMatrix, tile_tr);
+
+				tilePlanes[0] = Vector.planeFromPoints(cameraPosition, tile_bl, tile_tl); // Left
+				tilePlanes[1] = Vector.planeFromPoints(cameraPosition, tile_tr, tile_br); // Right
+				tilePlanes[2] = Vector.planeFromPoints(cameraPosition, tile_br, tile_bl); // Bottom
+				tilePlanes[3] = Vector.planeFromPoints(cameraPosition, tile_tl, tile_tr); // Top
+
+				int tileLightIndex = 0;
+				for (int lightIdx = 0; lightIdx < sceneContext.numVisibleLights; lightIdx++) {
+					Light light = sceneContext.lights.get(lightIdx);
+
+					boolean intersects = HDUtils.isSphereInsideFrustum(
+						light.pos[0] + cameraShift[0],
+						light.pos[1],
+						light.pos[2] + cameraShift[1],
+						light.radius,
+						tilePlanes);
+
+					if (intersects) {
+						tiledLightingBuffer.put((short)lightIdx); // Put the index in the 3D Texture
+						tileLightIndex++;
+					}
+
+					if (tileLightIndex >= maxLightsPerTile) {
+						break; // Tile cant fit any more lights in
+					}
+				}
+
+				for (; tileLightIndex < maxLightsPerTile; tileLightIndex++) {
+					tiledLightingBuffer.put((short)-1);
+				}
+			}
+		}
+
+		uboGlobal.tileCountX.set(tileCountX);
+		uboGlobal.tileCountY.set(tileCountY);
+
+		tiledLightingBuffer.flip();
+		glBindTexture(GL_TEXTURE_3D, tiledLightingTex);
+		glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, tileCountX, tileCountY, maxLightsPerTile, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, tiledLightingBuffer);
+		glBindTexture(GL_TEXTURE_3D, 0);
 	}
 
 	private void initSceneFbo(int width, int height, AntiAliasingMode antiAliasingMode) {
@@ -1633,76 +1724,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				-cameraPosition[2]
 			));
 
-			// Tiled Lighting
-			// Perform Tiled Lighting Culling here...
-			// TODO: This should be moved to a compute shader, but should serve as a baseline to compare compute results against
-			{
-				// TODO: TiledLighting is limited currently by 16 KB per UBO, therefore to support MacOS this will need to use a 3DTexture instead
-				float[][] tilePlanes = new float[4][4];
-				int maxTileLightCount = 12;
-				int tileXCount = 24; //viewportWidth / 32;  TODO: Make Screen Size Dependant again
-				int tileYCount = 13; //viewportHeight / 32; TODO: Make Screen Size Dependant again
-				int bufferSize = tileXCount * tileYCount * maxTileLightCount; // TODO: This should equal 4000
-				IntBuffer buffer = tiledLightIndiciesBuffer.ensureCapacity(4000).getBuffer();
-				for (int y = 0; y < tileYCount; y++) {
-					float negativeStepY = (2.0f * y) / tileYCount;
-					float positiveStepY = (2.0f * (y + 1)) / tileYCount;
-					for (int x = 0; x < tileXCount; x++) {
-						float negativeStepX = (2.0f * x) / tileXCount;
-						float positiveStepX = (2.0f * (x + 1)) / tileXCount;
+			uboGlobal.viewportWidth.set(viewportWidth);
+			uboGlobal.viewportHeight.set(viewportHeight);
 
-						tilePlanes[0] = new float[] { 1.0f,  0.0f, 0.0f,  negativeStepX}; // Left
-						tilePlanes[1] = new float[] {-1.0f,  0.0f, 0.0f,  positiveStepX}; // Right
-						tilePlanes[2] = new float[] { 0.0f,  1.0f, 0.0f,  negativeStepY}; // Down
-						tilePlanes[3] = new float[] { 0.0f, -1.0f, 0.0f,  positiveStepY}; // Up
-
-						for (int i = 0; i < tilePlanes.length; i++) {
-							Mat4.mulVec(tilePlanes[i], projectionMatrix, tilePlanes[i]);
-							float len = Vector.length(tilePlanes[i][0], tilePlanes[i][1], tilePlanes[i][2]);
-							Vector.div(tilePlanes[i], tilePlanes[i], len);
-						}
-
-						int tileLightIndex = 0;
-						for (int lightIdx = 0; lightIdx < sceneContext.numVisibleLights; lightIdx++) {
-							Light light = sceneContext.lights.get(lightIdx);
-							float[] lightPos = {light.pos[0] + cameraShift[0], light.pos[1], light.pos[2] + cameraShift[1], 1.0f};
-							//Mat4.mulVec(lightPos, projectionMatrix, lightPos);
-
-							boolean intersects = HDUtils.isSphereInsideFrustum(
-								lightPos[0],
-								lightPos[1],
-								lightPos[2],
-								light.radius * 0.0001f,
-								tilePlanes);
-
-							if (intersects) {
-								buffer.put(lightIdx);
-								tileLightIndex++;
-							}
-
-							if (tileLightIndex >= maxTileLightCount) {
-								break; // Tile cant fit any more lights in
-							}
-						}
-
-						for (; tileLightIndex < maxTileLightCount; tileLightIndex++) {
-							buffer.put(-1);
-						}
-					}
-				}
-
-				uboGlobal.viewportWidth.set(viewportWidth);
-				uboGlobal.viewportHeight.set(viewportHeight);
-
-				uboGlobal.tileCountX.set(tileXCount);
-				uboGlobal.tileCountY.set(tileYCount);
-			}
-
-
-
-			tiledLightIndiciesBuffer.flip();
-			updateBuffer(hTiledLightIndices, GL_ARRAY_BUFFER, tiledLightIndiciesBuffer.getBuffer(), GL_STREAM_DRAW, CL_MEM_READ_ONLY);
-			tiledLightIndiciesBuffer.clear();
+			updateTiledLightingTexture();
 
 			// Model buffers
 			modelPassthroughBuffer.flip();
@@ -2045,6 +2070,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 				destroySceneFbo();
 				try {
+					initTiledLightingTexture(stretchedCanvasWidth, stretchedCanvasHeight);
 					initSceneFbo(stretchedCanvasWidth, stretchedCanvasHeight, antiAliasingMode);
 				} catch (Exception ex) {
 					log.error("Error while initializing scene FBO:", ex);
@@ -2215,7 +2241,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			glUniformBlockBinding(glSceneProgram, uniSceneBlockMaterials, UNIFORM_BLOCK_MATERIALS);
 			glUniformBlockBinding(glSceneProgram, uniSceneBlockWaterTypes, UNIFORM_BLOCK_WATER_TYPES);
 			glUniformBlockBinding(glSceneProgram, uniSceneBlockPointLights, UNIFORM_BLOCK_LIGHTS);
-			glUniformBlockBinding(glSceneProgram, uniSceneBlockTiledLightingIndices, UNIFORM_BLOCK_TILED_LIGHTING);
 			glUniformBlockBinding(glSceneProgram, uniSceneBlockGlobals, UNIFORM_BLOCK_GLOBAL);
 
 			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboSceneHandle);

@@ -102,4 +102,29 @@ public class Vector {
 		for (int i = 0; i < out.length; i++)
 			out[i] = Math.abs(v[i]);
 	}
+
+	public static float[] planeFromPoints(float[] p0, float[] p1, float[] p2) {
+		float[] v1 = subtract(new float[3], p1, p0);
+		float[] v2 = subtract(new float[3], p2, p0);
+		float[] normal = cross(new float[3], v1, v2);
+		normalize(normal);
+		float d = -dot(normal, p0);
+		return new float[] {normal[0], normal[1], normal[2], d};
+	}
+
+	public static float[] planeFromPointNormal(float[] point, float[] normal) {
+		float[] normalizedNormal = copy(normal);
+		normalize(normalizedNormal);
+		float d = -dot(normalizedNormal, point);
+		return new float[] {normalizedNormal[0], normalizedNormal[1], normalizedNormal[2], d};
+	}
+
+	public static float[] planeFromTwoPoints(float[] p0, float[] p1) {
+		float[] normal = subtract(new float[3], p1, p0);
+		return planeFromPointNormal(p0, normal);
+	}
+
+	public static float distanceToPlane(float[] plane, float x, float y, float z) {
+		return (plane[0] * x + plane[1] * y + plane[2] * z) + plane[3];
+	}
 }
