@@ -57,5 +57,5 @@ public class GlobalUniforms extends UniformBuffer {
 
 	public Property colorFilterPrevious = addProperty(PropertyType.Int, "colorFilterPrevious");
 	public Property colorFilter = addProperty(PropertyType.Int, "colorFilter");
-	public Property colorFilterFade = addProperty(PropertyType.FVec3, "colorFilterFade");
+	public Property colorFilterFade = addProperty(PropertyType.Float, "colorFilterFade");
 }
