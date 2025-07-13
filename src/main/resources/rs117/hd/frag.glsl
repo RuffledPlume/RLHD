@@ -383,10 +383,15 @@ void main() {
             }
         }
 
-        #if 1
+        #if 0
         if(tileLightCount > 0)
         {
-           // outputColor.r += tileLightCount / float(maxLightsPerTile);
+            // HeatMap
+            float level = (tileLightCount / float(maxLightsPerTile)) * 3.14159265 / 2.0;
+
+            outputColor.r = sin(level);
+            outputColor.g = sin(level * 2.0);
+            outputColor.b = cos(level);
         }
         #endif
 
