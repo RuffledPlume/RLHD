@@ -39,6 +39,7 @@ public class GlobalUniforms extends UniformBuffer {
 	public Property pointLightsCount = addProperty(PropertyType.Int, "pointLightsCount");
 	public Property tileCountX = addProperty(PropertyType.Int, "tileCountX");
 	public Property tileCountY = addProperty(PropertyType.Int, "tileCountY");
+	public Property maxLightsPerTile = addProperty(PropertyType.Int, "maxLightsPerTile");
 	public Property lightningBrightness = addProperty(PropertyType.Float, "lightningBrightness");
 	public Property lightDir = addProperty(PropertyType.FVec3, "lightDir");
 

@@ -48,11 +48,15 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.inject.Inject;
 import javax.swing.SwingUtilities;
 import lombok.Getter;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.api.events.*;
@@ -449,6 +453,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	public boolean enableShadowMapOverlay;
 	public boolean enableFreezeFrame;
 	public boolean orthographicProjection;
+	public boolean isNividaGPU;
 
 	@Getter
 	private boolean isActive;
@@ -469,6 +474,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	public final int[] cameraFocalPoint = new int[2];
 	private final int[] cameraShift = new int[2];
 	private float[] projectionMatrix;
+	private float[] invProjectionMatrix;
 	private int cameraZoom;
 	private boolean tileVisibilityCached;
 	private final boolean[][][] tileIsVisible = new boolean[MAX_Z][EXTENDED_SCENE_SIZE][EXTENDED_SCENE_SIZE];
@@ -533,6 +539,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				useLowMemoryMode = config.lowMemoryMode();
 				BUFFER_GROWTH_MULTIPLIER = useLowMemoryMode ? 1.333f : 2;
 
+				String glVendor = glGetString(GL_VENDOR);
 				String glRenderer = glGetString(GL_RENDERER);
 				String arch = System.getProperty("sun.arch.data.model", "Unknown");
 				if (glRenderer == null)
@@ -542,6 +549,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				log.info("Client is {}-bit", arch);
 				log.info("Low memory mode: {}", useLowMemoryMode);
 
+				isNividaGPU = glVendor.toUpperCase().contains("NVIDIA");
 				computeMode = OSType.getOSType() == OSType.MacOS ? ComputeMode.OPENCL : ComputeMode.OPENGL;
 
 				List<String> fallbackDevices = List.of(
@@ -1225,14 +1233,16 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	}
 
 	private void initTiledLightingTexture(int width, int height) {
+		completeTiledLightingUpdate();
+
 		if(tiledLightingTex != 0) {
 			glDeleteTextures(tiledLightingTex);
 			tiledLightingTex = 0;
 		}
 
 		maxLightsPerTile = 32;
-		tileCountX = width / 32;
-		tileCountY = height / 32;
+		tileCountX = width / (isNividaGPU ? 16 : 32);
+		tileCountY = height / (isNividaGPU ? 16 : 32);
 
 		glActiveTexture(TEXTURE_UNIT_TILED_LIGHTING_MAP);
 
@@ -1242,79 +1252,132 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		glTexImage3D(GL_TEXTURE_3D, 0, GL_R16I, tileCountX, tileCountY, maxLightsPerTile, 0, GL_RED_INTEGER, GL_SHORT, 0);
+		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+		glTexImage3D(GL_TEXTURE_3D, 0, GL_R16I, tileCountX, tileCountY, maxLightsPerTile, 0, GL_RED_INTEGER, GL_UNSIGNED_SHORT, 0);
 
 		tiledLightingBuffer = BufferUtils.createShortBuffer(tileCountX * tileCountY * maxLightsPerTile);
+		checkGLErrors();
 
 		// Reset active texture to UI texture
 		glActiveTexture(TEXTURE_UNIT_UI);
 	}
 
-	private void updateTiledLightingTexture() {
+	private final ExecutorService tiledLightingExecutor = Executors.newFixedThreadPool(4);
+	private CountDownLatch tiledLightingLatch;
+
+	static class BatchedTileCulling implements Runnable {
+		public HdPlugin plugin;
+
+		public int xMin;
+		public int yMin;
+		public int xMax;
+		public int yMax;
+
+		public BatchedTileCulling(HdPlugin plugin, int xOffset, int yOffset, int xCount, int yCount) {
+			this.plugin = plugin;
+			this.xMin = xOffset;
+			this.yMin = yOffset;
+			this.xMax = xOffset + xCount;
+			this.yMax = yOffset + yCount;
+		}
+
+		@Override
+		public void run() {
+			for (int y = yMin; y < yMax; y++) {
+				final float ndcMinY = (2.0f * y) / plugin.tileCountY - 1.0f;
+				final float ndcMaxY = (2.0f * (y + 1)) / plugin.tileCountY - 1.0f;
+				for (int x = xMin; x < xMax; x++) {
+					final float ndcMinX = (2.0f * x) / plugin.tileCountX - 1.0f;
+					final float ndcMaxX = (2.0f * (x + 1)) / plugin.tileCountX - 1.0f;
+
+					float[] tile_bl = new float[] {ndcMinX, ndcMinY, 0.0f, 1.0f};
+					float[] tile_br = new float[] {ndcMaxX, ndcMinY, 0.0f, 1.0f};
+					float[] tile_tl = new float[] {ndcMinX, ndcMaxY, 0.0f, 1.0f};
+					float[] tile_tr = new float[] {ndcMaxX, ndcMaxY, 0.0f, 1.0f};
+
+					Mat4.projectVec(tile_bl, plugin.invProjectionMatrix, tile_bl);
+					Mat4.projectVec(tile_br, plugin.invProjectionMatrix, tile_br);
+					Mat4.projectVec(tile_tl, plugin.invProjectionMatrix, tile_tl);
+					Mat4.projectVec(tile_tr, plugin.invProjectionMatrix, tile_tr);
+
+					float[][] tilePlanes =
+						{
+							Vector.planeFromPoints(plugin.cameraPosition, tile_bl, tile_tl), // Left
+							Vector.planeFromPoints(plugin.cameraPosition, tile_tr, tile_br), // Right
+							Vector.planeFromPoints(plugin.cameraPosition, tile_br, tile_bl), // Bottom
+							Vector.planeFromPoints(plugin.cameraPosition, tile_tl, tile_tr) // Top
+						};
+
+					int bufferPosition = y * plugin.tileCountX + x;
+					int tileLightIndex = 0;
+					for (int lightIdx = 0; lightIdx < plugin.sceneContext.numVisibleLights; lightIdx++) {
+						Light light = plugin.sceneContext.lights.get(lightIdx);
+						boolean intersects = HDUtils.isSphereInsideFrustum(
+							light.pos[0] + plugin.cameraShift[0],
+							light.pos[1],
+							light.pos[2] + plugin.cameraShift[1],
+							light.radius,
+							tilePlanes);
+
+						if (intersects) {
+							plugin.tiledLightingBuffer.put(bufferPosition, (short)(lightIdx + 1)); // Put the index in the 3D Texture
+							tileLightIndex++;
+							bufferPosition += plugin.tileCountX * plugin.tileCountY;
+						}
+
+						if (tileLightIndex >= plugin.maxLightsPerTile) {
+							break; // Tile cant fit any more lights in
+						}
+					}
+
+					for (; tileLightIndex < plugin.maxLightsPerTile; tileLightIndex++) {
+						plugin.tiledLightingBuffer.put(bufferPosition, (short)0);
+						bufferPosition += plugin.tileCountX * plugin.tileCountY;
+					}
+				}
+			}
+
+			plugin.tiledLightingLatch.countDown();
+		}
+	}
+
+	private void beginTiledLightingCulling() {
 		if(tiledLightingTex == 0 || tiledLightingBuffer == null || sceneContext == null){
 			return;
 		}
 
 		tiledLightingBuffer.clear();
+		tiledLightingLatch = new CountDownLatch(4);
 
-		float[] invProjectionMatrix = Mat4.inverse(projectionMatrix);
-		float[][] tilePlanes = new float[4][4];
+		int tileCountXHalf = tileCountX / 2;
+		int tileCountYHalf = tileCountY / 2;
 
-		for (int y = 0; y < tileCountY; y++) {
-			float ndcMinY = (2.0f * y) / tileCountY - 1.0f;
-			float ndcMaxY = (2.0f * (y + 1)) / tileCountY - 1.0f;
-			for (int x = 0; x < tileCountX; x++) {
-				float ndcMinX = (2.0f * x) / tileCountX - 1.0f;
-				float ndcMaxX = (2.0f * (x + 1)) / tileCountX - 1.0f;
+		tiledLightingExecutor.submit(new BatchedTileCulling(this, 0, 0, tileCountXHalf, tileCountYHalf));
+		tiledLightingExecutor.submit(new BatchedTileCulling(this, tileCountXHalf, 0, tileCountXHalf, tileCountYHalf));
+		tiledLightingExecutor.submit(new BatchedTileCulling(this, 0, tileCountYHalf, tileCountXHalf, tileCountYHalf));
+		tiledLightingExecutor.submit(new BatchedTileCulling(this, tileCountXHalf, tileCountYHalf, tileCountXHalf, tileCountYHalf));
+	}
 
-				float[] tile_bl = new float[] {ndcMinX, ndcMinY, 0.0f, 1.0f};
-				float[] tile_br = new float[] {ndcMaxX, ndcMinY, 0.0f, 1.0f};
-				float[] tile_tl = new float[] {ndcMinX, ndcMaxY, 0.0f, 1.0f};
-				float[] tile_tr = new float[] {ndcMaxX, ndcMaxY, 0.0f, 1.0f};
-
-				Mat4.projectVec(tile_bl, invProjectionMatrix, tile_bl);
-				Mat4.projectVec(tile_br, invProjectionMatrix, tile_br);
-				Mat4.projectVec(tile_tl, invProjectionMatrix, tile_tl);
-				Mat4.projectVec(tile_tr, invProjectionMatrix, tile_tr);
-
-				tilePlanes[0] = Vector.planeFromPoints(cameraPosition, tile_bl, tile_tl); // Left
-				tilePlanes[1] = Vector.planeFromPoints(cameraPosition, tile_tr, tile_br); // Right
-				tilePlanes[2] = Vector.planeFromPoints(cameraPosition, tile_br, tile_bl); // Bottom
-				tilePlanes[3] = Vector.planeFromPoints(cameraPosition, tile_tl, tile_tr); // Top
-
-				int tileLightIndex = 0;
-				for (int lightIdx = 0; lightIdx < sceneContext.numVisibleLights; lightIdx++) {
-					Light light = sceneContext.lights.get(lightIdx);
-
-					boolean intersects = HDUtils.isSphereInsideFrustum(
-						light.pos[0] + cameraShift[0],
-						light.pos[1],
-						light.pos[2] + cameraShift[1],
-						light.radius,
-						tilePlanes);
-
-					if (intersects) {
-						tiledLightingBuffer.put((short)lightIdx); // Put the index in the 3D Texture
-						tileLightIndex++;
-					}
-
-					if (tileLightIndex >= maxLightsPerTile) {
-						break; // Tile cant fit any more lights in
-					}
-				}
-
-				for (; tileLightIndex < maxLightsPerTile; tileLightIndex++) {
-					tiledLightingBuffer.put((short)-1);
-				}
-			}
+	private void completeTiledLightingUpdate() {
+		if(tiledLightingTex == 0 || tiledLightingBuffer == null || tiledLightingLatch == null) {
+			return;
 		}
+
+		glBindTexture(GL_TEXTURE_3D, tiledLightingTex);
 
 		uboGlobal.tileCountX.set(tileCountX);
 		uboGlobal.tileCountY.set(tileCountY);
+		uboGlobal.maxLightsPerTile.set(maxLightsPerTile);
+
+		try {
+			tiledLightingLatch.await();
+		} catch (InterruptedException e) {
+			throw new RuntimeException(e);
+		}
 
 		tiledLightingBuffer.flip();
-		glBindTexture(GL_TEXTURE_3D, tiledLightingTex);
-		glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, tileCountX, tileCountY, maxLightsPerTile, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, tiledLightingBuffer);
+		glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, tileCountX, tileCountY, maxLightsPerTile, GL_RED_INTEGER, GL_UNSIGNED_SHORT, tiledLightingBuffer);
+
 		glBindTexture(GL_TEXTURE_3D, 0);
 	}
 
@@ -1602,7 +1665,28 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 					System.arraycopy(newCameraOrientation, 0, cameraOrientation, 0, cameraOrientation.length);
 					cameraZoom = newZoom;
 					tileVisibilityCached = false;
+
+					// Calculate projection matrix
+					projectionMatrix = Mat4.scale(client.getScale(), client.getScale(), 1);
+					if (orthographicProjection) {
+						Mat4.mul(projectionMatrix, Mat4.scale(ORTHOGRAPHIC_ZOOM, ORTHOGRAPHIC_ZOOM, -1));
+						Mat4.mul(projectionMatrix, Mat4.orthographic(viewportWidth, viewportHeight, 40000));
+					} else {
+						Mat4.mul(projectionMatrix, Mat4.perspectiveReverseZ(viewportWidth, viewportHeight, NEAR_PLANE, getDrawDistance() * LOCAL_TILE_SIZE));
+					}
+					Mat4.mul(projectionMatrix, Mat4.rotateX(cameraOrientation[1]));
+					Mat4.mul(projectionMatrix, Mat4.rotateY(cameraOrientation[0]));
+					Mat4.mul(projectionMatrix, Mat4.translate(
+						-cameraPosition[0],
+						-cameraPosition[1],
+						-cameraPosition[2]
+					));
+
+					invProjectionMatrix = Mat4.inverse(projectionMatrix);
 				}
+
+				uboGlobal.viewportWidth.set(viewportWidth);
+				uboGlobal.viewportHeight.set(viewportHeight);
 
 				if (sceneContext.scene == scene) {
 					cameraFocalPoint[0] = client.getOculusOrbFocalPointX();
@@ -1616,6 +1700,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 						frameTimer.begin(Timer.UPDATE_LIGHTS);
 						lightManager.update(sceneContext);
+						beginTiledLightingCulling();
 						frameTimer.end(Timer.UPDATE_LIGHTS);
 					} catch (Exception ex) {
 						log.error("Error while updating environment or lights:", ex);
@@ -1707,27 +1792,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			sceneContext.stagingBufferVertices.clear();
 			sceneContext.stagingBufferUvs.clear();
 			sceneContext.stagingBufferNormals.clear();
-
-			// Calculate projection matrix
-			projectionMatrix = Mat4.scale(client.getScale(), client.getScale(), 1);
-			if (orthographicProjection) {
-				Mat4.mul(projectionMatrix, Mat4.scale(ORTHOGRAPHIC_ZOOM, ORTHOGRAPHIC_ZOOM, -1));
-				Mat4.mul(projectionMatrix, Mat4.orthographic(viewportWidth, viewportHeight, 40000));
-			} else {
-				Mat4.mul(projectionMatrix, Mat4.perspectiveReverseZ(viewportWidth, viewportHeight, NEAR_PLANE, getDrawDistance() * LOCAL_TILE_SIZE));
-			}
-			Mat4.mul(projectionMatrix, Mat4.rotateX(cameraOrientation[1]));
-			Mat4.mul(projectionMatrix, Mat4.rotateY(cameraOrientation[0]));
-			Mat4.mul(projectionMatrix, Mat4.translate(
-				-cameraPosition[0],
-				-cameraPosition[1],
-				-cameraPosition[2]
-			));
-
-			uboGlobal.viewportWidth.set(viewportWidth);
-			uboGlobal.viewportHeight.set(viewportHeight);
-
-			updateTiledLightingTexture();
 
 			// Model buffers
 			modelPassthroughBuffer.flip();
@@ -2051,6 +2115,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			} else {
 				glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
 			}
+
+			frameTimer.begin(Timer.COMPLETE_TILED_LIGHTING);
+			completeTiledLightingUpdate();
+			frameTimer.end(Timer.COMPLETE_TILED_LIGHTING);
 
 			glBindVertexArray(vaoSceneHandle);
 

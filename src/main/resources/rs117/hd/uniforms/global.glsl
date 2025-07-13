@@ -36,6 +36,7 @@ layout(std140) uniform GlobalUniforms {
     int pointLightsCount;
     int tileCountX;
     int tileCountY;
+    int maxLightsPerTile; //TODO: Make a shader program constant
     float lightningBrightness;
     vec3 lightDir;
 
