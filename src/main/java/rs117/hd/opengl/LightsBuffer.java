@@ -9,7 +9,9 @@ public class LightsBuffer extends UniformBuffer {
 		super("Lights", GL_STREAM_DRAW);
 	}
 
-	public LightStruct[] lights = addStructs(new LightStruct[MaxDynamicLights.MAX_LIGHTS], LightStruct::new);
+	public static final int MAX_LIGHTS = 1000; // Struct is 64 Bytes, UBO Max size is 64 KB
+
+	public LightStruct[] lights = addStructs(new LightStruct[MAX_LIGHTS], LightStruct::new);
 
 	public static class LightStruct extends UniformBuffer.StructProperty {
 		public Property position = addProperty(PropertyType.FVec4, "position");

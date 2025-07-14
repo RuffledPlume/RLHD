@@ -356,7 +356,7 @@ void main() {
         int tileIdx = tileXY.y * tileCountX + tileXY.x;
         int tileLightCount = 0;
 
-        for(int tileLightIdx = 0; tileLightIdx < maxLightsPerTile; tileLightIdx++) {
+        for(int tileLightIdx = 0; tileLightIdx < LIGHT_COUNT_PER_TILE; tileLightIdx++) {
             int lightIdx = int(texelFetch(textureTiledLighting, ivec3(tileXY, tileLightIdx), 0).r);
             if(lightIdx <= 0) {
                 break;
@@ -387,7 +387,7 @@ void main() {
         if(tileLightCount > 0)
         {
             // HeatMap
-            float level = (tileLightCount / float(maxLightsPerTile)) * 3.14159265 / 2.0;
+            float level = (tileLightCount / float(LIGHT_COUNT_PER_TILE)) * 3.14159265 / 2.0;
 
             outputColor.r = sin(level);
             outputColor.g = sin(level * 2.0);

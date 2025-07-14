@@ -347,17 +347,17 @@ public interface HdPluginConfig extends Config
 	)
 	String lightingSettings = "lightingSettings";
 
-	String KEY_MAX_DYNAMIC_LIGHTS = "maxDynamicLights";
+	String KEY_MAX_LIGHTS_PER_TILE = "maxLightsPerTile";
 	@ConfigItem(
-		keyName = KEY_MAX_DYNAMIC_LIGHTS,
-		name = "Dynamic Lights",
+		keyName = KEY_MAX_LIGHTS_PER_TILE,
+		name = "Max Tiles Per Tile",
 		description =
-			"The maximum number of dynamic lights visible at once.<br>" +
+			"The maximum number of dynamic lights that can be visible within a tile.<br>" +
 			"Reducing this may improve performance.",
 		position = 1,
 		section = lightingSettings
 	)
-	default MaxDynamicLights maxDynamicLights()
+	default MaxDynamicLights maxLightsPerTile()
 	{
 		return MaxDynamicLights.SOME;
 	}

@@ -1,6 +1,7 @@
 #pragma once
 
 #include LIGHT_COUNT
+#include LIGHT_COUNT_PER_TILE
 
 struct PointLight
 {
@@ -11,5 +12,3 @@ struct PointLight
 layout(std140) uniform PointLightUniforms {
     PointLight PointLightArray[LIGHT_COUNT];
 };
-
-#include LIGHT_GETTER
