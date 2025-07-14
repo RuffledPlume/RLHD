@@ -146,6 +146,7 @@ import static org.lwjgl.opencl.CL10.*;
 import static org.lwjgl.opengl.GL11C.glBindTexture;
 import static org.lwjgl.opengl.GL15C.glBindBuffer;
 import static org.lwjgl.opengl.GL43C.*;
+import static org.lwjgl.opengl.KHRShaderSubgroup.*;
 import static rs117.hd.HdPluginConfig.*;
 import static rs117.hd.scene.SceneContext.SCENE_OFFSET;
 import static rs117.hd.utils.HDUtils.MAX_FLOAT_WITH_128TH_PRECISION;
@@ -457,7 +458,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	public boolean enableShadowMapOverlay;
 	public boolean enableFreezeFrame;
 	public boolean orthographicProjection;
-	public boolean isNividaGPU;
+	public int 	   gpuWarpSize;
 
 	@Getter
 	private boolean isActive;
@@ -543,7 +544,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				useLowMemoryMode = config.lowMemoryMode();
 				BUFFER_GROWTH_MULTIPLIER = useLowMemoryMode ? 1.333f : 2;
 
-				String glVendor = glGetString(GL_VENDOR);
 				String glRenderer = glGetString(GL_RENDERER);
 				String arch = System.getProperty("sun.arch.data.model", "Unknown");
 				if (glRenderer == null)
@@ -553,7 +553,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				log.info("Client is {}-bit", arch);
 				log.info("Low memory mode: {}", useLowMemoryMode);
 
-				isNividaGPU = glVendor.toUpperCase().contains("NVIDIA");
+				gpuWarpSize = glGetInteger(GL_SUBGROUP_SIZE_KHR);
 				computeMode = OSType.getOSType() == OSType.MacOS ? ComputeMode.OPENCL : ComputeMode.OPENGL;
 
 				List<String> fallbackDevices = List.of(
@@ -873,6 +873,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			.define("WATER_TYPE_GETTER", () -> generateGetter("WaterType", WaterType.values().length))
 			.define("LIGHT_COUNT", Math.max(1, LightsBuffer.MAX_LIGHTS))
 			.define("LIGHT_COUNT_PER_TILE", configMaxLightsPerTile)
+			.define("TILED_LIGHTING_USE_SUBGROUP", glCaps.OpenGL43)
 			.define("NORMAL_MAPPING", config.normalMapping())
 			.define("PARALLAX_OCCLUSION_MAPPING", config.parallaxOcclusionMapping())
 			.define("SHADOW_MODE", configShadowMode)
@@ -1236,59 +1237,50 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		}
 	}
 
-	private void initTiledLightingTexture(int width, int height) {
-		completeTiledLightingUpdate();
-
-		if(tiledLightingTex != 0) {
-			glDeleteTextures(tiledLightingTex);
-			tiledLightingTex = 0;
-		}
-
-		if(tiledLightingPbo != 0) {
-			glDeleteBuffers(tiledLightingPbo);
-			tiledLightingPbo = 0;
-		}
-
-		tileCountX = width / (isNividaGPU ? 16 : 32);
-		tileCountY = height / (isNividaGPU ? 16 : 32);
-
-		glActiveTexture(TEXTURE_UNIT_TILED_LIGHTING_MAP);
-
-		tiledLightingPbo = glGenBuffers();
-
-		tiledLightingTex = glGenTextures();
-		glBindTexture(GL_TEXTURE_3D, tiledLightingTex);
-		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-		glTexImage3D(GL_TEXTURE_3D, 0, GL_R16I, tileCountX, tileCountY, configMaxLightsPerTile, 0, GL_RED_INTEGER, GL_UNSIGNED_SHORT, 0);
-
-		glBindBuffer(GL_PIXEL_UNPACK_BUFFER , tiledLightingPbo);
-		glBufferData(GL_PIXEL_UNPACK_BUFFER , tileCountX * tileCountY * configMaxLightsPerTile * 4L, GL_STREAM_DRAW);
-
-		glBindBuffer(GL_PIXEL_UNPACK_BUFFER , 0);
-
-		checkGLErrors();
-
-		int tileCountXHalf = tileCountX / 2;
-		int tileCountYHalf = tileCountY / 2;
-		tiledLightingCullingJobs[0] = new AsyncTileCulling(this, 0, 0, tileCountXHalf, tileCountYHalf);
-		tiledLightingCullingJobs[1] = new AsyncTileCulling(this, tileCountXHalf, 0, tileCountXHalf, tileCountYHalf);
-		tiledLightingCullingJobs[2] = new AsyncTileCulling(this, 0, tileCountYHalf, tileCountXHalf, tileCountYHalf);
-		tiledLightingCullingJobs[3] = new AsyncTileCulling(this, tileCountXHalf, tileCountYHalf, tileCountXHalf, tileCountYHalf);
-
-		// Reset active texture to UI texture
-		glActiveTexture(TEXTURE_UNIT_UI);
-	}
-
 	private void beginTiledLightingCulling() {
-		if(tiledLightingTex == 0 || tiledLightingPbo == 0 || sceneContext == null){
+		if(sceneContext == null || viewportWidth <= gpuWarpSize || viewportHeight <= gpuWarpSize || configMaxLightsPerTile == 0){
 			return;
 		}
 
+		int newTileCountX = viewportWidth / gpuWarpSize;
+		int newTileCountY = viewportHeight / gpuWarpSize;
+		if(tiledLightingPbo == 0 || tiledLightingTex == 0 || tileCountX != newTileCountX || tileCountY != newTileCountY) {
+			tileCountX = newTileCountX;
+			tileCountY = newTileCountY;
 
+			if(tiledLightingTex != 0) {
+				glDeleteTextures(tiledLightingTex);
+				tiledLightingTex = 0;
+			}
+
+			glActiveTexture(TEXTURE_UNIT_TILED_LIGHTING_MAP);
+
+			tiledLightingPbo = glGenBuffers();
+			tiledLightingTex = glGenTextures();
+			glBindTexture(GL_TEXTURE_3D, tiledLightingTex);
+			glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+			glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+			glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+			glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+			glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+			glTexImage3D(GL_TEXTURE_3D, 0, GL_R16I, tileCountX, tileCountY, configMaxLightsPerTile, 0, GL_RED_INTEGER, GL_UNSIGNED_SHORT, 0);
+
+			glBindBuffer(GL_PIXEL_UNPACK_BUFFER , tiledLightingPbo);
+			glBufferData(GL_PIXEL_UNPACK_BUFFER , tileCountX * tileCountY * configMaxLightsPerTile * 4L, GL_STREAM_DRAW);
+
+			glBindBuffer(GL_PIXEL_UNPACK_BUFFER , 0);
+
+			checkGLErrors();
+
+			int tileCountXHalf = tileCountX / 2;
+			int tileCountYHalf = tileCountY / 2;
+			tiledLightingCullingJobs[0] = new AsyncTileCulling(this, 0, 0, tileCountXHalf, tileCountYHalf);
+			tiledLightingCullingJobs[1] = new AsyncTileCulling(this, tileCountXHalf, 0, tileCountXHalf, tileCountYHalf);
+			tiledLightingCullingJobs[2] = new AsyncTileCulling(this, 0, tileCountYHalf, tileCountXHalf, tileCountYHalf);
+			tiledLightingCullingJobs[3] = new AsyncTileCulling(this, tileCountXHalf, tileCountYHalf, tileCountXHalf, tileCountYHalf);
+
+			glActiveTexture(TEXTURE_UNIT_UI);
+		}
 
 		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, tiledLightingPbo);
 		ByteBuffer mappedBuffer = glMapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_WRITE_ONLY);
@@ -1304,7 +1296,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	}
 
 	private void completeTiledLightingUpdate() {
-		if(tiledLightingTex == 0 || tiledLightingPbo == 0 || tiledLightingLatch == null) {
+		if(tiledLightingTex == 0 || tiledLightingPbo == 0  || configMaxLightsPerTile == 0 || tiledLightingLatch == null) {
 			return;
 		}
 
@@ -2077,7 +2069,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 				destroySceneFbo();
 				try {
-					initTiledLightingTexture(stretchedCanvasWidth, stretchedCanvasHeight);
 					initSceneFbo(stretchedCanvasWidth, stretchedCanvasHeight, antiAliasingMode);
 				} catch (Exception ex) {
 					log.error("Error while initializing scene FBO:", ex);

@@ -31,7 +31,7 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public enum MaxDynamicLights
 {
-	DISABLED("None", 0),
+	DISABLED("Disabled", 0),
 	LOW("Low", 8),
 	MEDIUM("Medium", 16),
 	HIGH("High", 32);

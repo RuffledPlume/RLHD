@@ -46,6 +46,7 @@ flat in vec3 B;
 
 in FragmentData {
     vec3 position;
+    noperspective vec2 fragCoords;
     vec2 uv;
     vec3 normal;
     vec3 texBlend;
@@ -351,19 +352,37 @@ void main() {
         vec3 pointLightsSpecularOut = vec3(0);
 
         #if LIGHT_COUNT_PER_TILE > 0
-        vec2 screenUV = gl_FragCoord.xy / vec2(viewportWidth, viewportHeight);
-        ivec2 tileXY = ivec2(floor(screenUV * vec2(tileCountX - 1, tileCountY - 1)));
-
-        int tileIdx = tileXY.y * tileCountX + tileXY.x;
+        ivec2 tileXY = ivec2(floor(IN.fragCoords * vec2(tileCountX, tileCountY)));
         int tileLightCount = 0;
 
-        for(int tileLightIdx = 0; tileLightIdx < LIGHT_COUNT_PER_TILE; tileLightIdx++) {
-            int lightIdx = int(texelFetch(textureTiledLighting, ivec3(tileXY, tileLightIdx), 0).r);
+        #if TILED_LIGHTING_USE_SUBGROUP
+        int tileLightIndicies[LIGHT_COUNT_PER_TILE];
+        if (subgroupElect()) {
+            for(int idx = 0; idx < LIGHT_COUNT_PER_TILE; idx++) {
+                int lightIdx = int(texelFetch(textureTiledLighting, ivec3(tileXY, idx), 0).r);
+                if(lightIdx <= 0) {
+                    break;
+                }
+                tileLightIndicies[idx] = lightIdx - 1;
+                tileLightCount++;
+            }
+        }
+
+        tileLightCount = subgroupBroadcastFirst(tileLightCount);
+        #else
+        tileLightCount = LIGHT_COUNT_PER_TILE;
+        #endif
+
+        for(int idx = 0; idx < tileLightCount; idx++) {
+            #if TILED_LIGHTING_USE_SUBGROUP
+            int lightIdx = tileLightIndicies[idx];
+            #else
+            int lightIdx = int(texelFetch(textureTiledLighting, ivec3(tileXY, idx), 0).r);
             if(lightIdx <= 0) {
                 break;
             }
             lightIdx--;
-            tileLightCount++;
+            #endif
 
             vec4 pos = PointLightArray[lightIdx].position;
             vec3 lightToFrag = pos.xyz - IN.position;
@@ -382,18 +401,6 @@ void main() {
                 vec3 pointLightReflectDir = reflect(-pointLightDir, normals);
                 pointLightsSpecularOut += pointLightColor * specular(viewDir, pointLightReflectDir, vSpecularGloss, vSpecularStrength);
             }
-        }
-        #endif
-
-        #if 0
-        if(tileLightCount > 0)
-        {
-            // HeatMap
-            float level = (tileLightCount / float(LIGHT_COUNT_PER_TILE)) * 3.14159265 / 2.0;
-
-            outputColor.r = sin(level);
-            outputColor.g = sin(level * 2.0);
-            outputColor.b = cos(level);
         }
         #endif
 

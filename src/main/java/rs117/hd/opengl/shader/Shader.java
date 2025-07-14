@@ -44,7 +44,7 @@ import static rs117.hd.utils.ResourcePath.path;
 @Slf4j
 public class Shader
 {
-	public static final boolean DUMP_SHADERS = Props.has("rlhd.dump-shaders");
+	public static final boolean DUMP_SHADERS = true; //Props.has("rlhd.dump-shaders");
 
 	@VisibleForTesting
 	final List<Unit> units = new ArrayList<>();

@@ -26,6 +26,7 @@ public class AsyncTileCulling implements Runnable {
 
 	@Override
 	public void run() {
+		// TODO: This isn't writing to the 3D Texture properly yet
 		for (int y = yMin; y < yMax; y++) {
 			final float ndcMinY = (2.0f * y) / plugin.tileCountY - 1.0f;
 			final float ndcMaxY = (2.0f * (y + 1)) / plugin.tileCountY - 1.0f;
@@ -51,6 +52,7 @@ public class AsyncTileCulling implements Runnable {
 						Vector.planeFromPoints(plugin.cameraPosition, tile_tl, tile_tr) // Top
 					};
 
+				// TODO: I don't think this is calculating the correct buffer position
 				int bufferPosition = y * plugin.tileCountX + x;
 				int tileLightIndex = 0;
 				for (int lightIdx = 0; lightIdx < plugin.sceneContext.numVisibleLights; lightIdx++) {

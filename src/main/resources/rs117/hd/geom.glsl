@@ -48,6 +48,7 @@ flat out vec3 B;
 
 out FragmentData {
     vec3 position;
+    noperspective vec2 fragCoords;
     vec2 uv;
     vec3 normal;
     vec3 texBlend;
@@ -97,7 +98,9 @@ void main() {
         #endif
         OUT.texBlend = vec3(0);
         OUT.texBlend[i] = 1;
+
         gl_Position = projectionMatrix * vec4(OUT.position, 1);
+        OUT.fragCoords = (gl_Position.xy / gl_Position.w) * 0.5 + 0.5;
         EmitVertex();
     }
 
