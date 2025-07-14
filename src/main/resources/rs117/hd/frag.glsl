@@ -350,6 +350,7 @@ void main() {
         vec3 pointLightsOut = vec3(0);
         vec3 pointLightsSpecularOut = vec3(0);
 
+        #if LIGHT_COUNT_PER_TILE > 0
         vec2 screenUV = gl_FragCoord.xy / vec2(viewportWidth, viewportHeight);
         ivec2 tileXY = ivec2(floor(screenUV * vec2(tileCountX - 1, tileCountY - 1)));
 
@@ -382,6 +383,7 @@ void main() {
                 pointLightsSpecularOut += pointLightColor * specular(viewDir, pointLightReflectDir, vSpecularGloss, vSpecularStrength);
             }
         }
+        #endif
 
         #if 0
         if(tileLightCount > 0)

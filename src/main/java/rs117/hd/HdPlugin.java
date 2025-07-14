@@ -95,6 +95,7 @@ import rs117.hd.data.materials.Material;
 import rs117.hd.model.ModelHasher;
 import rs117.hd.model.ModelOffsets;
 import rs117.hd.model.ModelPusher;
+import rs117.hd.opengl.AsyncTileCulling;
 import rs117.hd.opengl.AsyncUICopy;
 import rs117.hd.opengl.CameraBuffer;
 import rs117.hd.opengl.GlobalUniforms;
@@ -366,11 +367,14 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	private GpuIntBuffer modelPassthroughBuffer;
 	private final GLBuffer hModelPassthroughBuffer = new GLBuffer("Model Passthrough");
 
-	private int tiledLightingPbo;
-	private int tiledLightingTex;
-	private int tileCountX;
-	private int tileCountY;
-	private int maxLightsPerTile;
+	// Tiled lighting
+	private final AsyncTileCulling[] tiledLightingCullingJobs = new AsyncTileCulling[4];
+	private final ExecutorService tiledLightingExecutor = Executors.newFixedThreadPool(tiledLightingCullingJobs.length);
+	public CountDownLatch tiledLightingLatch;
+	public int tiledLightingPbo;
+	public int tiledLightingTex;
+	public int tileCountX;
+	public int tileCountY;
 
 	// ordered by face count from small to large
 	public int numSortingBins;
@@ -391,7 +395,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 	@Getter
 	@Nullable
-	private SceneContext sceneContext;
+	public SceneContext sceneContext;
 	private SceneContext nextSceneContext;
 
 	private int dynamicOffsetVertices;
@@ -472,9 +476,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	public final float[] cameraPosition = new float[3];
 	public final float[] cameraOrientation = new float[2];
 	public final int[] cameraFocalPoint = new int[2];
-	private final int[] cameraShift = new int[2];
+	public final int[] cameraShift = new int[2];
 	private float[] projectionMatrix;
-	private float[] invProjectionMatrix;
+	public float[] invProjectionMatrix;
 	private int cameraZoom;
 	private boolean tileVisibilityCached;
 	private final boolean[][][] tileIsVisible = new boolean[MAX_Z][EXTENDED_SCENE_SIZE][EXTENDED_SCENE_SIZE];
@@ -1245,7 +1249,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			tiledLightingPbo = 0;
 		}
 
-		maxLightsPerTile = 32;
 		tileCountX = width / (isNividaGPU ? 16 : 32);
 		tileCountY = height / (isNividaGPU ? 16 : 32);
 
@@ -1260,99 +1263,24 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 		glTexParameteri(GL_TEXTURE_3D, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-		glTexImage3D(GL_TEXTURE_3D, 0, GL_R16I, tileCountX, tileCountY, maxLightsPerTile, 0, GL_RED_INTEGER, GL_UNSIGNED_SHORT, 0);
+		glTexImage3D(GL_TEXTURE_3D, 0, GL_R16I, tileCountX, tileCountY, configMaxLightsPerTile, 0, GL_RED_INTEGER, GL_UNSIGNED_SHORT, 0);
 
 		glBindBuffer(GL_PIXEL_UNPACK_BUFFER , tiledLightingPbo);
-		glBufferData(GL_PIXEL_UNPACK_BUFFER , tileCountX * tileCountY * maxLightsPerTile * 4L, GL_STREAM_DRAW);
+		glBufferData(GL_PIXEL_UNPACK_BUFFER , tileCountX * tileCountY * configMaxLightsPerTile * 4L, GL_STREAM_DRAW);
 
 		glBindBuffer(GL_PIXEL_UNPACK_BUFFER , 0);
 
 		checkGLErrors();
 
+		int tileCountXHalf = tileCountX / 2;
+		int tileCountYHalf = tileCountY / 2;
+		tiledLightingCullingJobs[0] = new AsyncTileCulling(this, 0, 0, tileCountXHalf, tileCountYHalf);
+		tiledLightingCullingJobs[1] = new AsyncTileCulling(this, tileCountXHalf, 0, tileCountXHalf, tileCountYHalf);
+		tiledLightingCullingJobs[2] = new AsyncTileCulling(this, 0, tileCountYHalf, tileCountXHalf, tileCountYHalf);
+		tiledLightingCullingJobs[3] = new AsyncTileCulling(this, tileCountXHalf, tileCountYHalf, tileCountXHalf, tileCountYHalf);
+
 		// Reset active texture to UI texture
 		glActiveTexture(TEXTURE_UNIT_UI);
-	}
-
-	private final ExecutorService tiledLightingExecutor = Executors.newFixedThreadPool(4);
-	private CountDownLatch tiledLightingLatch;
-
-	static class BatchedTileCulling implements Runnable {
-		public HdPlugin plugin;
-
-		public ShortBuffer buffer;
-
-		public int xMin;
-		public int yMin;
-		public int xMax;
-		public int yMax;
-
-		public BatchedTileCulling(HdPlugin plugin, ShortBuffer buffer, int xOffset, int yOffset, int xCount, int yCount) {
-			this.plugin = plugin;
-			this.buffer = buffer;
-			this.xMin = xOffset;
-			this.yMin = yOffset;
-			this.xMax = xOffset + xCount;
-			this.yMax = yOffset + yCount;
-		}
-
-		@Override
-		public void run() {
-			for (int y = yMin; y < yMax; y++) {
-				final float ndcMinY = (2.0f * y) / plugin.tileCountY - 1.0f;
-				final float ndcMaxY = (2.0f * (y + 1)) / plugin.tileCountY - 1.0f;
-				for (int x = xMin; x < xMax; x++) {
-					final float ndcMinX = (2.0f * x) / plugin.tileCountX - 1.0f;
-					final float ndcMaxX = (2.0f * (x + 1)) / plugin.tileCountX - 1.0f;
-
-					float[] tile_bl = new float[] {ndcMinX, ndcMinY, 0.0f, 1.0f};
-					float[] tile_br = new float[] {ndcMaxX, ndcMinY, 0.0f, 1.0f};
-					float[] tile_tl = new float[] {ndcMinX, ndcMaxY, 0.0f, 1.0f};
-					float[] tile_tr = new float[] {ndcMaxX, ndcMaxY, 0.0f, 1.0f};
-
-					Mat4.projectVec(tile_bl, plugin.invProjectionMatrix, tile_bl);
-					Mat4.projectVec(tile_br, plugin.invProjectionMatrix, tile_br);
-					Mat4.projectVec(tile_tl, plugin.invProjectionMatrix, tile_tl);
-					Mat4.projectVec(tile_tr, plugin.invProjectionMatrix, tile_tr);
-
-					float[][] tilePlanes =
-						{
-							Vector.planeFromPoints(plugin.cameraPosition, tile_bl, tile_tl), // Left
-							Vector.planeFromPoints(plugin.cameraPosition, tile_tr, tile_br), // Right
-							Vector.planeFromPoints(plugin.cameraPosition, tile_br, tile_bl), // Bottom
-							Vector.planeFromPoints(plugin.cameraPosition, tile_tl, tile_tr) // Top
-						};
-
-					int bufferPosition = y * plugin.tileCountX + x;
-					int tileLightIndex = 0;
-					for (int lightIdx = 0; lightIdx < plugin.sceneContext.numVisibleLights; lightIdx++) {
-						Light light = plugin.sceneContext.lights.get(lightIdx);
-						boolean intersects = HDUtils.isSphereInsideFrustum(
-							light.pos[0] + plugin.cameraShift[0],
-							light.pos[1],
-							light.pos[2] + plugin.cameraShift[1],
-							light.radius,
-							tilePlanes);
-
-						if (intersects) {
-							buffer.put(bufferPosition, (short)(lightIdx + 1)); // Put the index in the 3D Texture
-							tileLightIndex++;
-							bufferPosition += plugin.tileCountX * plugin.tileCountY;
-						}
-
-						if (tileLightIndex >= plugin.maxLightsPerTile) {
-							break; // Tile cant fit any more lights in
-						}
-					}
-
-					for (; tileLightIndex < plugin.maxLightsPerTile; tileLightIndex++) {
-						buffer.put(bufferPosition, (short)0);
-						bufferPosition += plugin.tileCountX * plugin.tileCountY;
-					}
-				}
-			}
-
-			plugin.tiledLightingLatch.countDown();
-		}
 	}
 
 	private void beginTiledLightingCulling() {
@@ -1360,47 +1288,18 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			return;
 		}
 
-		tiledLightingLatch = new CountDownLatch(4);
 
-		int tileCountXHalf = tileCountX / 2;
-		int tileCountYHalf = tileCountY / 2;
 
 		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, tiledLightingPbo);
 		ByteBuffer mappedBuffer = glMapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_WRITE_ONLY);
 		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 
+		tiledLightingLatch = new CountDownLatch(4);
 		if(mappedBuffer != null) {
-			tiledLightingExecutor.submit(new BatchedTileCulling(
-				this,
-				mappedBuffer.asShortBuffer(),
-				0,
-				0,
-				tileCountXHalf,
-				tileCountYHalf));
-			tiledLightingExecutor.submit(new BatchedTileCulling(
-				this,
-				mappedBuffer.asShortBuffer(),
-				tileCountXHalf,
-				0,
-				tileCountXHalf,
-				tileCountYHalf
-			));
-			tiledLightingExecutor.submit(new BatchedTileCulling(
-				this,
-				mappedBuffer.asShortBuffer(),
-				0,
-				tileCountYHalf,
-				tileCountXHalf,
-				tileCountYHalf
-			));
-			tiledLightingExecutor.submit(new BatchedTileCulling(
-				this,
-				mappedBuffer.asShortBuffer(),
-				tileCountXHalf,
-				tileCountYHalf,
-				tileCountXHalf,
-				tileCountYHalf
-			));
+			for(AsyncTileCulling asyncJoc : tiledLightingCullingJobs) {
+				asyncJoc.buffer = mappedBuffer.asShortBuffer();
+				tiledLightingExecutor.submit(asyncJoc);
+			}
 		}
 	}
 
@@ -1419,7 +1318,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);
 
 		glBindTexture(GL_TEXTURE_3D, tiledLightingTex);
-		glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, tileCountX, tileCountY, maxLightsPerTile, GL_RED_INTEGER, GL_UNSIGNED_SHORT, 0);
+		glTexSubImage3D(GL_TEXTURE_3D, 0, 0, 0, 0, tileCountX, tileCountY, configMaxLightsPerTile, GL_RED_INTEGER, GL_UNSIGNED_SHORT, 0);
 
 		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 		glBindTexture(GL_TEXTURE_3D, 0);
@@ -2774,7 +2673,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		configLegacyGreyColors = config.legacyGreyColors();
 		configModelBatching = config.modelBatching();
 		configModelCaching = config.modelCaching();
-		configMaxLightsPerTile = config.maxLightsPerTile().getValue();
+		configMaxLightsPerTile = config.maxDynamicLights().getValue();
 		configExpandShadowDraw = config.expandShadowDraw();
 		configUseFasterModelHashing = config.fasterModelHashing();
 		configUndoVanillaShading = config.shadingMode() != ShadingMode.VANILLA;
@@ -2898,7 +2797,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 								break;
 							case KEY_COLOR_BLINDNESS:
 							case KEY_MACOS_INTEL_WORKAROUND:
-							case KEY_MAX_LIGHTS_PER_TILE:
+							case KEY_MAX_DYNAMIC_LIGHTS:
 							case KEY_NORMAL_MAPPING:
 							case KEY_PARALLAX_OCCLUSION_MAPPING:
 							case KEY_UI_SCALING_MODE:

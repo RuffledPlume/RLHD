@@ -31,10 +31,10 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public enum MaxDynamicLights
 {
-	NONE("None", 0),
-	FEW("Few (8)", 8),
-	SOME("Some (16)", 16),
-	MANY("Many (32)", 32);
+	DISABLED("None", 0),
+	LOW("Low", 8),
+	MEDIUM("Medium", 16),
+	HIGH("High", 32);
 
 	public static final int MAX_LIGHTS;
 
