@@ -50,8 +50,7 @@ import net.runelite.client.plugins.entityhider.EntityHiderConfig;
 import net.runelite.client.plugins.entityhider.EntityHiderPlugin;
 import rs117.hd.HdPlugin;
 import rs117.hd.HdPluginConfig;
-import rs117.hd.config.MaxDynamicLights;
-import rs117.hd.opengl.LightsBuffer;
+import rs117.hd.opengl.LightUniforms;
 import rs117.hd.overlays.FrameTimer;
 import rs117.hd.overlays.Timer;
 import rs117.hd.scene.lights.Alignment;
@@ -469,7 +468,7 @@ public class LightManager {
 		sceneContext.numVisibleLights = 0;
 		for (Light light : sceneContext.lights) {
 			// Exit early once encountering the first invisible light, or the light limit is reached
-			if (!light.visible || sceneContext.numVisibleLights >= LightsBuffer.MAX_LIGHTS)
+			if (!light.visible || sceneContext.numVisibleLights >= LightUniforms.MAX_LIGHTS)
 				break;
 
 			sceneContext.numVisibleLights++;

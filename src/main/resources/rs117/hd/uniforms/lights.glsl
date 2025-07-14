@@ -1,6 +1,6 @@
 #pragma once
 
-#include LIGHT_COUNT
+#include MAX_LIGHT_COUNT
 #include LIGHT_COUNT_PER_TILE
 #include TILED_LIGHTING_USE_SUBGROUP
 
@@ -21,5 +21,5 @@ struct PointLight
 };
 
 layout(std140) uniform PointLightUniforms {
-    PointLight PointLightArray[LIGHT_COUNT];
+    PointLight PointLightArray[MAX_LIGHT_COUNT];
 };
