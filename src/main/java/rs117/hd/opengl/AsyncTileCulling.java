@@ -24,9 +24,14 @@ public class AsyncTileCulling implements Runnable {
 		this.yMax = yOffset + yCount;
 	}
 
+	private void putLightIndex(int x, int y, int z, short value) {
+		int bufferPosition = z * plugin.tileCountX * plugin.tileCountY + y * plugin.tileCountX + x;
+		buffer.put(bufferPosition, value);
+	}
+
+
 	@Override
 	public void run() {
-		// TODO: This isn't writing to the 3D Texture properly yet
 		for (int y = yMin; y < yMax; y++) {
 			final float ndcMinY = (2.0f * y) / plugin.tileCountY - 1.0f;
 			final float ndcMaxY = (2.0f * (y + 1)) / plugin.tileCountY - 1.0f;
@@ -52,8 +57,6 @@ public class AsyncTileCulling implements Runnable {
 						Vector.planeFromPoints(plugin.cameraPosition, tile_tl, tile_tr) // Top
 					};
 
-				// TODO: I don't think this is calculating the correct buffer position
-				int bufferPosition = y * plugin.tileCountX + x;
 				int tileLightIndex = 0;
 				for (int lightIdx = 0; lightIdx < plugin.sceneContext.numVisibleLights; lightIdx++) {
 					Light light = plugin.sceneContext.lights.get(lightIdx);
@@ -65,9 +68,8 @@ public class AsyncTileCulling implements Runnable {
 						tilePlanes);
 
 					if (intersects) {
-						buffer.put(bufferPosition, (short)(lightIdx + 1)); // Put the index in the 3D Texture
+						putLightIndex(x, y, lightIdx, (short)(lightIdx + 1)); // Put the index in the 3D Texture
 						tileLightIndex++;
-						bufferPosition += plugin.tileCountX * plugin.tileCountY;
 					}
 
 					if (tileLightIndex >= plugin.configMaxLightsPerTile) {
@@ -76,8 +78,7 @@ public class AsyncTileCulling implements Runnable {
 				}
 
 				for (; tileLightIndex < plugin.configMaxLightsPerTile; tileLightIndex++) {
-					buffer.put(bufferPosition, (short)0);
-					bufferPosition += plugin.tileCountX * plugin.tileCountY;
+					putLightIndex(x, y, tileLightIndex, (short)0);
 				}
 			}
 		}
