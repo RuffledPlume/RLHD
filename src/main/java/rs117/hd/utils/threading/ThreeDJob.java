@@ -1,5 +1,8 @@
 package rs117.hd.utils.threading;
 
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
 public abstract class ThreeDJob extends BaseJob {
 	protected int offsetX, offsetY, offsetZ;
 	protected int limitX, limitY, limitZ;
@@ -15,7 +18,7 @@ public abstract class ThreeDJob extends BaseJob {
 				}
 			}
 		} catch (Exception ex) {
-			ex.printStackTrace();
+			log.error("Job: {} Encountered an error while executing", getClass().getName(), ex);
 		} finally {
 			sema.release();
 		}

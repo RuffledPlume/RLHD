@@ -9,9 +9,19 @@ public class JobUtil {
 	public static final int THREAD_POOL_SIZE = Runtime.getRuntime().availableProcessors() - 1;
 	public static final ExecutorService THREAD_POOL = Executors.newFixedThreadPool(THREAD_POOL_SIZE);
 
+
 	public static class JobBatch<T extends BaseJob> {
+		public interface OnCompleteFunction {
+			void onComplete();
+		}
+
 		protected final ArrayList<T> jobs = new ArrayList<>();
 		protected boolean isCompleted = true;
+		protected OnCompleteFunction completeFunction;
+
+		public void setOnCompleteFunction(OnCompleteFunction completeFunction) {
+			this.completeFunction = completeFunction;
+		}
 
 		public int getJobCount() {
 			assert isCompleted;
@@ -26,6 +36,7 @@ public class JobUtil {
 		private void reset (){
 			assert isCompleted;
 			isCompleted = false;
+			completeFunction = null;
 			jobs.clear();
 		}
 
@@ -37,6 +48,12 @@ public class JobUtil {
 			for(T job : jobs) {
 				job.complete();
 			}
+
+			if(completeFunction != null) {
+				completeFunction.onComplete();
+				completeFunction = null;
+			}
+
 			isCompleted = true;
 		}
 	}
