@@ -2,29 +2,24 @@ package rs117.hd.opengl;
 
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Semaphore;
-import java.util.concurrent.TimeUnit;
 import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import rs117.hd.overlays.FrameTimer;
 import rs117.hd.overlays.Timer;
+import rs117.hd.utils.threading.JobUtil;
+import rs117.hd.utils.threading.SingleJob;
 
 import static org.lwjgl.opengl.GL15C.*;
 import static org.lwjgl.opengl.GL21C.*;
 
 @Slf4j
-public class AsyncUICopy implements Runnable {
+public class AsyncUICopy extends SingleJob {
 	@Inject
 	private Client client;
 
 	@Inject
 	private FrameTimer timer;
-
-	private final ExecutorService executor = Executors.newSingleThreadExecutor();
-	private final Semaphore completionSemaphore = new Semaphore(0);
 
 	private IntBuffer mappedBuffer;
 	private int[] pixels;
@@ -34,11 +29,10 @@ public class AsyncUICopy implements Runnable {
 	private int height;
 
 	@Override
-	public void run() {
+	protected void execute() {
 		long time = System.nanoTime();
 		mappedBuffer.put(pixels, 0, width * height);
 		time = System.nanoTime() - time;
-		completionSemaphore.release();
 		timer.add(Timer.COPY_UI, time);
 	}
 
@@ -64,21 +58,13 @@ public class AsyncUICopy implements Runnable {
 		this.width = provider.getWidth();
 		this.height = provider.getHeight();
 
-		executor.execute(this);
+		JobUtil.submit(this);
 	}
 
-	public boolean complete() {
+	@Override
+	protected void onComplete() {
 		if (mappedBuffer == null)
-			return false;
-
-		try {
-			// It shouldn't take this long even in the worst case
-			boolean acquired = completionSemaphore.tryAcquire(1, 100, TimeUnit.MILLISECONDS);
-			if (!acquired)
-				return false;
-		} catch (InterruptedException e) {
-			throw new RuntimeException(e);
-		}
+			return;
 
 		timer.begin(Timer.UPLOAD_UI);
 		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, interfacePbo);
@@ -92,6 +78,8 @@ public class AsyncUICopy implements Runnable {
 
 		mappedBuffer = null;
 		pixels = null;
-		return true;
 	}
+
+	@Override
+	protected boolean shouldCache() { return false; }
 }

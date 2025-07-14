@@ -43,6 +43,7 @@ import java.nio.IntBuffer;
 import java.nio.ShortBuffer;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
@@ -137,6 +138,7 @@ import rs117.hd.utils.Vector;
 import rs117.hd.utils.buffer.GLBuffer;
 import rs117.hd.utils.buffer.GpuIntBuffer;
 import rs117.hd.utils.buffer.SharedGLBuffer;
+import rs117.hd.utils.threading.JobUtil;
 
 import static net.runelite.api.Constants.*;
 import static net.runelite.api.Constants.SCENE_SIZE;
@@ -377,9 +379,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		"Model Passthrough", GL_ARRAY_BUFFER, GL_STREAM_DRAW, CL_MEM_READ_ONLY);
 
 	// Tiled lighting
-	private final AsyncTileCulling[] tiledLightingCullingJobs = new AsyncTileCulling[4];
-	private final ExecutorService tiledLightingExecutor = Executors.newFixedThreadPool(tiledLightingCullingJobs.length);
-	public CountDownLatch tiledLightingLatch;
+	private final JobUtil.JobBatch<AsyncTileCulling> tiledLightingCullingBatch = new JobUtil.JobBatch<>();
 	public int tiledLightingPbo;
 	public int tiledLightingTex;
 	public int tileCountX;
@@ -1261,13 +1261,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 			checkGLErrors();
 
-			int tileCountXHalf = tileCountX / 2;
-			int tileCountYHalf = tileCountY / 2;
-			tiledLightingCullingJobs[0] = new AsyncTileCulling(this, 0, 0, tileCountXHalf, tileCountYHalf);
-			tiledLightingCullingJobs[1] = new AsyncTileCulling(this, tileCountXHalf, 0, tileCountXHalf, tileCountYHalf);
-			tiledLightingCullingJobs[2] = new AsyncTileCulling(this, 0, tileCountYHalf, tileCountXHalf, tileCountYHalf);
-			tiledLightingCullingJobs[3] = new AsyncTileCulling(this, tileCountXHalf, tileCountYHalf, tileCountXHalf, tileCountYHalf);
-
 			glActiveTexture(TEXTURE_UNIT_UI);
 		}
 
@@ -1275,25 +1268,18 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		ByteBuffer mappedBuffer = glMapBuffer(GL_PIXEL_UNPACK_BUFFER, GL_WRITE_ONLY);
 		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
 
-		tiledLightingLatch = new CountDownLatch(4);
 		if(mappedBuffer != null) {
-			for(AsyncTileCulling asyncJoc : tiledLightingCullingJobs) {
-				asyncJoc.buffer = mappedBuffer.asShortBuffer();
-				tiledLightingExecutor.submit(asyncJoc);
-			}
+			ShortBuffer mappedShortBuffer = mappedBuffer.asShortBuffer();
+			JobUtil.submit(0, 0, tileCountX, tileCountY, () -> AsyncTileCulling.createJob(this, mappedShortBuffer), tiledLightingCullingBatch);
 		}
 	}
 
 	private void completeTiledLightingUpdate() {
-		if(tiledLightingTex == 0 || tiledLightingPbo == 0  || configMaxLightsPerTile == 0 || tiledLightingLatch == null) {
+		if(tiledLightingTex == 0 || tiledLightingPbo == 0  || configMaxLightsPerTile == 0) {
 			return;
 		}
 
-		try {
-			tiledLightingLatch.await();
-		} catch (InterruptedException e) {
-			throw new RuntimeException(e);
-		}
+		tiledLightingCullingBatch.complete();
 
 		glBindBuffer(GL_PIXEL_UNPACK_BUFFER, tiledLightingPbo);
 		glUnmapBuffer(GL_PIXEL_UNPACK_BUFFER);

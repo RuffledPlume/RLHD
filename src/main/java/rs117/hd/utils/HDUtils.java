@@ -28,6 +28,8 @@ import java.util.Random;
 import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
+import rs117.hd.HdPlugin;
+import rs117.hd.opengl.AsyncTileCulling;
 import rs117.hd.scene.areas.AABB;
 import rs117.hd.scene.areas.Area;
 
