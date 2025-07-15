@@ -33,12 +33,12 @@ public class AsyncTileCulling extends TwoDJob {
 	}
 
 	@Override
-	protected void execute(int x, int y) {
-		final float ndcMinY = (2.0f * y) / plugin.tileCountY - 1.0f;
-		final float ndcMaxY = (2.0f * (y + 1)) / plugin.tileCountY - 1.0f;
+	protected void execute(int tileX, int tileY) {
+		final float ndcMinX = (2.0f * tileX) / plugin.tileCountX - 1.0f;
+		final float ndcMaxX = (2.0f * (tileX + 1)) / plugin.tileCountX - 1.0f;
 
-		final float ndcMinX = (2.0f * x) / plugin.tileCountX - 1.0f;
-		final float ndcMaxX = (2.0f * (x + 1)) / plugin.tileCountX - 1.0f;
+		final float ndcMinY = (2.0f * tileY) / plugin.tileCountY - 1.0f;
+		final float ndcMaxY = (2.0f * (tileY + 1)) / plugin.tileCountY - 1.0f;
 
 		float[] tile_bl = new float[] { ndcMinX, ndcMinY, 0.0f, 1.0f };
 		float[] tile_br = new float[] { ndcMaxX, ndcMinY, 0.0f, 1.0f };
@@ -70,7 +70,7 @@ public class AsyncTileCulling extends TwoDJob {
 			);
 
 			if (intersects) {
-				putLightIndex(x, y, tileLightIndex, (short) (lightIdx + 1)); // Put the index in the 3D Texture
+				putLightIndex(tileX, tileY, tileLightIndex, (short) (lightIdx + 1)); // Put the index in the 3D Texture
 				tileLightIndex++;
 			}
 
@@ -80,7 +80,7 @@ public class AsyncTileCulling extends TwoDJob {
 		}
 
 		for (; tileLightIndex < plugin.configMaxLightsPerTile; tileLightIndex++) {
-			putLightIndex(x, y, tileLightIndex, (short) 0);
+			putLightIndex(tileX, tileY, tileLightIndex, (short) 0);
 		}
 	}
 }

@@ -72,6 +72,8 @@ vec2 worldUvs(float scale) {
 #include utils/fog.glsl
 #include utils/wireframe.glsl
 
+#extension GL_KHR_shader_subgroup_vote : enable
+
 void main() {
     vec3 downDir = vec3(0, -1, 0);
     // View & light directions are from the fragment to the camera/light
@@ -352,7 +354,10 @@ void main() {
         vec3 pointLightsSpecularOut = vec3(0);
 
         #if LIGHT_COUNT_PER_TILE > 0
-        ivec2 tileXY = ivec2(floor(IN.fragCoords * vec2(tileCountX, tileCountY)));
+        vec2 uResolution = vec2(viewportWidth, viewportHeight);
+        vec2 screenUV = gl_FragCoord.xy / uResolution;
+        vec2 tileCount = vec2(tileCountX, tileCountY);
+        ivec2 tileXY = ivec2(floor(screenUV * tileCount));
         int tileLightCount = 0;
 
         #if TILED_LIGHTING_USE_SUBGROUP

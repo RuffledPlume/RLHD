@@ -3,7 +3,9 @@ package rs117.hd.utils.threading;
 import java.util.ArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import lombok.extern.slf4j.Slf4j;
 
+@Slf4j
 public class JobUtil {
 	public static final int MINIMAL_WORK_PER_THREAD = 8;
 	public static final int THREAD_POOL_SIZE = Runtime.getRuntime().availableProcessors() - 1;
@@ -100,29 +102,46 @@ public class JobUtil {
 		submit(offset, count, createFunction, null);
 	}
 
-	public static <T extends TwoDJob> void submit(int offsetX, int offsetY, int countX, int countY, CreateJobFunction<T> createFunction, JobBatch<T> batch) {
+	public static <T extends TwoDJob> void submit(int offsetX, int offsetY, int countX, int countY,
+		CreateJobFunction<T> createFunction, JobBatch<T> batch) {
 		if (createFunction == null) return;
 
-		if(batch != null) {
+		if (batch != null) {
 			batch.complete();
 			batch.reset();
 		}
 
 		int totalWork = countX * countY;
 		int jobCount = Math.max(1, (totalWork / MINIMAL_WORK_PER_THREAD) / THREAD_POOL_SIZE);
-		int rowsPerJob = countY / jobCount;
 
-		for (int i = 0; i < jobCount; i++) {
-			T newJob = createFunction.createJob();
+		int cols = (int) Math.ceil(Math.sqrt((double) jobCount * countX / countY));
+		int rows = (int) Math.ceil((double) jobCount / cols);
 
-			newJob.offsetX = offsetX;
-			newJob.offsetY = offsetY + (i * rowsPerJob);
-			newJob.limitX = offsetX + countX;
-			newJob.limitY = (i == jobCount - 1) ? offsetY + countY : newJob.offsetY + rowsPerJob;
+		int tileWidth  = (int) Math.ceil((double) countX / cols);
+		int tileHeight = (int) Math.ceil((double) countY / rows);
 
-			THREAD_POOL.submit(newJob);
-			if (batch != null) {
-				batch.jobs.add(newJob);
+		for (int row = 0; row < rows; row++) {
+			for (int col = 0; col < cols; col++) {
+				int jobOffsetX = offsetX + col * tileWidth;
+				int jobOffsetY = offsetY + row * tileHeight;
+
+				int jobLimitX = Math.min(jobOffsetX + tileWidth, offsetX + countX);
+				int jobLimitY = Math.min(jobOffsetY + tileHeight, offsetY + countY);
+
+				if (jobOffsetX >= jobLimitX || jobOffsetY >= jobLimitY)
+					continue; // Skip empty tiles
+
+				T newJob = createFunction.createJob();
+
+				newJob.offsetX = jobOffsetX;
+				newJob.offsetY = jobOffsetY;
+				newJob.limitX  = jobLimitX;
+				newJob.limitY  = jobLimitY;
+
+				THREAD_POOL.submit(newJob);
+				if (batch != null) {
+					batch.jobs.add(newJob);
+				}
 			}
 		}
 	}
@@ -134,29 +153,51 @@ public class JobUtil {
 	public static <T extends ThreeDJob> void submit(int offsetX, int offsetY, int offsetZ, int countX, int countY, int countZ, CreateJobFunction<T> createFunction, JobBatch<T> batch) {
 		if (createFunction == null) return;
 
-		if(batch != null) {
+		if (batch != null) {
 			batch.complete();
 			batch.reset();
 		}
 
 		int totalWork = countX * countY * countZ;
 		int jobCount = Math.max(1, (totalWork / MINIMAL_WORK_PER_THREAD) / THREAD_POOL_SIZE);
-		int slicesPerJob = countZ / jobCount;
 
-		for (int i = 0; i < jobCount; i++) {
-			T newJob = createFunction.createJob();
+		// Estimate tile counts in 3D
+		int tilesX = (int) Math.ceil(Math.cbrt(jobCount * (double) countX * countX / (countY * countZ)));
+		int tilesY = (int) Math.ceil(Math.cbrt(jobCount * (double) countY * countY / (countX * countZ)));
+		int tilesZ = (int) Math.ceil((double) jobCount / (tilesX * tilesY));
 
-			newJob.offsetX = offsetX;
-			newJob.offsetY = offsetY;
-			newJob.offsetZ = offsetZ + (i * slicesPerJob);
+		int tileWidth  = (int) Math.ceil((double) countX / tilesX);
+		int tileHeight = (int) Math.ceil((double) countY / tilesY);
+		int tileDepth  = (int) Math.ceil((double) countZ / tilesZ);
 
-			newJob.limitX = offsetX + countX;
-			newJob.limitY = offsetY + countY;
-			newJob.limitZ = (i == jobCount - 1) ? offsetZ + countZ : newJob.offsetZ + slicesPerJob;
+		for (int z = 0; z < tilesZ; z++) {
+			for (int y = 0; y < tilesY; y++) {
+				for (int x = 0; x < tilesX; x++) {
+					int jobOffsetX = offsetX + x * tileWidth;
+					int jobOffsetY = offsetY + y * tileHeight;
+					int jobOffsetZ = offsetZ + z * tileDepth;
 
-			THREAD_POOL.submit(newJob);
-			if (batch != null) {
-				batch.jobs.add(newJob);
+					int jobLimitX = Math.min(jobOffsetX + tileWidth, offsetX + countX);
+					int jobLimitY = Math.min(jobOffsetY + tileHeight, offsetY + countY);
+					int jobLimitZ = Math.min(jobOffsetZ + tileDepth, offsetZ + countZ);
+
+					if (jobOffsetX >= jobLimitX || jobOffsetY >= jobLimitY || jobOffsetZ >= jobLimitZ)
+						continue; // Skip empty tiles
+
+					T newJob = createFunction.createJob();
+
+					newJob.offsetX = jobOffsetX;
+					newJob.offsetY = jobOffsetY;
+					newJob.offsetZ = jobOffsetZ;
+					newJob.limitX  = jobLimitX;
+					newJob.limitY  = jobLimitY;
+					newJob.limitZ  = jobLimitZ;
+
+					THREAD_POOL.submit(newJob);
+					if (batch != null) {
+						batch.jobs.add(newJob);
+					}
+				}
 			}
 		}
 	}
