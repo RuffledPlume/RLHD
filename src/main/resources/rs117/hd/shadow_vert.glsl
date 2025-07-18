@@ -64,8 +64,9 @@ void main() {
     bool isGroundPlaneTile = (terrainData & 0xF) == 1; // plane == 0 && isTerrain
     bool isWaterSurfaceOrUnderwaterTile = waterTypeIndex > 0;
 
+    float ndotl = abs(dot(normalize(vNormal.xyz), lightDir));
     bool isShadowDisabled =
-        isGroundPlaneTile ||
+        (isGroundPlaneTile && ndotl > 0.65) ||
         isWaterSurfaceOrUnderwaterTile ||
         isTransparent;
 
