@@ -458,6 +458,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 	// Camera position and orientation may be reused from the old scene while hopping, prior to drawScene being called
 	public final SceneView sceneCamera = new SceneView(true, false, true);
+	public final SceneView directionalLight = new SceneView(false, true, false);
 	public final int[] cameraFocalPoint = new int[2];
 	private final int[] cameraShift = new int[2];
 	private boolean tileVisibilityCached;
@@ -1980,12 +1981,12 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			uboGlobal.elapsedTime.set((float) (elapsedTime % MAX_FLOAT_WITH_128TH_PRECISION));
 			uboGlobal.cameraPos.set(sceneCamera.getPosition());
 
-			float[] lightViewMatrix = Mat4.rotateX(environmentManager.currentSunAngles[0]);
-			Mat4.mul(lightViewMatrix, Mat4.rotateY(PI - environmentManager.currentSunAngles[1]));
+			directionalLight.setPitch(environmentManager.currentSunAngles[0]);
+			directionalLight.setYaw(PI - environmentManager.currentSunAngles[1]);
 			// Extract the 3rd column from the light view matrix (the float array is column-major).
 			// This produces the light's direction vector in world space, which we negate in order to
 			// get the light's direction vector pointing away from each fragment
-			uboGlobal.lightDir.set(-lightViewMatrix[2], -lightViewMatrix[6], -lightViewMatrix[10]);
+			uboGlobal.lightDir.set(directionalLight.getForwardDirection());
 
 			// use a curve to calculate max bias value based on the density of the shadow map
 			float shadowPixelsPerTile = (float) shadowMapResolution / config.shadowDistance().getValue();
@@ -2026,18 +2027,20 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				final int height = north - south;
 				final int depthScale = 10000;
 
+
 				final int maxDrawDistance = 90;
 				final float maxScale = 0.7f;
 				final float minScale = 0.4f;
 				final float scaleMultiplier = 1.0f - (getDrawDistance() / (maxDrawDistance * maxScale));
 				float scale = HDUtils.lerp(maxScale, minScale, scaleMultiplier);
-				float[] lightProjectionMatrix = Mat4.identity();
-				Mat4.mul(lightProjectionMatrix, Mat4.scale(scale, scale, scale));
-				Mat4.mul(lightProjectionMatrix, Mat4.orthographic(width, height, depthScale));
-				Mat4.mul(lightProjectionMatrix, lightViewMatrix);
-				Mat4.mul(lightProjectionMatrix, Mat4.translate(-(width / 2f + west), 0, -(height / 2f + south)));
+				directionalLight.setViewportWidth(width);
+				directionalLight.setViewportHeight(height);
+				directionalLight.setNearPlane(depthScale);
+				directionalLight.setZoom(scale);
+				directionalLight.setPositionX(-(width / 2f + west));
+				directionalLight.setPositionZ(-(height / 2f + south));
 
-				uboGlobal.lightProjectionMatrix.set(lightProjectionMatrix);
+				uboGlobal.lightProjectionMatrix.set(directionalLight.getViewProjMatrix());
 				uboGlobal.upload();
 
 				glUniformBlockBinding(glShadowProgram, uniShadowBlockGlobals, UNIFORM_BLOCK_GLOBAL);

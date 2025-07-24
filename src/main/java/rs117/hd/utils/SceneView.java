@@ -217,19 +217,13 @@ public class SceneView {
 	}
 
 	public boolean isTileVisible(int x, int z, int h0, int h1, int h2, int h3) {
-		float[][] cullingPlanes = frustumPlanes;
-		if (frustumPlanesDirty) {
-			cullingPlanes = getFrustumPlanes();
-		}
-		return HDUtils.IsTileVisible(x, z, h0, h1, h2, h3, cullingPlanes);
+		calculateFrustumPlanes();
+		return HDUtils.IsTileVisible(x, z, h0, h1, h2, h3, frustumPlanes);
 	}
 
 	public boolean isModeVisible(Model model, int x, int y, int z) {
-		float[][] cullingPlanes = frustumPlanes;
-		if (frustumPlanesDirty) {
-			cullingPlanes = getFrustumPlanes();
-		}
-		return HDUtils.isModelVisible(x, y, z, model, cullingPlanes);
+		calculateFrustumPlanes();
+		return HDUtils.isModelVisible(x, y, z, model, frustumPlanes);
 	}
 
 	public SceneView setOrientation(float[] newOrientation) {
@@ -244,30 +238,42 @@ public class SceneView {
 		return this;
 	}
 
-	public float[] getViewMatrix() {
-		if (viewMatrixDirty) {
-			viewMatrix = Mat4.rotateX(orientation[1]);
-			Mat4.mul(viewMatrix, Mat4.rotateY(orientation[0]));
-			Mat4.mul(
-				viewMatrix,
-				Mat4.translate(
-					invertPosition ? -position[0] : position[0],
-					invertPosition ? -position[1] : position[1],
-					invertPosition ? -position[2] : position[2]
-				)
-			);
-			viewMatrixDirty = false;
-		}
-
-		return viewMatrix;
+	public float[] getForwardDirection() {
+		calculateViewMatrix();
+		return new float[] { -viewMatrix[2], -viewMatrix[6], -viewMatrix[10] };
 	}
 
-	public float[] getProjectionMatrix() {
+	private void calculateViewMatrix() {
+		if (viewMatrixDirty) {
+			viewMatrix = Mat4.identity();
+			Mat4.mul(viewMatrix, Mat4.rotateX(orientation[1]));
+			Mat4.mul(viewMatrix, Mat4.rotateY(orientation[0]));
+			if (position[0] != 0 || position[1] != 0 || position[2] != 0) {
+				Mat4.mul(
+					viewMatrix,
+					Mat4.translate(
+						invertPosition ? -position[0] : position[0],
+						invertPosition ? -position[1] : position[1],
+						invertPosition ? -position[2] : position[2]
+					)
+				);
+			}
+			viewMatrixDirty = false;
+		}
+	}
+
+	public float[] getViewMatrix() {
+		calculateViewMatrix();
+		return Arrays.copyOf(viewMatrix, viewMatrix.length);
+	}
+
+	private void calculateProjectionMatrix() {
 		if (projectionMatrixDirty) {
-			projectionMatrix = Mat4.scale(zoom, zoom, 1);
 			if (isOrthographic) {
-				// TODO: Cook something up here.. First get scene projection working
+				projectionMatrix = Mat4.scale(zoom, zoom, zoom);
+				Mat4.mul(projectionMatrix, Mat4.orthographic(viewportWidth, viewportHeight, nearPlane));
 			} else {
+				projectionMatrix = Mat4.scale(zoom, zoom, 1);
 				if (isReverseZ) {
 					Mat4.mul(
 						projectionMatrix,
@@ -282,32 +288,48 @@ public class SceneView {
 			}
 			projectionMatrixDirty = false;
 		}
+	}
 
+	public float[] getProjectionMatrix() {
+		calculateProjectionMatrix();
 		return Arrays.copyOf(projectionMatrix, projectionMatrix.length);
 	}
 
-	public float[] getViewProjMatrix() {
+	private void calculateViewProjMatrix() {
 		if (viewProjMatrixDirty) {
-			viewProjMatrix = getProjectionMatrix();
-			Mat4.mul(viewProjMatrix, getViewMatrix());
+			calculateViewMatrix();
+			calculateProjectionMatrix();
+
+			viewProjMatrix = Mat4.identity();
+			Mat4.mul(viewProjMatrix, projectionMatrix);
+			Mat4.mul(viewProjMatrix, viewMatrix);
+
 			viewProjMatrixDirty = false;
 		}
+	}
 
+	public float[] getViewProjMatrix() {
+		calculateViewProjMatrix();
 		return Arrays.copyOf(viewProjMatrix, viewProjMatrix.length);
 	}
 
-	public float[] getInvViewProjMatrix() {
+	private void calculateInvViewProjMatrix() {
 		if (invViewProjMatrixDirty) {
 			invViewProjMatrix = Mat4.inverse(getViewProjMatrix());
 			invViewProjMatrixDirty = false;
 		}
+	}
+
+	public float[] getInvViewProjMatrix() {
+		calculateInvViewProjMatrix();
 		return Arrays.copyOf(invViewProjMatrix, invViewProjMatrix.length);
 	}
 
-	public float[][] getFrustumPlanes() {
+	private void calculateFrustumPlanes() {
 		if (frustumPlanesDirty) {
+			calculateViewProjMatrix();
 			Mat4.extractPlanes(
-				getViewProjMatrix(),
+				viewProjMatrix,
 				frustumPlanes[0], frustumPlanes[1],
 				frustumPlanes[2], frustumPlanes[3],
 				frustumPlanes[4], frustumPlanes[5],
@@ -315,6 +337,10 @@ public class SceneView {
 			);
 			frustumPlanesDirty = false;
 		}
+	}
+
+	public float[][] getFrustumPlanes() {
+		calculateFrustumPlanes();
 		return frustumPlanes.clone();
 	}
 }
