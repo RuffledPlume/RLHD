@@ -129,7 +129,8 @@ public class Mat4
 		float[] mat,
 		float[] left, float[] right,
 		float[] bottom, float[] top,
-		float[] near, float[] far
+		float[] near, float[] far,
+		boolean normalize
 	) {
 		// Each plane is defined as: A*x + B*y + C*z + D = 0
 		// Extract rows from the matrix (column-major order)
@@ -173,6 +174,15 @@ public class Mat4
 		far[1] = m31 - m21;
 		far[2] = m32 - m22;
 		far[3] = m33 - m23;
+
+		if (normalize) {
+			Vector.normalizePlane(left);
+			Vector.normalizePlane(right);
+			Vector.normalizePlane(bottom);
+			Vector.normalizePlane(top);
+			Vector.normalizePlane(near);
+			Vector.normalizePlane(far);
+		}
 	}
 
 	/**

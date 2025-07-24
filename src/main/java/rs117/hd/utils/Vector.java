@@ -108,6 +108,14 @@ public class Vector {
 			vector[i] *= length;
 	}
 
+	public static void normalizePlane(float[] plane) {
+		float mag = (float) Math.sqrt(plane[0] * plane[0] + plane[1] * plane[1] + plane[2] * plane[2]);
+		plane[0] /= mag;
+		plane[1] /= mag;
+		plane[2] /= mag;
+		plane[3] /= mag;
+	}
+
 	public static void abs(float[] out, float[] v) {
 		for (int i = 0; i < out.length; i++)
 			out[i] = Math.abs(v[i]);

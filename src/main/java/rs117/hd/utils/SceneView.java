@@ -315,7 +315,8 @@ public class SceneView {
 				getViewProjMatrix(),
 				frustumPlanes[0], frustumPlanes[1],
 				frustumPlanes[2], frustumPlanes[3],
-				frustumPlanes[4], frustumPlanes[5]
+				frustumPlanes[4], frustumPlanes[5],
+				true
 			);
 			frustumPlanesDirty = false;
 		}

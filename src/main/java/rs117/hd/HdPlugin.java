@@ -2772,17 +2772,14 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			return tileIsVisible[plane][tileExX][tileExY];
 
 		int[][][] tileHeights = scene.getTileHeights();
-		int x = ((tileExX - SCENE_OFFSET) << Perspective.LOCAL_COORD_BITS) + 64;
-		int z = ((tileExY - SCENE_OFFSET) << Perspective.LOCAL_COORD_BITS) + 64;
-		int y = Math.max(
-			Math.max(tileHeights[plane][tileExX][tileExY], tileHeights[plane][tileExX][tileExY + 1]),
-			Math.max(tileHeights[plane][tileExX + 1][tileExY], tileHeights[plane][tileExX + 1][tileExY + 1])
-		) + GROUND_MIN_Y;
+		int x = ((tileExX - SCENE_OFFSET) << Perspective.LOCAL_COORD_BITS) + LOCAL_HALF_TILE_SIZE;
+		int z = ((tileExY - SCENE_OFFSET) << Perspective.LOCAL_COORD_BITS) + LOCAL_HALF_TILE_SIZE;
+		int y = 0;
 
 		if (sceneContext.scene == scene) {
 			int depthLevel = sceneContext.underwaterDepthLevels[plane][tileExX][tileExY];
 			if (depthLevel > 0)
-				y += ProceduralGenerator.DEPTH_LEVEL_SLOPE[depthLevel - 1] - GROUND_MIN_Y;
+				y = ProceduralGenerator.DEPTH_LEVEL_SLOPE[depthLevel - 1];
 		}
 
 		int h0 = y + tileHeights[plane][tileExX][tileExY];

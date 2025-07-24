@@ -580,10 +580,10 @@ public class HDUtils {
 
 	public static boolean IsTileVisible(int x, int z, int h0, int h1, int h2, int h3, float[][] cullingPlanes) {
 		for (float[] plane : cullingPlanes) {
-			if (distanceToPlane(plane, x, h0, z) >= 0 ||
-				distanceToPlane(plane, x + LOCAL_TILE_SIZE, h1, z) >= 0 ||
-				distanceToPlane(plane, x, h2, z + LOCAL_TILE_SIZE) >= 0 ||
-				distanceToPlane(plane, x + LOCAL_TILE_SIZE, h3, z + LOCAL_TILE_SIZE) >= 0) {
+			if (distanceToPlane(plane, x - LOCAL_HALF_TILE_SIZE, h0, z - LOCAL_HALF_TILE_SIZE) >= 0 ||
+				distanceToPlane(plane, x + LOCAL_HALF_TILE_SIZE, h1, z - LOCAL_HALF_TILE_SIZE) >= 0 ||
+				distanceToPlane(plane, x - LOCAL_HALF_TILE_SIZE, h2, z + LOCAL_HALF_TILE_SIZE) >= 0 ||
+				distanceToPlane(plane, x + LOCAL_HALF_TILE_SIZE, h3, z + LOCAL_HALF_TILE_SIZE) >= 0) {
 				// At least one point is inside this plane; continue testing other planes
 				continue;
 			}
@@ -603,5 +603,18 @@ public class HDUtils {
 
 	public static float distanceToPlane(float[] plane, float x, float y, float z) {
 		return plane[0] * x + plane[1] * y + plane[2] * z + plane[3];
+	}
+
+	public enum Halfspace {
+		NEGATIVE,
+		ON_PLANE,
+		POSITIVE,
+	}
+
+	public static Halfspace classifyPoint(float[] plane, float x, float y, float z) {
+		float d = distanceToPlane(plane, x, y, z);
+		if (d < 0) return Halfspace.NEGATIVE;
+		if (d > 0) return Halfspace.POSITIVE;
+		return Halfspace.ON_PLANE;
 	}
 }
