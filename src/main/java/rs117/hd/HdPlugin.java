@@ -2749,11 +2749,12 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		int z = ((tileExY - SCENE_OFFSET) << Perspective.LOCAL_COORD_BITS) + LOCAL_HALF_TILE_SIZE;
 		int y = 0;
 
+		/*
 		if (sceneContext.scene == scene) {
 			int depthLevel = sceneContext.underwaterDepthLevels[plane][tileExX][tileExY];
 			if (depthLevel > 0)
-				y = ProceduralGenerator.DEPTH_LEVEL_SLOPE[depthLevel - 1];
-		}
+				y = ProceduralGenerator.DEPTH_LEVEL_SLOPE[depthLevel - 1]; TODO: This isn't working for some reason
+		}*/
 
 		int h0 = y + tileHeights[plane][tileExX][tileExY];
 		int h1 = y + tileHeights[plane][tileExX + 1][tileExY];
@@ -2764,9 +2765,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 		if (sceneCamera.isTileVisible(x, z, h0, h1, h2, h3)) {
 			visibilityType = TileVisibilityType.Scene;
-		} else if (directionalLight.isTileVisible(x, z, h0, h1, h2, h3)) {
-			visibilityType = TileVisibilityType.Directional;
-		}
+		} /* else if (directionalLight.isTileVisible(x, z, h0, h1, h2, h3)) {
+			visibilityType = TileVisibilityType.Directional; TODO: Directional Geom needs to be moved into a specific range of the renderBuffer
+		} */
 
 		tileIsVisible[plane][tileExX][tileExY] = visibilityType;
 		return visibilityType != TileVisibilityType.None;
@@ -2943,7 +2944,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			}
 		}
 
-		// TODO: Figure out how to split this into a Scene & Shadow Drawing
 		ModelDrawList.ModelInfo modelInfo = bufferForTriangles(faceCount).pop();
 		if (modelInfo != null) {
 			modelInfo.setVertexOffset(vertexOffset);
