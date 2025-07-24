@@ -47,6 +47,7 @@ import org.lwjgl.opencl.CLImageFormat;
 import org.lwjgl.system.Configuration;
 import org.lwjgl.system.MemoryStack;
 import rs117.hd.HdPlugin;
+import rs117.hd.opengl.ModelDrawList;
 import rs117.hd.opengl.shader.ShaderException;
 import rs117.hd.opengl.shader.Template;
 import rs117.hd.opengl.uniforms.ComputeUniforms;
@@ -396,8 +397,7 @@ public class OpenCLManager {
 
 	public void compute(
 		SharedGLBuffer uboCompute,
-		int numPassthroughModels, int[] numSortingBinModels,
-		SharedGLBuffer modelPassthroughBuffer, SharedGLBuffer[] modelSortingBuffers,
+		ModelDrawList modelPassthroughBuffer, ModelDrawList[] modelSortingBuffers,
 		SharedGLBuffer stagingBufferVertices, SharedGLBuffer stagingBufferUvs, SharedGLBuffer stagingBufferNormals,
 		SharedGLBuffer renderBufferVertices, SharedGLBuffer renderBufferUvs, SharedGLBuffer renderBufferNormals
 	) {
@@ -419,7 +419,7 @@ public class OpenCLManager {
 			CL10GL.clEnqueueAcquireGLObjects(commandQueue, glBuffers, null, acquireEvent);
 
 			PointerBuffer computeEvents = stack.mallocPointer(1 + modelSortingBuffers.length);
-			if (numPassthroughModels > 0) {
+			if (modelPassthroughBuffer.getWrittenModels() > 0) {
 				clSetKernelArg1p(passthroughKernel, 0, modelPassthroughBuffer.clId);
 				clSetKernelArg1p(passthroughKernel, 1, stagingBufferVertices.clId);
 				clSetKernelArg1p(passthroughKernel, 2, stagingBufferUvs.clId);
@@ -430,14 +430,14 @@ public class OpenCLManager {
 
 				// queue compute call after acquireGLBuffers
 				clEnqueueNDRangeKernel(commandQueue, passthroughKernel, 1, null,
-					stack.pointers(numPassthroughModels * 6L), stack.pointers(6),
+					stack.pointers(modelPassthroughBuffer.getWrittenModels() * 6L), stack.pointers(6),
 					acquireEvent, computeEvents
 				);
 				computeEvents.position(computeEvents.position() + 1);
 			}
 
-			for (int i = 0; i < numSortingBinModels.length; i++) {
-				int numModels = numSortingBinModels[i];
+			for (int i = 0; i < modelSortingBuffers.length; i++) {
+				int numModels = modelSortingBuffers[i].getWrittenModels();
 				if (numModels == 0)
 					continue;
 
