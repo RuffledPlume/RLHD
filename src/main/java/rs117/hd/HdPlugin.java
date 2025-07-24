@@ -1618,24 +1618,25 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 	@Override
 	public void drawScenePaint(Scene scene, SceneTilePaint paint, int plane, int tileX, int tileY) {
-		if (redrawPreviousFrame || paint.getBufferLen() <= 0)
+		int vertexCount = paint.getBufferLen();
+		if (redrawPreviousFrame || vertexCount <= 0)
 			return;
 
-		int vertexCount = paint.getBufferLen();
+		ModelDrawList.ModelInfo model = modelPassthroughBuffer.pop();
+		if (model != null) {
+			model.setVertexOffset(paint.getBufferOffset());
+			model.setUvOffset(paint.getUvBufferOffset());
+			model.setFaceCount(vertexCount / 3);
+			model.setRenderBufferOffset(renderBufferOffset);
+			model.setModelFlags(0);
+			model.setPositionX(tileX * LOCAL_TILE_SIZE);
+			model.setPositionY(0);
+			model.setHeight(0);
+			model.setPositionZ(tileY * LOCAL_TILE_SIZE);
+			model.push();
 
-		modelPassthroughBuffer.pop()
-			.setVertexOffset(paint.getBufferOffset())
-			.setUvOffset(paint.getUvBufferOffset())
-			.setFaceCount(vertexCount / 3)
-			.setRenderBufferOffset(renderBufferOffset)
-			.setModelFlags(0)
-			.setPositionX(tileX * LOCAL_TILE_SIZE)
-			.setPositionY(0)
-			.setHeight(0)
-			.setPositionZ(tileY * LOCAL_TILE_SIZE)
-			.push();
-
-		renderBufferOffset += vertexCount;
+			renderBufferOffset += vertexCount;
+		}
 	}
 
 	public void initShaderHotswapping() {
@@ -1676,33 +1677,36 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 			// buffer length includes the generated underwater terrain, so it must be halved
 			bufferLength /= 2;
+			ModelDrawList.ModelInfo modelInfo = modelPassthroughBuffer.pop();
+			if (modelInfo != null) {
+				modelInfo.setVertexOffset(model.getBufferOffset() + bufferLength);
+				modelInfo.setUvOffset(model.getUvBufferOffset() + bufferLength);
+				modelInfo.setFaceCount(bufferLength / 3);
+				modelInfo.setRenderBufferOffset(renderBufferOffset);
+				modelInfo.setModelFlags(0);
+				modelInfo.setPositionX(localX);
+				modelInfo.setPositionY(localY);
+				modelInfo.setHeight(0);
+				modelInfo.setPositionZ(localZ);
+				modelInfo.push();
 
-			modelPassthroughBuffer.pop()
-				.setVertexOffset(model.getBufferOffset() + bufferLength)
-				.setUvOffset(model.getUvBufferOffset() + bufferLength)
-				.setFaceCount(bufferLength / 3)
-				.setRenderBufferOffset(renderBufferOffset)
-				.setModelFlags(0)
-				.setPositionX(localX)
-				.setPositionY(localY)
-				.setHeight(0)
-				.setPositionZ(localZ)
-				.push();
-
-			renderBufferOffset += bufferLength;
+				renderBufferOffset += bufferLength;
+			}
 		}
 
-		modelPassthroughBuffer.pop()
-			.setVertexOffset(model.getBufferOffset())
-			.setUvOffset(model.getUvBufferOffset())
-			.setFaceCount(bufferLength / 3)
-			.setRenderBufferOffset(renderBufferOffset)
-			.setModelFlags(0)
-			.setPositionX(localX)
-			.setPositionY(localY)
-			.setHeight(0)
-			.setPositionZ(localZ)
-			.push();
+		ModelDrawList.ModelInfo modelInfo = modelPassthroughBuffer.pop();
+		if (modelInfo != null) {
+			modelInfo.setVertexOffset(model.getBufferOffset());
+			modelInfo.setUvOffset(model.getUvBufferOffset());
+			modelInfo.setFaceCount(bufferLength / 3);
+			modelInfo.setRenderBufferOffset(renderBufferOffset);
+			modelInfo.setModelFlags(0);
+			modelInfo.setPositionX(localX);
+			modelInfo.setPositionY(localY);
+			modelInfo.setHeight(0);
+			modelInfo.setPositionZ(localZ);
+			modelInfo.push();
+		}
 
 		renderBufferOffset += bufferLength;
 	}
@@ -2940,23 +2944,25 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		}
 
 		// TODO: Figure out how to split this into a Scene & Shadow Drawing
-		bufferForTriangles(faceCount).pop()
-			.setVertexOffset(vertexOffset)
-			.setUvOffset(uvOffset)
-			.setFaceCount(faceCount)
-			.setRenderBufferOffset(renderBufferOffset)
-			.setModelFlags(modelFlags)
-			.setPositionX(x)
-			.setPositionY(y)
-			.setHeight(height)
-			.setPositionZ(z)
-			.push();
-		renderBufferOffset += faceCount * 3;
+		ModelDrawList.ModelInfo modelInfo = bufferForTriangles(faceCount).pop();
+		if (modelInfo != null) {
+			modelInfo.setVertexOffset(vertexOffset);
+			modelInfo.setUvOffset(uvOffset);
+			modelInfo.setFaceCount(faceCount);
+			modelInfo.setRenderBufferOffset(renderBufferOffset);
+			modelInfo.setModelFlags(modelFlags);
+			modelInfo.setPositionX(x);
+			modelInfo.setPositionY(y);
+			modelInfo.setHeight(height);
+			modelInfo.setPositionZ(z);
+			modelInfo.push();
+			renderBufferOffset += faceCount * 3;
+		}
 	}
 
 	/**
 	 * returns the correct buffer based on triangle count and updates model count
-	 */
+     */
 	private ModelDrawList bufferForTriangles(int triangles) {
 		for (int i = 0; i < numSortingBins; i++) {
 			if (modelSortingBinFaceCounts[i] >= triangles) {

@@ -78,7 +78,7 @@ public class ModelDrawList extends SharedGLBuffer {
 			modelInfos[numWrittenModels] = result = new ModelInfo(this, addressOffset);
 		}
 		ensureBufferMapped();
-		return result;
+		return mappedBufferAddress != 0 ? result : null;
 	}
 
 	public int getWrittenModels() {
@@ -121,67 +121,40 @@ public class ModelDrawList extends SharedGLBuffer {
 			this.addressOffset = addressOffset;
 		}
 
-		public ModelInfo setVertexOffset(int vertexOffset) {
-			//if (owner.mappedBufferAddress != 0) {
+		public void setVertexOffset(int vertexOffset) {
 			MemoryUtil.memPutInt(owner.mappedBufferAddress + addressOffset + VERTEX_OFFSET, vertexOffset);
-			//}
-			return this;
 		}
 
-		public ModelInfo setUvOffset(int uvOffset) {
-			//if (owner.mappedBufferAddress != 0) {
+		public void setUvOffset(int uvOffset) {
 			MemoryUtil.memPutInt(owner.mappedBufferAddress + addressOffset + UV_OFFSET, uvOffset);
-			//}
-			return this;
 		}
 
-		public ModelInfo setFaceCount(int faceCount) {
-			//if (owner.mappedBufferAddress != 0) {
+		public void setFaceCount(int faceCount) {
 			MemoryUtil.memPutInt(owner.mappedBufferAddress + addressOffset + FACE_COUNT, faceCount);
-			//}
-			return this;
 		}
 
-		public ModelInfo setRenderBufferOffset(int renderBufferOffset) {
-			//if (owner.mappedBufferAddress != 0) {
+		public void setRenderBufferOffset(int renderBufferOffset) {
 			MemoryUtil.memPutInt(owner.mappedBufferAddress + addressOffset + RENDER_BUFFER_OFFSET, renderBufferOffset);
-			//}
-			return this;
 		}
 
-		public ModelInfo setModelFlags(int modelFlags) {
-			//if (owner.mappedBufferAddress != 0) {
+		public void setModelFlags(int modelFlags) {
 			MemoryUtil.memPutInt(owner.mappedBufferAddress + addressOffset + MODEL_FLAGS, modelFlags);
-			//}
-			return this;
 		}
 
-		public ModelInfo setPositionX(int positionX) {
-			//if (owner.mappedBufferAddress != 0) {
+		public void setPositionX(int positionX) {
 			MemoryUtil.memPutInt(owner.mappedBufferAddress + addressOffset + POSITION_X, positionX);
-			//}
-			return this;
 		}
 
-		public ModelInfo setPositionY(int positionY) {
-			//if (owner.mappedBufferAddress != 0) {
+		public void setPositionY(int positionY) {
 			MemoryUtil.memPutShort(owner.mappedBufferAddress + addressOffset + POSITION_Y, (short) positionY);
-			//}
-			return this;
 		}
 
-		public ModelInfo setHeight(int height) {
-			//if (owner.mappedBufferAddress != 0) {
+		public void setHeight(int height) {
 			MemoryUtil.memPutShort(owner.mappedBufferAddress + addressOffset + HEIGHT, (short) height);
-			//}
-			return this;
 		}
 
-		public ModelInfo setPositionZ(int positionZ) {
-			//if (owner.mappedBufferAddress != 0) {
+		public void setPositionZ(int positionZ) {
 			MemoryUtil.memPutInt(owner.mappedBufferAddress + addressOffset + POSITION_Z, positionZ);
-			//}
-			return this;
 		}
 
 		public void push() {
