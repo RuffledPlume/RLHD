@@ -42,6 +42,7 @@ import rs117.hd.utils.Mat4;
 import rs117.hd.utils.Vector;
 
 import static net.runelite.api.Perspective.*;
+import static rs117.hd.HdPlugin.NEAR_PLANE;
 
 @Slf4j
 @Singleton
@@ -202,7 +203,17 @@ public class LightGizmoOverlay extends Overlay implements MouseListener, KeyList
 		Mat4.mul(projectionMatrix, Mat4.translate(.5f, .5f, .5f));
 		Mat4.mul(projectionMatrix, Mat4.scale(.5f, -.5f, .5f));
 		// NDC clip space
-		Mat4.mul(projectionMatrix, plugin.sceneCamera.getViewMatrix());
+		Mat4.mul(projectionMatrix, Mat4.scale(client.getScale(), client.getScale(), 1));
+		Mat4.mul(projectionMatrix, Mat4.perspective(viewportWidth, viewportHeight, NEAR_PLANE));
+		Mat4.mul(projectionMatrix, Mat4.rotateX(plugin.sceneCamera.getPitch()));
+		Mat4.mul(projectionMatrix, Mat4.rotateY(plugin.sceneCamera.getYaw()));
+		Mat4.mul(
+			projectionMatrix, Mat4.translate(
+				-plugin.sceneCamera.getPositionX(),
+				-plugin.sceneCamera.getPositionY(),
+				-plugin.sceneCamera.getPositionZ()
+			)
+		);
 
 		float[] inverseProjection = null;
 		try {
