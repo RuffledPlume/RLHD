@@ -460,7 +460,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	public final SceneView sceneCamera = new SceneView(true, false, true);
 	public final int[] cameraFocalPoint = new int[2];
 	private final int[] cameraShift = new int[2];
-	private int cameraZoom;
 	private boolean tileVisibilityCached;
 	private final boolean[][][] tileIsVisible = new boolean[MAX_Z][EXTENDED_SCENE_SIZE][EXTENDED_SCENE_SIZE];
 
@@ -1465,12 +1464,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				sceneCamera.setPositionX((float) cameraX).setPositionY((float) cameraY).setPositionZ((float) cameraZ);
 				sceneCamera.setYaw((float) cameraYaw).setPitch((float) cameraPitch);
 
-				int newZoom = configShadowsEnabled && configExpandShadowDraw ? client.get3dZoom() / 2 : client.get3dZoom();
-				if (sceneCamera.isDirty() ||
-					cameraZoom != newZoom ||
-					drawDistanceChanged
-				) {
-					cameraZoom = newZoom;
+				if (sceneCamera.isDirty()) {
 					tileVisibilityCached = false;
 				}
 

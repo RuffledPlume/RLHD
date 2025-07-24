@@ -3,8 +3,6 @@ package rs117.hd.utils;
 import java.util.Arrays;
 import net.runelite.api.*;
 
-import static net.runelite.api.Constants.*;
-
 public class SceneView {
 	private float[] viewMatrix;
 	private float[] projectionMatrix;
@@ -15,14 +13,11 @@ public class SceneView {
 	private final float[] position = new float[3];
 	private final float[] orientation = new float[2];
 
-	private final boolean[][][] tileIsVisible = new boolean[MAX_Z][EXTENDED_SCENE_SIZE][EXTENDED_SCENE_SIZE];
-
 	private boolean viewMatrixDirty = true;
 	private boolean projectionMatrixDirty = true;
 	private boolean viewProjMatrixDirty = true;
 	private boolean invViewProjMatrixDirty = true;
 	private boolean frustumPlanesDirty = true;
-	private boolean tileVisibilityCached = false;
 
 	private int viewportWidth = 10;
 	private int viewportHeight = 10;
