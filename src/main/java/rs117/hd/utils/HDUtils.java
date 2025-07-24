@@ -509,4 +509,99 @@ public class HDUtils {
 		}
 		return hsl;
 	}
+
+	public static boolean isSphereInsideFrustum(float x, float y, float z, float radius, float[][] cullingPlanes) {
+		for (float[] plane : cullingPlanes) {
+			if (distanceToPlane(plane, x, y, z) < -radius) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
+	public static boolean isModelVisible(int x, int y, int z, Model model, float[][] cullingPlanes) {
+		final int bottom = y - model.getBottomY();
+		final int radius = model.getRadius();
+		return isAABBVisible(x - radius, bottom, z - radius, x + radius, bottom + model.getModelHeight(), z + radius, cullingPlanes);
+	}
+
+	public static boolean isAABBVisible(int minX, int minY, int minZ, int maxX, int maxY, int maxZ, float[][] cullingPlanes) {
+		for (float[] plane : cullingPlanes) {
+			if (
+				distanceToPlane(plane, minX, minY, minZ) < 0.0 &&
+				distanceToPlane(plane, maxX, minY, minZ) < 0.0 &&
+				distanceToPlane(plane, minX, maxY, minZ) < 0.0 &&
+				distanceToPlane(plane, maxX, maxY, minZ) < 0.0 &&
+				distanceToPlane(plane, minX, minY, maxZ) < 0.0 &&
+				distanceToPlane(plane, maxX, minY, maxZ) < 0.0 &&
+				distanceToPlane(plane, minX, maxY, maxZ) < 0.0 &&
+				distanceToPlane(plane, maxX, maxY, maxZ) < 0.0) {
+				// Not visible - all returned negative
+				return false;
+			}
+		}
+
+		// Potentially visible
+		return true;
+	}
+
+	public static boolean isCylinderVisible(int x, int y, int z, int height, int radius, float[][] cullingPlanes) {
+		final int SAMPLES = 8; // Number of points to test around the circle
+		final float TWO_PI = (float) (2 * Math.PI);
+		final float ANGLE_STEP = TWO_PI / SAMPLES;
+
+		float topY = y + height;
+
+		// Also check cylinder center top and bottom
+		if (isPointInsideFrustum(x, y, z, cullingPlanes) ||
+			isPointInsideFrustum(x, topY, z, cullingPlanes)) {
+			return true;
+		}
+
+		// Check top and bottom circle edge points
+		for (int i = 0; i < SAMPLES; i++) {
+			float angle = i * ANGLE_STEP;
+			float offsetX = (float) Math.cos(angle) * radius;
+			float offsetZ = (float) Math.sin(angle) * radius;
+
+			float px = x + offsetX;
+			float pz = z + offsetZ;
+
+			// Check if this point on top or bottom circle is inside the frustum
+			if (isPointInsideFrustum(px, y, pz, cullingPlanes) ||
+				isPointInsideFrustum(px, topY, pz, cullingPlanes)) {
+				return true;
+			}
+		}
+
+		return false; // All tested points are outside
+	}
+
+	public static boolean IsTileVisible(int x, int z, int h0, int h1, int h2, int h3, float[][] cullingPlanes) {
+		for (float[] plane : cullingPlanes) {
+			if (distanceToPlane(plane, x, h0, z) >= 0 ||
+				distanceToPlane(plane, x + LOCAL_TILE_SIZE, h1, z) >= 0 ||
+				distanceToPlane(plane, x, h2, z + LOCAL_TILE_SIZE) >= 0 ||
+				distanceToPlane(plane, x + LOCAL_TILE_SIZE, h3, z + LOCAL_TILE_SIZE) >= 0) {
+				// At least one point is inside this plane; continue testing other planes
+				continue;
+			}
+			return false; // All points outside this plane
+		}
+		return true;
+	}
+
+	public static boolean isPointInsideFrustum(float x, float y, float z, float[][] cullingPlanes) {
+		for (float[] plane : cullingPlanes) {
+			if (distanceToPlane(plane, x, y, z) < 0) {
+				return false; // Point is outside this plane
+			}
+		}
+		return true;
+	}
+
+	public static float distanceToPlane(float[] plane, float x, float y, float z) {
+		return plane[0] * x + plane[1] * y + plane[2] * z + plane[3];
+	}
 }

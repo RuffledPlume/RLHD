@@ -438,8 +438,8 @@ public class LightManager {
 			if (light.visible) {
 				// Hide lights which cannot possibly affect the visible scene
 				int distFromCamera = (int) Math.max(
-					Math.abs(plugin.cameraPosition[0] - light.pos[0]),
-					Math.abs(plugin.cameraPosition[2] - light.pos[2])
+					Math.abs(plugin.sceneCamera.getPositionX() - light.pos[0]),
+					Math.abs(plugin.sceneCamera.getPositionZ() - light.pos[2])
 				) - light.radius;
 				if (distFromCamera > drawDistance)
 					light.visible = false;
