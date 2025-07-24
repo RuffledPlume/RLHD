@@ -2747,27 +2747,33 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		int[][][] tileHeights = scene.getTileHeights();
 		int x = ((tileExX - SCENE_OFFSET) << Perspective.LOCAL_COORD_BITS) + LOCAL_HALF_TILE_SIZE;
 		int z = ((tileExY - SCENE_OFFSET) << Perspective.LOCAL_COORD_BITS) + LOCAL_HALF_TILE_SIZE;
-		int y = 0;
 
-		/*
-		if (sceneContext.scene == scene) {
-			int depthLevel = sceneContext.underwaterDepthLevels[plane][tileExX][tileExY];
-			if (depthLevel > 0)
-				y = ProceduralGenerator.DEPTH_LEVEL_SLOPE[depthLevel - 1]; TODO: This isn't working for some reason
-		}*/
-
-		int h0 = y + tileHeights[plane][tileExX][tileExY];
-		int h1 = y + tileHeights[plane][tileExX + 1][tileExY];
-		int h2 = y + tileHeights[plane][tileExX][tileExY + 1];
-		int h3 = y + tileHeights[plane][tileExX + 1][tileExY + 1];
+		int h0 = tileHeights[plane][tileExX][tileExY];
+		int h1 = tileHeights[plane][tileExX + 1][tileExY];
+		int h2 = tileHeights[plane][tileExX][tileExY + 1];
+		int h3 = tileHeights[plane][tileExX + 1][tileExY + 1];
 
 		TileVisibilityType visibilityType = TileVisibilityType.None;
 
 		if (sceneCamera.isTileVisible(x, z, h0, h1, h2, h3)) {
 			visibilityType = TileVisibilityType.Scene;
-		} /* else if (directionalLight.isTileVisible(x, z, h0, h1, h2, h3)) {
-			visibilityType = TileVisibilityType.Directional; TODO: Directional Geom needs to be moved into a specific range of the renderBuffer
-		} */
+		} else if (sceneContext.scene == scene) {
+			int dl0 = sceneContext.underwaterDepthLevels[plane][tileExX][tileExY];
+			int dl1 = sceneContext.underwaterDepthLevels[plane][tileExX + 1][tileExY];
+			int dl2 = sceneContext.underwaterDepthLevels[plane][tileExX][tileExY + 1];
+			int dl3 = sceneContext.underwaterDepthLevels[plane][tileExX + 1][tileExY + 1];
+
+			if (dl0 > 0 || dl1 > 0 || dl2 > 0 || dl3 > 0) {
+				int uh0 = h0 + (dl0 > 0 ? ProceduralGenerator.DEPTH_LEVEL_SLOPE[dl0 - 1] : 0);
+				int uh1 = h1 + (dl1 > 0 ? ProceduralGenerator.DEPTH_LEVEL_SLOPE[dl1 - 1] : 0);
+				int uh2 = h2 + (dl2 > 0 ? ProceduralGenerator.DEPTH_LEVEL_SLOPE[dl2 - 1] : 0);
+				int uh3 = h3 + (dl3 > 0 ? ProceduralGenerator.DEPTH_LEVEL_SLOPE[dl3 - 1] : 0);
+
+				if (sceneCamera.isTileVisible(x, z, uh0, uh1, uh2, uh3)) {
+					visibilityType = TileVisibilityType.Scene;
+				}
+			}
+		}
 
 		tileIsVisible[plane][tileExX][tileExY] = visibilityType;
 		return visibilityType != TileVisibilityType.None;
