@@ -376,7 +376,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 	private int dynamicOffsetVertices;
 	private int dynamicOffsetUvs;
-	private int renderBufferOffset;
 
 	private int lastCanvasWidth;
 	private int lastCanvasHeight;
@@ -448,19 +447,13 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	private final ConcurrentHashMap.KeySetView<String, ?> pendingConfigChanges = ConcurrentHashMap.newKeySet();
 	private final Map<Long, ModelOffsets> frameModelInfoMap = new HashMap<>();
 
-	public enum TileVisibilityType {
-		None,
-		Scene,
-		Directional
-	}
-
 	// Camera position and orientation may be reused from the old scene while hopping, prior to drawScene being called
 	public final SceneView sceneCamera = new SceneView(true, false, true);
 	public final SceneView directionalLight = new SceneView(false, true, false);
 	public final int[] cameraFocalPoint = new int[2];
 	private final int[] cameraShift = new int[2];
 	private boolean tileVisibilityCached;
-	private final TileVisibilityType[][][] tileIsVisible = new TileVisibilityType[MAX_Z][EXTENDED_SCENE_SIZE][EXTENDED_SCENE_SIZE];
+	private final int[][][] tilePassType = new int[MAX_Z][EXTENDED_SCENE_SIZE][EXTENDED_SCENE_SIZE];
 
 	public double elapsedTime;
 	public double elapsedClientTime;
@@ -487,7 +480,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				if (!textureManager.vanillaTexturesAvailable())
 					return false;
 
-				renderBufferOffset = 0;
 				fboSceneHandle = rboSceneColorHandle = rboSceneDepthHandle = 0;
 				fboShadowMap = 0;
 				elapsedTime = 0;
@@ -1421,13 +1413,17 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				// after this that don't involve a scene draw, like during LOADING/HOPPING/CONNECTION_LOST, we can
 				// still redraw the previous frame's scene to emulate the client behavior of not painting over the
 				// viewport buffer.
-				renderBufferOffset = sceneContext.staticVertexCount;
+
+				modelPassthroughBuffer.reset();
+				for (ModelDrawList modelSortingBuffer : modelSortingBuffers) {
+					modelSortingBuffer.reset();
+				}
 
 				// TODO: this could be done only once during scene swap, but is a bit of a pain to do
 				// Push unordered models that should always be drawn at the start of each frame.
 				// Used to fix issues like the right-click menu causing underwater tiles to disappear.
 				var staticUnordered = sceneContext.staticUnorderedModelBuffer.getBuffer();
-				modelPassthroughBuffer.append(staticUnordered);
+				modelPassthroughBuffer.append(staticUnordered, sceneContext.staticVertexCount);
 				staticUnordered.rewind();
 			}
 
@@ -1543,7 +1539,22 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			sceneContext.stagingBufferUvs.clear();
 			sceneContext.stagingBufferNormals.clear();
 
+
 			// Model buffers
+
+			// Build scene pass first
+			modelPassthroughBuffer.buildRenderRanges(ModelDrawList.RenderBufferPass.SCENE);
+			for (ModelDrawList modelSortingBuffer : modelSortingBuffers) {
+				modelSortingBuffer.buildRenderRanges(ModelDrawList.RenderBufferPass.SCENE);
+			}
+
+			// Build Directional pass next
+			modelPassthroughBuffer.buildRenderRanges(ModelDrawList.RenderBufferPass.DIRECTIONAL);
+			for (ModelDrawList modelSortingBuffer : modelSortingBuffers) {
+				modelSortingBuffer.buildRenderRanges(ModelDrawList.RenderBufferPass.DIRECTIONAL);
+			}
+			int renderBufferSize = ModelDrawList.RenderBufferPass.getRenderBufferSize();
+
 			modelPassthroughBuffer.upload();
 
 			for (ModelDrawList modelSortingBuffer : modelSortingBuffers) {
@@ -1552,11 +1563,11 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 			// Output buffers
 			// each vertex is an ivec4, which is 16 bytes
-			hRenderBufferVertices.ensureCapacity(renderBufferOffset * 16L);
+			hRenderBufferVertices.ensureCapacity(renderBufferSize * 16L);
 			// each vertex is an ivec4, which is 16 bytes
-			hRenderBufferUvs.ensureCapacity(renderBufferOffset * 16L);
+			hRenderBufferUvs.ensureCapacity(renderBufferSize * 16L);
 			// each vertex is an ivec4, which is 16 bytes
-			hRenderBufferNormals.ensureCapacity(renderBufferOffset * 16L);
+			hRenderBufferNormals.ensureCapacity(renderBufferSize * 16L);
 			updateSceneVao(hRenderBufferVertices, hRenderBufferUvs, hRenderBufferNormals);
 		}
 
@@ -1607,13 +1618,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		frameTimer.end(Timer.COMPUTE);
 
 		checkGLErrors();
-
-		if (!redrawPreviousFrame) {
-			modelPassthroughBuffer.reset();
-			for (ModelDrawList modelSortingBuffer : modelSortingBuffers) {
-				modelSortingBuffer.reset();
-			}
-		}
 	}
 
 	@Override
@@ -1626,16 +1630,13 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		if (model != null) {
 			model.setVertexOffset(paint.getBufferOffset());
 			model.setUvOffset(paint.getUvBufferOffset());
-			model.setFaceCount(vertexCount / 3);
-			model.setRenderBufferOffset(renderBufferOffset);
+			model.setVertexCount(vertexCount);
 			model.setModelFlags(0);
 			model.setPositionX(tileX * LOCAL_TILE_SIZE);
 			model.setPositionY(0);
 			model.setHeight(0);
 			model.setPositionZ(tileY * LOCAL_TILE_SIZE);
-			model.push();
-
-			renderBufferOffset += vertexCount;
+			model.push(tilePassType[plane][tileX + SCENE_OFFSET][tileY + SCENE_OFFSET]);
 		}
 	}
 
@@ -1681,16 +1682,13 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			if (modelInfo != null) {
 				modelInfo.setVertexOffset(model.getBufferOffset() + bufferLength);
 				modelInfo.setUvOffset(model.getUvBufferOffset() + bufferLength);
-				modelInfo.setFaceCount(bufferLength / 3);
-				modelInfo.setRenderBufferOffset(renderBufferOffset);
+				modelInfo.setVertexCount(bufferLength);
 				modelInfo.setModelFlags(0);
 				modelInfo.setPositionX(localX);
 				modelInfo.setPositionY(localY);
 				modelInfo.setHeight(0);
 				modelInfo.setPositionZ(localZ);
-				modelInfo.push();
-
-				renderBufferOffset += bufferLength;
+				modelInfo.push(tilePassType[0][tileX + SCENE_OFFSET][tileY + SCENE_OFFSET]);
 			}
 		}
 
@@ -1698,17 +1696,14 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		if (modelInfo != null) {
 			modelInfo.setVertexOffset(model.getBufferOffset());
 			modelInfo.setUvOffset(model.getUvBufferOffset());
-			modelInfo.setFaceCount(bufferLength / 3);
-			modelInfo.setRenderBufferOffset(renderBufferOffset);
+			modelInfo.setVertexCount(bufferLength);
 			modelInfo.setModelFlags(0);
 			modelInfo.setPositionX(localX);
 			modelInfo.setPositionY(localY);
 			modelInfo.setHeight(0);
 			modelInfo.setPositionZ(localZ);
-			modelInfo.push();
+			modelInfo.push(tilePassType[0][tileX + SCENE_OFFSET][tileY + SCENE_OFFSET]);
 		}
-
-		renderBufferOffset += bufferLength;
 	}
 
 	private void prepareInterfaceTexture(int canvasWidth, int canvasHeight) {
@@ -1805,7 +1800,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		}
 
 		// Upon logging in, the client will draw some frames with zero geometry before it hides the login screen
-		if (renderBufferOffset > 0)
+		if (ModelDrawList.RenderBufferPass.SCENE.renderBufferSize > 0)
 			hasLoggedIn = true;
 
 		// Draw 3d scene
@@ -2024,8 +2019,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				glEnable(GL_CULL_FACE);
 				glEnable(GL_DEPTH_TEST);
 
-				// Draw with buffers bound to scene VAO
-				glDrawArrays(GL_TRIANGLES, 0, renderBufferOffset);
+				// Draw Scene & Directional Geometry
+				ModelDrawList.RenderBufferPass.SCENE.draw();
+				ModelDrawList.RenderBufferPass.DIRECTIONAL.draw();
 
 				glDisable(GL_CULL_FACE);
 				glDisable(GL_DEPTH_TEST);
@@ -2104,16 +2100,13 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 				// Draw the rest of the scene with depth testing, but not against itself
 				glDepthMask(false);
-				glDrawArrays(
-					GL_TRIANGLES,
-					sceneContext.staticVertexCount,
-					renderBufferOffset - sceneContext.staticVertexCount
-				);
 			} else {
 				// Draw everything without depth testing
 				glDisable(GL_DEPTH_TEST);
-				glDrawArrays(GL_TRIANGLES, 0, renderBufferOffset);
 			}
+
+			// Draw all Scene Geometry
+			ModelDrawList.RenderBufferPass.SCENE.draw();
 
 			frameTimer.end(Timer.RENDER_SCENE);
 
@@ -2278,7 +2271,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	@Subscribe
 	public void onGameStateChanged(GameStateChanged gameStateChanged) {
 		if (gameStateChanged.getGameState() == GameState.LOGIN_SCREEN) {
-			renderBufferOffset = 0;
 			hasLoggedIn = false;
 			environmentManager.reset();
 		}
@@ -2742,7 +2734,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			return true;
 
 		if (tileVisibilityCached)
-			return tileIsVisible[plane][tileExX][tileExY] != TileVisibilityType.None;
+			return tilePassType[plane][tileExX][tileExY] != -1;
 
 		int[][][] tileHeights = scene.getTileHeights();
 		int x = ((tileExX - SCENE_OFFSET) << Perspective.LOCAL_COORD_BITS) + LOCAL_HALF_TILE_SIZE;
@@ -2753,10 +2745,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		int h2 = tileHeights[plane][tileExX][tileExY + 1];
 		int h3 = tileHeights[plane][tileExX + 1][tileExY + 1];
 
-		TileVisibilityType visibilityType = TileVisibilityType.None;
+		int drawPassIdx = -1;
 
 		if (sceneCamera.isTileVisible(x, z, h0, h1, h2, h3)) {
-			visibilityType = TileVisibilityType.Scene;
+			drawPassIdx = ModelDrawList.RenderBufferPass.SCENE.drawPassIdx;
 		} else if (sceneContext.scene == scene) {
 			int dl0 = sceneContext.underwaterDepthLevels[plane][tileExX][tileExY];
 			int dl1 = sceneContext.underwaterDepthLevels[plane][tileExX + 1][tileExY];
@@ -2770,13 +2762,19 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				int uh3 = h3 + (dl3 > 0 ? ProceduralGenerator.DEPTH_LEVEL_SLOPE[dl3 - 1] : 0);
 
 				if (sceneCamera.isTileVisible(x, z, uh0, uh1, uh2, uh3)) {
-					visibilityType = TileVisibilityType.Scene;
+					drawPassIdx = ModelDrawList.RenderBufferPass.SCENE.drawPassIdx;
 				}
 			}
 		}
 
-		tileIsVisible[plane][tileExX][tileExY] = visibilityType;
-		return visibilityType != TileVisibilityType.None;
+		if (drawPassIdx == -1) {
+			if (directionalLight.isTileVisible(x, z, h0, h1, h2, h3)) {
+				drawPassIdx = ModelDrawList.RenderBufferPass.DIRECTIONAL.drawPassIdx;
+			}
+		}
+
+		tilePassType[plane][tileExX][tileExY] = drawPassIdx;
+		return drawPassIdx != -1;
 	}
 
 	/**
@@ -2842,6 +2840,17 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 		model.calculateBoundsCylinder();
 		int modelRadius = model.getXYZMag(); // Model radius excluding height (model.getRadius() includes height)
+
+		ModelDrawList.RenderBufferPass drawPass = null;
+		if (sceneCamera.isModeVisible(model, x, y, z)) {
+			drawPass = ModelDrawList.RenderBufferPass.SCENE;
+		} else if (directionalLight.isModeVisible(model, x, y, z)) {
+			drawPass = ModelDrawList.RenderBufferPass.DIRECTIONAL;
+		}
+
+		if (drawPass == null) {
+			return;
+		}
 
 		client.checkClickbox(projection, model, orientation, x, y, z, hash);
 
@@ -2955,14 +2964,12 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			modelInfo.setVertexOffset(vertexOffset);
 			modelInfo.setUvOffset(uvOffset);
 			modelInfo.setFaceCount(faceCount);
-			modelInfo.setRenderBufferOffset(renderBufferOffset);
 			modelInfo.setModelFlags(modelFlags);
 			modelInfo.setPositionX(x);
 			modelInfo.setPositionY(y);
 			modelInfo.setHeight(height);
 			modelInfo.setPositionZ(z);
-			modelInfo.push();
-			renderBufferOffset += faceCount * 3;
+			modelInfo.push(drawPass);
 		}
 	}
 
