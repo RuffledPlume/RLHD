@@ -462,8 +462,8 @@ public class LightManager {
 				// by either being behind the camera, or too far beyond the edge of the scene
 				if (-maxRadius < distToLight && distToLight < drawDistance + maxRadius) {
 					// Prioritize lights closer to the focal point
-					float distX = Math.abs(plugin.sceneCamera.getPositionX() - light.pos[0]);
-					float distZ = Math.abs(plugin.sceneCamera.getPositionZ() - light.pos[2]);
+					float distX = plugin.cameraFocalPoint[0] - light.pos[0];
+					float distZ = plugin.cameraFocalPoint[1] - light.pos[2];
 					light.distanceSquared = distX * distX + distZ * distZ;
 				} else {
 					light.visible = false;
