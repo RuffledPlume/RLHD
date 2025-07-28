@@ -1,6 +1,5 @@
 package rs117.hd.opengl;
 
-import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
 import java.util.Arrays;
 import lombok.Getter;
@@ -11,16 +10,12 @@ import rs117.hd.utils.buffer.SharedGLBuffer;
 import static org.lwjgl.opencl.CL10.*;
 import static org.lwjgl.opengl.GL15.GL_WRITE_ONLY;
 import static org.lwjgl.opengl.GL15.glBindBuffer;
-import static org.lwjgl.opengl.GL15.glMapBuffer;
-import static org.lwjgl.opengl.GL15.glUnmapBuffer;
 import static org.lwjgl.opengl.GL15C.GL_ARRAY_BUFFER;
 import static org.lwjgl.opengl.GL15C.GL_STREAM_DRAW;
 
 public class ModelDrawList extends SharedGLBuffer {
 	private ModelInfo[] modelInfos = new ModelInfo[1000];
 	private int numWrittenModels = 0;
-	private ByteBuffer mappedBuffer = null;
-	private long mappedBufferAddress = 0;
 
 	public ModelDrawList(String name) {
 		super(name, GL_ARRAY_BUFFER, GL_STREAM_DRAW, CL_MEM_READ_ONLY);
@@ -37,28 +32,7 @@ public class ModelDrawList extends SharedGLBuffer {
 			int newLength = modelInfos.length * 2;
 			modelInfos = Arrays.copyOf(modelInfos, newLength);
 
-
-			if (mappedBufferAddress != 0) {
-				// Unmap the buffer, before we update the capacity
-				glBindBuffer(target, id);
-				glUnmapBuffer(target);
-				mappedBufferAddress = 0;
-				mappedBuffer = null;
-			}
-
 			ensureCapacity(newLength * ModelInfo.ELEMENT_COUNT * (long) Integer.BYTES);
-			glBindBuffer(target, 0);
-			HdPlugin.checkGLErrors();
-		}
-	}
-
-	private void ensureBufferMapped() {
-		if (mappedBufferAddress == 0) {
-			glBindBuffer(target, id);
-			mappedBuffer = glMapBuffer(target, GL_WRITE_ONLY);
-			if (mappedBuffer != null) {
-				mappedBufferAddress = MemoryUtil.memAddress(mappedBuffer);
-			}
 			glBindBuffer(target, 0);
 			HdPlugin.checkGLErrors();
 		}
@@ -67,7 +41,7 @@ public class ModelDrawList extends SharedGLBuffer {
 	public void append(IntBuffer buffer) {
 		numWrittenModels += buffer.limit() / ModelInfo.ELEMENT_COUNT;
 		ensureModelInfoCapacity();
-		ensureBufferMapped();
+		map(GL_WRITE_ONLY);
 
 		if (mappedBuffer != null) {
 			mappedBuffer.asIntBuffer().put(buffer);
@@ -82,7 +56,7 @@ public class ModelDrawList extends SharedGLBuffer {
 			modelInfos[numWrittenModels] = result = new ModelInfo(this, addressOffset);
 		}
 
-		ensureBufferMapped();
+		map(GL_WRITE_ONLY);
 		return mappedBufferAddress != 0 ? result : null;
 	}
 
@@ -91,14 +65,7 @@ public class ModelDrawList extends SharedGLBuffer {
 	}
 
 	public void upload() {
-		if (mappedBufferAddress != 0) {
-			glBindBuffer(target, id);
-			mappedBuffer.position(numWrittenModels * ModelInfo.ELEMENT_COUNT * Integer.BYTES).flip();
-			mappedBuffer = null;
-			mappedBufferAddress = 0;
-			glUnmapBuffer(target);
-			glBindBuffer(target, 0);
-		}
+		unmap(numWrittenModels * ModelInfo.ELEMENT_COUNT * Integer.BYTES);
 	}
 
 	public void reset() {

@@ -393,8 +393,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	private final SharedGLBuffer hRenderBufferNormals = new SharedGLBuffer(
 		"Render Normals", GL_ARRAY_BUFFER, GL_STREAM_COPY, CL_MEM_WRITE_ONLY);
 
-	private final ModelDrawBuffer sceneDrawBuffer = new ModelDrawBuffer();
-	private final ModelDrawBuffer directionalDrawBuffer = new ModelDrawBuffer();
+	private final ModelDrawBuffer sceneDrawBuffer = new ModelDrawBuffer("Scene");
+	private final ModelDrawBuffer directionalDrawBuffer = new ModelDrawBuffer("Directional Shadow");
 
 	private final ModelDrawList modelPassthroughBuffer = new ModelDrawList("Model Passthrough");
 
@@ -1152,6 +1152,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 		modelPassthroughBuffer.initialize();
 
+		sceneDrawBuffer.initialize();
+		directionalDrawBuffer.initialize();
+
 		uboGlobal.initialize(UNIFORM_BLOCK_GLOBAL);
 		uboLights.initialize(UNIFORM_BLOCK_LIGHTS);
 		uboCompute.initialize(UNIFORM_BLOCK_COMPUTE);
@@ -1168,6 +1171,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		hRenderBufferNormals.destroy();
 
 		modelPassthroughBuffer.destroy();
+
+		sceneDrawBuffer.destroy();
+		directionalDrawBuffer.destroy();
 
 		uboGlobal.destroy();
 		uboLights.destroy();
@@ -1576,6 +1582,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				drawnStaticRenderableCount = 0;
 				drawnDynamicRenderableCount = 0;
 
+				sceneDrawBuffer.clear();
+				directionalDrawBuffer.clear();
+
 				// TODO: this could be done only once during scene swap, but is a bit of a pain to do
 				// Push unordered models that should always be drawn at the start of each frame.
 				// Used to fix issues like the right-click menu causing underwater tiles to disappear.
@@ -1583,9 +1592,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				modelPassthroughBuffer.append(staticUnordered);
 				renderBufferOffset = sceneContext.staticVertexCount;
 				staticUnordered.rewind();
-
-				sceneDrawBuffer.clear();
-				directionalDrawBuffer.clear();
 			}
 
 			if (updateUniforms) {
