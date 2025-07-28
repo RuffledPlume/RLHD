@@ -48,6 +48,8 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import javax.annotation.Nullable;
 import javax.inject.Inject;
 import javax.swing.SwingUtilities;
@@ -202,6 +204,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 	public static float BUFFER_GROWTH_MULTIPLIER = 2; // can be less than 2 if trying to conserve memory
 
+	public static int PROCESSOR_COUNT = Runtime.getRuntime().availableProcessors();
+
 	private static final float COLOR_FILTER_FADE_DURATION = 500;
 
 	private static final int[] RENDERBUFFER_FORMATS_SRGB = {
@@ -221,6 +225,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		GL_RGBA8,
 		GL_RGBA // should be guaranteed
 	};
+
+	public static final ExecutorService THREAD_POOL = Executors.newFixedThreadPool(Math.max(1, PROCESSOR_COUNT - 2));
 
 	@Inject
 	private Client client;
@@ -470,8 +476,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	public final SceneView directionalLight = new SceneView(false, true, false);
 	public final int[] cameraFocalPoint = new int[2];
 	private final int[] cameraShift = new int[2];
-	private boolean tileVisibilityCached;
-	private final int[][][] tilePassType = new int[MAX_Z][EXTENDED_SCENE_SIZE][EXTENDED_SCENE_SIZE];
 
 	@Getter
 	private int drawnTileCount;
@@ -1605,7 +1609,14 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				sceneCamera.setViewportHeight(viewportHeight);
 				sceneCamera.setPositionX((float) cameraX).setPositionY((float) cameraY).setPositionZ((float) cameraZ);
 				sceneCamera.setYaw((float) cameraYaw).setPitch((float) cameraPitch);
-				tileVisibilityCached = !sceneCamera.isDirty();
+				if (sceneCamera.isDirty()) {
+					sceneCamera.performAsyncTileCulling(frameTimer, sceneContext, true);
+					directionalLight.performAsyncTileCulling(
+						frameTimer,
+						sceneContext,
+						false
+					); // TODO: Move Directional Light Stuff here too
+				}
 
 				if (sceneContext.scene == scene) {
 					cameraFocalPoint[0] = client.getOculusOrbFocalPointX();
@@ -1729,8 +1740,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		if (sceneContext == null)
 			return;
 
-		tileVisibilityCached = true;
-
 		frameTimer.end(Timer.DRAW_SCENE);
 		frameTimer.begin(Timer.RENDER_FRAME);
 		frameTimer.begin(Timer.UPLOAD_GEOMETRY);
@@ -1750,6 +1759,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			sceneContext.stagingBufferVertices.clear();
 			sceneContext.stagingBufferUvs.clear();
 			sceneContext.stagingBufferNormals.clear();
+
+			sceneDrawBuffer.upload();
+			directionalDrawBuffer.upload();
 
 			modelPassthroughBuffer.upload();
 
@@ -1833,10 +1845,13 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			model.setPositionZ(tileY * LOCAL_TILE_SIZE);
 			renderBufferOffset = model.push(vertexCount, renderBufferOffset);
 			drawnTileCount++;
-			if( tilePassType[plane][tileX + SCENE_OFFSET][tileY + SCENE_OFFSET] == 1) {
+
+			if (sceneCamera.isTileVisible(plane, tileX + SCENE_OFFSET, tileY + SCENE_OFFSET)) {
 				sceneDrawBuffer.addModel(model);
-				directionalDrawBuffer.addModel(model);
-			} else {
+				if (plane != 0) {
+					directionalDrawBuffer.addModel(model);
+				}
+			} else if (plane != 0 && directionalLight.isTileVisible(plane, tileX + SCENE_OFFSET, tileY + SCENE_OFFSET)) {
 				directionalDrawBuffer.addModel(model);
 			}
 		}
@@ -1891,6 +1906,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				modelInfo.setHeight(0);
 				modelInfo.setPositionZ(localZ);
 				renderBufferOffset = modelInfo.push(bufferLength, renderBufferOffset);
+				sceneDrawBuffer.addModel(modelInfo);
 			}
 		}
 
@@ -2479,7 +2495,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			initTileHeightMap(scene);
 		}
 
-		tileVisibilityCached = false;
 		lightManager.loadSceneLights(nextSceneContext, sceneContext);
 		fishingSpotReplacer.despawnRuneLiteObjects();
 
@@ -2852,54 +2867,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		int tileExX,
 		int tileExY
 	) {
-		if (sceneContext == null)
-			return false;
-
-		if (orthographicProjection)
-			return true;
-
-		if (tileVisibilityCached)
-			return tilePassType[plane][tileExX][tileExY] != 0;
-
-		int[][][] tileHeights = scene.getTileHeights();
-		int x = ((tileExX - SCENE_OFFSET) << Perspective.LOCAL_COORD_BITS) + LOCAL_HALF_TILE_SIZE;
-		int z = ((tileExY - SCENE_OFFSET) << Perspective.LOCAL_COORD_BITS) + LOCAL_HALF_TILE_SIZE;
-
-		int h0 = tileHeights[plane][tileExX][tileExY];
-		int h1 = tileHeights[plane][tileExX + 1][tileExY];
-		int h2 = tileHeights[plane][tileExX][tileExY + 1];
-		int h3 = tileHeights[plane][tileExX + 1][tileExY + 1];
-
-		int drawPassIdx = 0;
-
-		if (sceneCamera.isTileVisible(x, z, h0, h1, h2, h3)) {
-			drawPassIdx = 1;
-		} else if (sceneContext.scene == scene) {
-			int dl0 = sceneContext.underwaterDepthLevels[plane][tileExX][tileExY];
-			int dl1 = sceneContext.underwaterDepthLevels[plane][tileExX + 1][tileExY];
-			int dl2 = sceneContext.underwaterDepthLevels[plane][tileExX][tileExY + 1];
-			int dl3 = sceneContext.underwaterDepthLevels[plane][tileExX + 1][tileExY + 1];
-
-			if (dl0 > 0 || dl1 > 0 || dl2 > 0 || dl3 > 0) {
-				int uh0 = h0 + (dl0 > 0 ? ProceduralGenerator.DEPTH_LEVEL_SLOPE[dl0 - 1] : 0);
-				int uh1 = h1 + (dl1 > 0 ? ProceduralGenerator.DEPTH_LEVEL_SLOPE[dl1 - 1] : 0);
-				int uh2 = h2 + (dl2 > 0 ? ProceduralGenerator.DEPTH_LEVEL_SLOPE[dl2 - 1] : 0);
-				int uh3 = h3 + (dl3 > 0 ? ProceduralGenerator.DEPTH_LEVEL_SLOPE[dl3 - 1] : 0);
-
-				if (sceneCamera.isTileVisible(x, z, uh0, uh1, uh2, uh3)) {
-					drawPassIdx = 1;
-				}
-			}
-		}
-
-		if (drawPassIdx == 0) {
-			if (directionalLight.isTileVisible(x, z, h0, h1, h2, h3)) {
-				drawPassIdx = 2;
-			}
-		}
-
-		tilePassType[plane][tileExX][tileExY] = drawPassIdx;
-		return drawPassIdx != 0;
+		return sceneCamera.isTileVisible(plane, tileExX, tileExY) || directionalLight.isTileVisible(plane, tileExX, tileExY);
 	}
 
 	/**
@@ -2966,10 +2934,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		model.calculateBoundsCylinder();
 		int modelRadius = model.getXYZMag(); // Model radius excluding height (model.getRadius() includes height)
 
-		boolean isVisibleInScene = sceneCamera.isModeVisible(model, x, y, z);
+		boolean isVisibleInScene = sceneCamera.isModelVisible(model, x, y, z);
 		boolean isVisibleInShadow = isVisibleInScene;
 		if (!isVisibleInShadow) {
-			isVisibleInShadow = directionalLight.isModeVisible(model, x, y, z);
+			isVisibleInShadow = directionalLight.isModelVisible(model, x, y, z);
 		}
 
 		if (!isVisibleInScene && !isVisibleInShadow) {

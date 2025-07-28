@@ -1,7 +1,20 @@
 package rs117.hd.utils;
 
 import java.util.Arrays;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import net.runelite.api.*;
+import rs117.hd.HdPlugin;
+import rs117.hd.overlays.FrameTimer;
+import rs117.hd.overlays.Timer;
+import rs117.hd.scene.ProceduralGenerator;
+import rs117.hd.scene.SceneContext;
+
+import static net.runelite.api.Constants.*;
+import static net.runelite.api.Perspective.*;
+import static rs117.hd.scene.SceneContext.SCENE_OFFSET;
 
 public class SceneView {
 	private float[] viewMatrix;
@@ -29,6 +42,10 @@ public class SceneView {
 	private boolean isReverseZ = false;
 	private boolean invertPosition = false;
 
+	private final boolean[][][] tileVisibility = new boolean[MAX_Z][EXTENDED_SCENE_SIZE][EXTENDED_SCENE_SIZE];
+	private final Future<?>[] inflightCullingTasks = new Future[MAX_Z];
+	private boolean isCullingInFlight = false;
+	private FrameTimer frameTimer;
 
 	public SceneView(boolean isReverseZ, boolean isOrthographic, boolean invertPosition) {
 		this.isReverseZ = isReverseZ;
@@ -216,12 +233,81 @@ public class SceneView {
 		return Arrays.copyOf(orientation, 2);
 	}
 
-	public boolean isTileVisible(int x, int z, int h0, int h1, int h2, int h3) {
-		calculateFrustumPlanes();
-		return HDUtils.IsTileVisible(x, z, h0, h1, h2, h3, frustumPlanes);
+	private void completeTileCulling() {
+		if (isCullingInFlight) {
+			frameTimer.begin(Timer.VISIBILITY_CHECK);
+			try {
+				for (int plane = 0; plane < MAX_Z; plane++) {
+					if (inflightCullingTasks[plane] != null) {
+						inflightCullingTasks[plane].get(1, TimeUnit.SECONDS);
+						inflightCullingTasks[plane] = null;
+					}
+				}
+			} catch (InterruptedException | ExecutionException | TimeoutException e) {
+				throw new RuntimeException(e);
+			}
+			frameTimer.end(Timer.VISIBILITY_CHECK);
+			isCullingInFlight = false;
+		}
 	}
 
-	public boolean isModeVisible(Model model, int x, int y, int z) {
+	public void performAsyncTileCulling(FrameTimer frameTimer, SceneContext ctx, boolean checkUnderwater) {
+		if (ctx == null && !isCullingInFlight) {
+			return;
+		}
+
+		this.frameTimer = frameTimer;
+		calculateFrustumPlanes();
+
+		isCullingInFlight = true;
+		for (int plane = 0; plane < MAX_Z; plane++) {
+			int finalPlane = plane;
+			inflightCullingTasks[plane] = HdPlugin.THREAD_POOL.submit(() -> {
+				for (int tileExX = 0; tileExX < EXTENDED_SCENE_SIZE; tileExX++) {
+					for (int tileExY = 0; tileExY < EXTENDED_SCENE_SIZE; tileExY++) {
+						int x = ((tileExX - SCENE_OFFSET) << Perspective.LOCAL_COORD_BITS) + LOCAL_HALF_TILE_SIZE;
+						int z = ((tileExY - SCENE_OFFSET) << Perspective.LOCAL_COORD_BITS) + LOCAL_HALF_TILE_SIZE;
+
+						int[][][] tileHeights = ctx.scene.getTileHeights();
+						int h0 = tileHeights[finalPlane][tileExX][tileExY];
+						int h1 = tileHeights[finalPlane][tileExX + 1][tileExY];
+						int h2 = tileHeights[finalPlane][tileExX][tileExY + 1];
+						int h3 = tileHeights[finalPlane][tileExX + 1][tileExY + 1];
+
+						boolean isVisible = HDUtils.IsTileVisible(x, z, h0, h1, h2, h3, frustumPlanes);
+
+						if (!isVisible && checkUnderwater) {
+							int dl0 = ctx.underwaterDepthLevels[finalPlane][tileExX][tileExY];
+							int dl1 = ctx.underwaterDepthLevels[finalPlane][tileExX + 1][tileExY];
+							int dl2 = ctx.underwaterDepthLevels[finalPlane][tileExX][tileExY + 1];
+							int dl3 = ctx.underwaterDepthLevels[finalPlane][tileExX + 1][tileExY + 1];
+
+							if (dl0 > 0 || dl1 > 0 || dl2 > 0 || dl3 > 0) {
+								int uh0 = h0 + (dl0 > 0 ? ProceduralGenerator.DEPTH_LEVEL_SLOPE[dl0 - 1] : 0);
+								int uh1 = h1 + (dl1 > 0 ? ProceduralGenerator.DEPTH_LEVEL_SLOPE[dl1 - 1] : 0);
+								int uh2 = h2 + (dl2 > 0 ? ProceduralGenerator.DEPTH_LEVEL_SLOPE[dl2 - 1] : 0);
+								int uh3 = h3 + (dl3 > 0 ? ProceduralGenerator.DEPTH_LEVEL_SLOPE[dl3 - 1] : 0);
+
+								isVisible = HDUtils.IsTileVisible(x, z, uh0, uh1, uh2, uh3, frustumPlanes);
+							}
+						}
+
+						tileVisibility[finalPlane][tileExX][tileExY] = isVisible;
+					}
+				}
+			});
+		}
+	}
+
+	public boolean isTileVisible(int plane, int tileExX, int tileExY) {
+		if (isCullingInFlight) {
+			completeTileCulling();
+		}
+
+		return tileVisibility[plane][tileExX][tileExY];
+	}
+
+	public boolean isModelVisible(Model model, int x, int y, int z) {
 		calculateFrustumPlanes();
 		return HDUtils.isModelVisible(x, y, z, model, frustumPlanes);
 	}
