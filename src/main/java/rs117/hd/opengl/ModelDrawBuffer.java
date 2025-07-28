@@ -22,7 +22,7 @@ public class ModelDrawBuffer {
 		}
 
 		int vertexIDx = renderBufferOffset;
-		for(int i = 0; i < vertexCount; i++, vertexIDx++) {
+		for (int i = 0; i < vertexCount; i++) {
 			stagingBuffer[i] = vertexIDx++;
 		}
 		indicesBuffer.getBuffer().put(stagingBuffer, 0, vertexCount);

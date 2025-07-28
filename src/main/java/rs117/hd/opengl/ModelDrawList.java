@@ -6,12 +6,9 @@ import java.util.Arrays;
 import lombok.Getter;
 import org.lwjgl.system.MemoryUtil;
 import rs117.hd.HdPlugin;
-import rs117.hd.utils.buffer.GpuIntBuffer;
 import rs117.hd.utils.buffer.SharedGLBuffer;
 
 import static org.lwjgl.opencl.CL10.*;
-import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
-import static org.lwjgl.opengl.GL11.glDrawElements;
 import static org.lwjgl.opengl.GL15.GL_WRITE_ONLY;
 import static org.lwjgl.opengl.GL15.glBindBuffer;
 import static org.lwjgl.opengl.GL15.glMapBuffer;
@@ -78,6 +75,7 @@ public class ModelDrawList extends SharedGLBuffer {
 	}
 
 	public ModelInfo pop() {
+		ensureModelInfoCapacity();
 		ModelInfo result = modelInfos[numWrittenModels];
 		if (result == null) {
 			long addressOffset = numWrittenModels * ModelInfo.ELEMENT_COUNT * (long) Integer.BYTES;
@@ -95,7 +93,7 @@ public class ModelDrawList extends SharedGLBuffer {
 	public void upload() {
 		if (mappedBufferAddress != 0) {
 			glBindBuffer(target, id);
-			mappedBuffer.position(numWrittenModels * ModelInfo.ELEMENT_COUNT * Integer.BYTES);
+			mappedBuffer.position(numWrittenModels * ModelInfo.ELEMENT_COUNT * Integer.BYTES).flip();
 			mappedBuffer = null;
 			mappedBufferAddress = 0;
 			glUnmapBuffer(target);
@@ -164,6 +162,7 @@ public class ModelDrawList extends SharedGLBuffer {
 			this.vertexCount = vertexCount;
 			MemoryUtil.memPutInt(owner.mappedBufferAddress + addressOffset + FACE_COUNT, vertexCount / 3);
 			MemoryUtil.memPutInt(owner.mappedBufferAddress + addressOffset + RENDER_BUFFER_OFFSET, renderBufferOffset);
+			owner.numWrittenModels++;
 			return renderBufferOffset + vertexCount;
 		}
 	}

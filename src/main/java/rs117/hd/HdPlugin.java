@@ -1592,7 +1592,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				// Calculate the viewport dimensions before scaling in order to include the extra padding
 				int viewportWidth = (int) (sceneViewport[2] / sceneViewportScale[0]);
 				int viewportHeight = (int) (sceneViewport[3] / sceneViewportScale[1]);
-				int newZoom = configShadowsEnabled && configExpandShadowDraw ? client.get3dZoom() / 2 : client.get3dZoom();
 
 				sceneCamera.setZoom(client.getScale());
 				sceneCamera.setNearPlane(NEAR_PLANE);
@@ -1601,11 +1600,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				sceneCamera.setViewportHeight(viewportHeight);
 				sceneCamera.setPositionX((float) cameraX).setPositionY((float) cameraY).setPositionZ((float) cameraZ);
 				sceneCamera.setYaw((float) cameraYaw).setPitch((float) cameraPitch);
-
-				if (sceneCamera.isDirty()) {
-					cameraZoom = newZoom;
-					tileVisibilityCached = false;
-				}
+				tileVisibilityCached = !sceneCamera.isDirty();
 
 				if (sceneContext.scene == scene) {
 					cameraFocalPoint[0] = client.getOculusOrbFocalPointX();
@@ -2859,7 +2854,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			return true;
 
 		if (tileVisibilityCached)
-			return tilePassType[plane][tileExX][tileExY] != -1;
+			return tilePassType[plane][tileExX][tileExY] != 0;
 
 		int[][][] tileHeights = scene.getTileHeights();
 		int x = ((tileExX - SCENE_OFFSET) << Perspective.LOCAL_COORD_BITS) + LOCAL_HALF_TILE_SIZE;
