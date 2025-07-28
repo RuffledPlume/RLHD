@@ -470,7 +470,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	public final SceneView directionalLight = new SceneView(false, true, false);
 	public final int[] cameraFocalPoint = new int[2];
 	private final int[] cameraShift = new int[2];
-	private int cameraZoom;
 	private boolean tileVisibilityCached;
 	private final int[][][] tilePassType = new int[MAX_Z][EXTENDED_SCENE_SIZE][EXTENDED_SCENE_SIZE];
 
