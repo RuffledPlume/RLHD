@@ -2,15 +2,16 @@ package rs117.hd.opengl;
 
 import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
-import java.util.ArrayList;
 import java.util.Arrays;
+import lombok.Getter;
 import org.lwjgl.system.MemoryUtil;
 import rs117.hd.HdPlugin;
+import rs117.hd.utils.buffer.GpuIntBuffer;
 import rs117.hd.utils.buffer.SharedGLBuffer;
 
 import static org.lwjgl.opencl.CL10.*;
-import static org.lwjgl.opengl.GL11C.GL_TRIANGLES;
-import static org.lwjgl.opengl.GL11C.glDrawArrays;
+import static org.lwjgl.opengl.GL11.GL_TRIANGLES;
+import static org.lwjgl.opengl.GL11.glDrawElements;
 import static org.lwjgl.opengl.GL15.GL_WRITE_ONLY;
 import static org.lwjgl.opengl.GL15.glBindBuffer;
 import static org.lwjgl.opengl.GL15.glMapBuffer;
@@ -20,7 +21,6 @@ import static org.lwjgl.opengl.GL15C.GL_STREAM_DRAW;
 
 public class ModelDrawList extends SharedGLBuffer {
 	private ModelInfo[] modelInfos = new ModelInfo[1000];
-	private final ArrayList<Integer>[] drawTypeModelIndices = new ArrayList[RenderBufferPass.PASSES_COUNT];
 	private int numWrittenModels = 0;
 	private ByteBuffer mappedBuffer = null;
 	private long mappedBufferAddress = 0;
@@ -33,9 +33,6 @@ public class ModelDrawList extends SharedGLBuffer {
 	public void initialize() {
 		super.initialize();
 		ensureCapacity(modelInfos.length * ModelInfo.ELEMENT_COUNT * (long) Integer.BYTES);
-		for (int i = 0; i < drawTypeModelIndices.length; i++) {
-			drawTypeModelIndices[i] = new ArrayList<>();
-		}
 	}
 
 	private void ensureModelInfoCapacity() {
@@ -70,14 +67,13 @@ public class ModelDrawList extends SharedGLBuffer {
 		}
 	}
 
-	public void append(IntBuffer buffer, int vertexCount) {
+	public void append(IntBuffer buffer) {
 		numWrittenModels += buffer.limit() / ModelInfo.ELEMENT_COUNT;
 		ensureModelInfoCapacity();
 		ensureBufferMapped();
 
 		if (mappedBuffer != null) {
 			mappedBuffer.asIntBuffer().put(buffer);
-			RenderBufferPass.SCENE.renderBufferOffset += vertexCount;
 		}
 	}
 
@@ -96,20 +92,6 @@ public class ModelDrawList extends SharedGLBuffer {
 		return numWrittenModels;
 	}
 
-	public void buildRenderRanges(RenderBufferPass pass) {
-		if (pass.renderBufferOffset == 0 && pass.drawPassIdx > 0) {
-			RenderBufferPass prevPass = RenderBufferPass.ALL_PASSES[pass.drawPassIdx - 1];
-			pass.renderBufferOffset = prevPass.renderBufferOffset + prevPass.renderBufferOffset;
-		}
-
-		ArrayList<Integer> modelInfoIndices = drawTypeModelIndices[pass.drawPassIdx];
-		for (int modelIndex : modelInfoIndices) {
-			ModelInfo info = modelInfos[modelIndex];
-			info.setRenderBufferOffset(pass.renderBufferOffset + pass.renderBufferSize);
-			pass.renderBufferSize += info.vertexCount;
-		}
-	}
-
 	public void upload() {
 		if (mappedBufferAddress != 0) {
 			glBindBuffer(target, id);
@@ -123,47 +105,6 @@ public class ModelDrawList extends SharedGLBuffer {
 
 	public void reset() {
 		numWrittenModels = 0;
-		for (RenderBufferPass pass : RenderBufferPass.ALL_PASSES) {
-			pass.clear();
-		}
-
-		for (ArrayList<Integer> drawTypeModelIndex : drawTypeModelIndices) {
-			drawTypeModelIndex.clear();
-		}
-	}
-
-	public enum RenderBufferPass {
-		SCENE(0),
-		DIRECTIONAL(1);
-
-		public static final RenderBufferPass[] ALL_PASSES = RenderBufferPass.values();
-		public static final int PASSES_COUNT = ALL_PASSES.length;
-
-		public final int drawPassIdx;
-
-		public int renderBufferOffset;
-		public int renderBufferSize;
-
-		RenderBufferPass(int drawPassIdx) {
-			this.drawPassIdx = drawPassIdx;
-		}
-
-		public void draw() {
-			glDrawArrays(GL_TRIANGLES, renderBufferOffset, renderBufferSize);
-		}
-
-		public void clear() {
-			renderBufferOffset = 0;
-			renderBufferSize = 0;
-		}
-
-		public static int getRenderBufferSize() {
-			int renderbufferEnd = 0;
-			for (RenderBufferPass pass : ALL_PASSES) {
-				renderbufferEnd = Math.max(renderbufferEnd, pass.renderBufferOffset + pass.renderBufferSize);
-			}
-			return renderbufferEnd;
-		}
 	}
 
 	public final static class ModelInfo {
@@ -181,7 +122,9 @@ public class ModelDrawList extends SharedGLBuffer {
 
 		private final ModelDrawList owner;
 		private final long addressOffset;
-		private int vertexCount;
+
+		@Getter private int renderBufferOffset;
+		@Getter private int vertexCount;
 
 		public ModelInfo(ModelDrawList owner, long addressOffset) {
 			this.owner = owner;
@@ -194,20 +137,6 @@ public class ModelDrawList extends SharedGLBuffer {
 
 		public void setUvOffset(int uvOffset) {
 			MemoryUtil.memPutInt(owner.mappedBufferAddress + addressOffset + UV_OFFSET, uvOffset);
-		}
-
-		public void setVertexCount(int vertexCount) {
-			MemoryUtil.memPutInt(owner.mappedBufferAddress + addressOffset + FACE_COUNT, vertexCount / 3);
-			this.vertexCount = vertexCount;
-		}
-
-		public void setFaceCount(int faceCount) {
-			MemoryUtil.memPutInt(owner.mappedBufferAddress + addressOffset + FACE_COUNT, faceCount);
-			vertexCount = faceCount * 3;
-		}
-
-		public void setRenderBufferOffset(int renderBufferOffset) {
-			MemoryUtil.memPutInt(owner.mappedBufferAddress + addressOffset + RENDER_BUFFER_OFFSET, renderBufferOffset);
 		}
 
 		public void setModelFlags(int modelFlags) {
@@ -230,18 +159,12 @@ public class ModelDrawList extends SharedGLBuffer {
 			MemoryUtil.memPutInt(owner.mappedBufferAddress + addressOffset + POSITION_Z, positionZ);
 		}
 
-		public void push(int drawPassIdx) {
-			if (drawPassIdx >= 0) {
-				owner.drawTypeModelIndices[drawPassIdx].add(owner.numWrittenModels);
-				owner.numWrittenModels++;
-				owner.ensureModelInfoCapacity();
-			}
-		}
-
-		public void push(RenderBufferPass pass) {
-			if (pass != null) {
-				push(pass.drawPassIdx);
-			}
+		public int push(int vertexCount, int renderBufferOffset) {
+			this.renderBufferOffset = renderBufferOffset;
+			this.vertexCount = vertexCount;
+			MemoryUtil.memPutInt(owner.mappedBufferAddress + addressOffset + FACE_COUNT, vertexCount / 3);
+			MemoryUtil.memPutInt(owner.mappedBufferAddress + addressOffset + RENDER_BUFFER_OFFSET, renderBufferOffset);
+			return renderBufferOffset + vertexCount;
 		}
 	}
 }

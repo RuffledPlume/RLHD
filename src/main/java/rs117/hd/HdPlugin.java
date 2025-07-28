@@ -89,6 +89,7 @@ import rs117.hd.model.ModelHasher;
 import rs117.hd.model.ModelOffsets;
 import rs117.hd.model.ModelPusher;
 import rs117.hd.opengl.AsyncUICopy;
+import rs117.hd.opengl.ModelDrawBuffer;
 import rs117.hd.opengl.ModelDrawList;
 import rs117.hd.opengl.compute.ComputeMode;
 import rs117.hd.opengl.compute.OpenCLManager;
@@ -355,6 +356,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	private final SharedGLBuffer hRenderBufferNormals = new SharedGLBuffer(
 		"Render Normals", GL_ARRAY_BUFFER, GL_STREAM_COPY, CL_MEM_WRITE_ONLY);
 
+	private final ModelDrawBuffer sceneDrawBuffer = new ModelDrawBuffer();
+	private final ModelDrawBuffer directionalDrawBuffer = new ModelDrawBuffer();
+
 	private final ModelDrawList modelPassthroughBuffer = new ModelDrawList("Model Passthrough");
 
 	// ordered by face count from small to large
@@ -374,6 +378,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	private SceneContext sceneContext;
 	private SceneContext nextSceneContext;
 
+	private int renderBufferOffset;
 	private int dynamicOffsetVertices;
 	private int dynamicOffsetUvs;
 
@@ -1423,8 +1428,12 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				// Push unordered models that should always be drawn at the start of each frame.
 				// Used to fix issues like the right-click menu causing underwater tiles to disappear.
 				var staticUnordered = sceneContext.staticUnorderedModelBuffer.getBuffer();
-				modelPassthroughBuffer.append(staticUnordered, sceneContext.staticVertexCount);
+				modelPassthroughBuffer.append(staticUnordered);
+				renderBufferOffset = sceneContext.staticVertexCount;
 				staticUnordered.rewind();
+
+				sceneDrawBuffer.clear();
+				directionalDrawBuffer.clear();
 			}
 
 			if (updateUniforms) {
@@ -1539,22 +1548,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			sceneContext.stagingBufferUvs.clear();
 			sceneContext.stagingBufferNormals.clear();
 
-
-			// Model buffers
-
-			// Build scene pass first
-			modelPassthroughBuffer.buildRenderRanges(ModelDrawList.RenderBufferPass.SCENE);
-			for (ModelDrawList modelSortingBuffer : modelSortingBuffers) {
-				modelSortingBuffer.buildRenderRanges(ModelDrawList.RenderBufferPass.SCENE);
-			}
-
-			// Build Directional pass next
-			modelPassthroughBuffer.buildRenderRanges(ModelDrawList.RenderBufferPass.DIRECTIONAL);
-			for (ModelDrawList modelSortingBuffer : modelSortingBuffers) {
-				modelSortingBuffer.buildRenderRanges(ModelDrawList.RenderBufferPass.DIRECTIONAL);
-			}
-			int renderBufferSize = ModelDrawList.RenderBufferPass.getRenderBufferSize();
-
 			modelPassthroughBuffer.upload();
 
 			for (ModelDrawList modelSortingBuffer : modelSortingBuffers) {
@@ -1563,11 +1556,11 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 			// Output buffers
 			// each vertex is an ivec4, which is 16 bytes
-			hRenderBufferVertices.ensureCapacity(renderBufferSize * 16L);
+			hRenderBufferVertices.ensureCapacity(renderBufferOffset * 16L);
 			// each vertex is an ivec4, which is 16 bytes
-			hRenderBufferUvs.ensureCapacity(renderBufferSize * 16L);
+			hRenderBufferUvs.ensureCapacity(renderBufferOffset * 16L);
 			// each vertex is an ivec4, which is 16 bytes
-			hRenderBufferNormals.ensureCapacity(renderBufferSize * 16L);
+			hRenderBufferNormals.ensureCapacity(renderBufferOffset * 16L);
 			updateSceneVao(hRenderBufferVertices, hRenderBufferUvs, hRenderBufferNormals);
 		}
 
@@ -1630,13 +1623,19 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		if (model != null) {
 			model.setVertexOffset(paint.getBufferOffset());
 			model.setUvOffset(paint.getUvBufferOffset());
-			model.setVertexCount(vertexCount);
 			model.setModelFlags(0);
 			model.setPositionX(tileX * LOCAL_TILE_SIZE);
 			model.setPositionY(0);
 			model.setHeight(0);
 			model.setPositionZ(tileY * LOCAL_TILE_SIZE);
-			model.push(tilePassType[plane][tileX + SCENE_OFFSET][tileY + SCENE_OFFSET]);
+			renderBufferOffset = model.push(vertexCount, renderBufferOffset);
+
+			if( tilePassType[plane][tileX + SCENE_OFFSET][tileY + SCENE_OFFSET] == 1) {
+				sceneDrawBuffer.addModel(model);
+				directionalDrawBuffer.addModel(model);
+			} else {
+				directionalDrawBuffer.addModel(model);
+			}
 		}
 	}
 
@@ -1682,13 +1681,13 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			if (modelInfo != null) {
 				modelInfo.setVertexOffset(model.getBufferOffset() + bufferLength);
 				modelInfo.setUvOffset(model.getUvBufferOffset() + bufferLength);
-				modelInfo.setVertexCount(bufferLength);
 				modelInfo.setModelFlags(0);
 				modelInfo.setPositionX(localX);
 				modelInfo.setPositionY(localY);
 				modelInfo.setHeight(0);
 				modelInfo.setPositionZ(localZ);
-				modelInfo.push(tilePassType[0][tileX + SCENE_OFFSET][tileY + SCENE_OFFSET]);
+				renderBufferOffset = modelInfo.push(bufferLength, renderBufferOffset);
+				sceneDrawBuffer.addModel(modelInfo);
 			}
 		}
 
@@ -1696,13 +1695,13 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		if (modelInfo != null) {
 			modelInfo.setVertexOffset(model.getBufferOffset());
 			modelInfo.setUvOffset(model.getUvBufferOffset());
-			modelInfo.setVertexCount(bufferLength);
 			modelInfo.setModelFlags(0);
 			modelInfo.setPositionX(localX);
 			modelInfo.setPositionY(localY);
 			modelInfo.setHeight(0);
 			modelInfo.setPositionZ(localZ);
-			modelInfo.push(tilePassType[0][tileX + SCENE_OFFSET][tileY + SCENE_OFFSET]);
+			renderBufferOffset = modelInfo.push(bufferLength, renderBufferOffset);
+			sceneDrawBuffer.addModel(modelInfo);
 		}
 	}
 
@@ -1800,7 +1799,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		}
 
 		// Upon logging in, the client will draw some frames with zero geometry before it hides the login screen
-		if (ModelDrawList.RenderBufferPass.SCENE.renderBufferSize > 0)
+		if (renderBufferOffset > 0)
 			hasLoggedIn = true;
 
 		// Draw 3d scene
@@ -2020,8 +2019,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				glEnable(GL_DEPTH_TEST);
 
 				// Draw Scene & Directional Geometry
-				ModelDrawList.RenderBufferPass.SCENE.draw();
-				ModelDrawList.RenderBufferPass.DIRECTIONAL.draw();
+				directionalDrawBuffer.draw();
 
 				glDisable(GL_CULL_FACE);
 				glDisable(GL_DEPTH_TEST);
@@ -2106,7 +2104,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			}
 
 			// Draw all Scene Geometry
-			ModelDrawList.RenderBufferPass.SCENE.draw();
+			sceneDrawBuffer.draw();
 
 			frameTimer.end(Timer.RENDER_SCENE);
 
@@ -2745,10 +2743,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		int h2 = tileHeights[plane][tileExX][tileExY + 1];
 		int h3 = tileHeights[plane][tileExX + 1][tileExY + 1];
 
-		int drawPassIdx = -1;
+		int drawPassIdx = 0;
 
 		if (sceneCamera.isTileVisible(x, z, h0, h1, h2, h3)) {
-			drawPassIdx = ModelDrawList.RenderBufferPass.SCENE.drawPassIdx;
+			drawPassIdx = 1;
 		} else if (sceneContext.scene == scene) {
 			int dl0 = sceneContext.underwaterDepthLevels[plane][tileExX][tileExY];
 			int dl1 = sceneContext.underwaterDepthLevels[plane][tileExX + 1][tileExY];
@@ -2762,19 +2760,19 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				int uh3 = h3 + (dl3 > 0 ? ProceduralGenerator.DEPTH_LEVEL_SLOPE[dl3 - 1] : 0);
 
 				if (sceneCamera.isTileVisible(x, z, uh0, uh1, uh2, uh3)) {
-					drawPassIdx = ModelDrawList.RenderBufferPass.SCENE.drawPassIdx;
+					drawPassIdx = 1;
 				}
 			}
 		}
 
-		if (drawPassIdx == -1) {
+		if (drawPassIdx == 0) {
 			if (directionalLight.isTileVisible(x, z, h0, h1, h2, h3)) {
-				drawPassIdx = ModelDrawList.RenderBufferPass.DIRECTIONAL.drawPassIdx;
+				drawPassIdx = 2;
 			}
 		}
 
 		tilePassType[plane][tileExX][tileExY] = drawPassIdx;
-		return drawPassIdx != -1;
+		return drawPassIdx != 0;
 	}
 
 	/**
@@ -2841,14 +2839,13 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		model.calculateBoundsCylinder();
 		int modelRadius = model.getXYZMag(); // Model radius excluding height (model.getRadius() includes height)
 
-		ModelDrawList.RenderBufferPass drawPass = null;
-		if (sceneCamera.isModeVisible(model, x, y, z)) {
-			drawPass = ModelDrawList.RenderBufferPass.SCENE;
-		} else if (directionalLight.isModeVisible(model, x, y, z)) {
-			drawPass = ModelDrawList.RenderBufferPass.DIRECTIONAL;
+		boolean isVisibleInScene = sceneCamera.isModeVisible(model, x, y, z);
+		boolean isVisibleInShadow = isVisibleInScene;
+		if (!isVisibleInShadow) {
+			isVisibleInShadow = directionalLight.isModeVisible(model, x, y, z);
 		}
 
-		if (drawPass == null) {
+		if (!isVisibleInScene && !isVisibleInShadow) {
 			return;
 		}
 
@@ -2963,13 +2960,17 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		if (modelInfo != null) {
 			modelInfo.setVertexOffset(vertexOffset);
 			modelInfo.setUvOffset(uvOffset);
-			modelInfo.setFaceCount(faceCount);
 			modelInfo.setModelFlags(modelFlags);
 			modelInfo.setPositionX(x);
 			modelInfo.setPositionY(y);
 			modelInfo.setHeight(height);
 			modelInfo.setPositionZ(z);
-			modelInfo.push(drawPass);
+			renderBufferOffset = modelInfo.push(faceCount * 3, renderBufferOffset);
+
+			if(isVisibleInScene) {
+				sceneDrawBuffer.addModel(modelInfo);
+			}
+			directionalDrawBuffer.addModel(modelInfo);
 		}
 	}
 
