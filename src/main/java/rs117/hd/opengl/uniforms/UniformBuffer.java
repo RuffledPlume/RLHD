@@ -7,6 +7,8 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.runelite.api.*;
+import net.runelite.client.callback.ClientThread;
 import org.lwjgl.BufferUtils;
 import rs117.hd.utils.buffer.GLBuffer;
 import rs117.hd.utils.buffer.SharedGLBuffer;
@@ -249,16 +251,16 @@ public abstract class UniformBuffer<GLBUFFER extends GLBuffer> {
 		dirtyHighTide = Math.max(dirtyHighTide, position + size);
 	}
 
-	public void initialize() {
+	public void initialize(Client client, ClientThread clientThread) {
 		if (data != null)
 			destroy();
 
-		glBuffer.initialize(size);
+		glBuffer.initialize(client, clientThread, size);
 		data = BufferUtils.createByteBuffer(size);
 	}
 
-	public void initialize(int bindingIndex) {
-		initialize();
+	public void initialize(Client client, ClientThread clientThread, int bindingIndex) {
+		initialize(client, clientThread);
 		bind(bindingIndex);
 	}
 

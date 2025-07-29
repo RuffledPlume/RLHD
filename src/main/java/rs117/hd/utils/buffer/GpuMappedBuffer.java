@@ -5,6 +5,7 @@ import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.lwjgl.system.MemoryUtil;
 
 @Slf4j
 @RequiredArgsConstructor
@@ -56,44 +57,58 @@ public class GpuMappedBuffer {
 	}
 
 	public void put(int[] array) {
-		if (buffer != null) {
-			for (int j : array) {
-				buffer.putInt(j);
+		if (buffer != null && array != null) {
+			for (int val : array) {
+				buffer.putInt(val);
 			}
 		}
 	}
 
 	public void put(float[] array) {
-		if (buffer != null) {
-			for (float j : array) {
-				buffer.putFloat(j);
+		if (buffer != null && array != null) {
+			for (float val : array) {
+				buffer.putFloat(val);
 			}
 		}
 	}
 
 	public void put(IntBuffer inBuffer) {
 		if (buffer != null) {
-			IntBuffer intBuffer = buffer.asIntBuffer();
-			intBuffer.put(inBuffer);
-			buffer.position(intBuffer.position() * Integer.BYTES);
+			int srcPos = inBuffer.position();
+			int srcRem = inBuffer.limit() - srcPos;
+			if (srcRem > 0) {
+				long srcBufferAddress = MemoryUtil.memAddress(inBuffer);
+				assert srcBufferAddress != 0;
 
-			//long offsetAddress = address + position() * (long) Integer.BYTES;
-			//long byteCount = (inBuffer.limit() - inBuffer.position()) * (long) Integer.BYTES;
-			//MemoryUtil.memCopy(MemoryUtil.memAddress(inBuffer), offsetAddress, byteCount);
-			//buffer.position(buffer.position() + (int) byteCount);
+				int dstPos = position();
+				long dstAddress = address + dstPos * (long) Integer.BYTES;
+				long byteCount = srcRem * (long) Integer.BYTES;
+
+				MemoryUtil.memCopy(srcBufferAddress, dstAddress, byteCount);
+
+				buffer.position(dstPos + (int) byteCount);
+				inBuffer.position(srcPos + srcRem);
+			}
 		}
 	}
 
 	public void put(FloatBuffer inBuffer) {
 		if (buffer != null) {
-			FloatBuffer floatBuffer = buffer.asFloatBuffer();
-			floatBuffer.put(inBuffer);
-			buffer.position(floatBuffer.position() * Float.BYTES);
+			int srcPos = inBuffer.position();
+			int srcRem = inBuffer.limit() - srcPos;
+			if (srcRem > 0) {
+				long srcBufferAddress = MemoryUtil.memAddress(inBuffer);
+				assert srcBufferAddress != 0;
 
-			//long offsetAddress = address + position() * (long) Integer.BYTES;
-			//long byteCount = (inBuffer.limit() - inBuffer.position()) * (long) Float.BYTES;
-			//MemoryUtil.memCopy(MemoryUtil.memAddress(inBuffer), offsetAddress, byteCount);
-			//buffer.position(buffer.position() + (int) byteCount);
+				int dstPos = position();
+				long dstAddress = address + dstPos * (long) Integer.BYTES;
+				long byteCount = srcRem * (long) Integer.BYTES;
+
+				MemoryUtil.memCopy(srcBufferAddress, dstAddress, byteCount);
+
+				buffer.position(dstPos + (int) byteCount);
+				inBuffer.position(srcPos + srcRem);
+			}
 		}
 	}
 }

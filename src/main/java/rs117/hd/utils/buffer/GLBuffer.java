@@ -27,8 +27,12 @@ package rs117.hd.utils.buffer;
 import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
+import java.util.concurrent.Semaphore;
 import lombok.RequiredArgsConstructor;
+import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
+import net.runelite.api.*;
+import net.runelite.client.callback.ClientThread;
 import org.lwjgl.opengl.*;
 import org.lwjgl.system.MemoryUtil;
 import rs117.hd.HdPlugin;
@@ -50,12 +54,20 @@ public class GLBuffer
 	public int id;
 	public long size;
 
+	private Client client;
 
-	public void initialize() {
-		initialize(0);
+	private ClientThread clientThread;
+
+	private final Semaphore clientThreadSema = new Semaphore(0);
+
+	public void initialize(Client client, ClientThread clientThread) {
+		initialize(client, clientThread, 0);
 	}
 
-	public void initialize(long initialCapacity) {
+	public void initialize(Client client, ClientThread clientThread, long initialCapacity) {
+		this.client = client;
+		this.clientThread = clientThread;
+
 		id = glGenBuffers();
 		// Initialize both GL and CL buffers to buffers of a single byte or more,
 		// to ensure that valid buffers are given to compute dispatches.
@@ -76,8 +88,17 @@ public class GLBuffer
 		return map(access, 0);
 	}
 
+	@SneakyThrows
 	public GpuMappedBuffer map(int access, int bytesOffset) {
 		if (!mapped.isMapped()) {
+			if (!client.isClientThread()) {
+				clientThread.invoke(() -> {
+					map(access, bytesOffset);
+					clientThreadSema.release();
+				});
+				clientThreadSema.acquire();
+				return mapped;
+			}
 			glBindBuffer(target, id);
 			ByteBuffer buf = glMapBuffer(target, access);
 			if (buf != null) {
@@ -95,7 +116,9 @@ public class GLBuffer
 		return mapped;
 	}
 
+	@SneakyThrows
 	public void unmap() {
+		assert client.isClientThread();
 		if (mapped.isMapped()) {
 			glBindBuffer(target, id);
 			glUnmapBuffer(target);
@@ -109,16 +132,28 @@ public class GLBuffer
 		ensureCapacity(0, numBytes);
 	}
 
+	@SneakyThrows
 	public void ensureCapacity(long byteOffset, long numBytes) {
-		numBytes += byteOffset;
-		if (numBytes <= size) {
-			glBindBuffer(target, id);
+		long newSize = byteOffset + byteOffset;
+		if (newSize <= size) {
+			if (client.isClientThread()) {
+				glBindBuffer(target, id);
+			}
 			return;
 		}
 
-		numBytes = HDUtils.ceilPow2(numBytes);
-		if (log.isDebugEnabled() && numBytes > 1e6)
-			log.debug("Resizing buffer '{}'\t{}", name, String.format("%.2f MB -> %.2f MB", size / 1e6, numBytes / 1e6));
+		if (!client.isClientThread()) {
+			clientThread.invoke(() -> {
+				ensureCapacity(byteOffset, numBytes);
+				clientThreadSema.release();
+			});
+			clientThreadSema.acquire();
+			return;
+		}
+
+		newSize = HDUtils.ceilPow2(newSize);
+		if (log.isDebugEnabled() && newSize > 1e6)
+			log.debug("Resizing buffer '{}'\t{}", name, String.format("%.2f MB -> %.2f MB", size / 1e6, newSize / 1e6));
 
 		int mappedBufferPosition = mapped.isMapped() ? mapped.buffer.position() : -1;
 		if (mappedBufferPosition != -1) {
@@ -130,17 +165,17 @@ public class GLBuffer
 			int oldBuffer = id;
 			id = glGenBuffers();
 			glBindBuffer(target, id);
-			glBufferData(target, numBytes, usage);
+			glBufferData(target, newSize, usage);
 
 			glBindBuffer(GL_COPY_READ_BUFFER, oldBuffer);
 			glCopyBufferSubData(GL_COPY_READ_BUFFER, target, 0, 0, byteOffset);
 			glDeleteBuffers(oldBuffer);
 		} else {
 			glBindBuffer(target, id);
-			glBufferData(target, numBytes, usage);
+			glBufferData(target, newSize, usage);
 		}
 
-		size = numBytes;
+		size = newSize;
 
 		if (mappedBufferPosition != -1) {
 			map(mapped.accessType);
@@ -160,6 +195,7 @@ public class GLBuffer
 	}
 
 	public void upload(ByteBuffer data, long byteOffset) {
+		assert client.isClientThread();
 		unmap();
 		long numBytes = data.remaining();
 		ensureCapacity(byteOffset, numBytes);
@@ -171,6 +207,7 @@ public class GLBuffer
 	}
 
 	public void upload(IntBuffer data, long byteOffset) {
+		assert client.isClientThread();
 		unmap();
 		long numBytes = 4L * data.remaining();
 		ensureCapacity(byteOffset, numBytes);
@@ -182,6 +219,7 @@ public class GLBuffer
 	}
 
 	public void upload(FloatBuffer data, long byteOffset) {
+		assert client.isClientThread();
 		unmap();
 		long numBytes = 4L * data.remaining();
 		ensureCapacity(byteOffset, numBytes);

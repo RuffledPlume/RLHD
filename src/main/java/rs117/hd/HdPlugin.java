@@ -1035,7 +1035,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			hModelSortingBuffers[i] = new SharedGLBuffer(
 				"Model Sorting " + modelSortingBinFaceCounts[i], GL_ARRAY_BUFFER, GL_STREAM_DRAW, CL_MEM_READ_ONLY);
 			// Initialize each model sorting buffer with capacity for 64 models
-			hModelSortingBuffers[i].initialize();
+			hModelSortingBuffers[i].initialize(client, clientThread);
 		}
 
 		log.debug("Spreading model sorting across {} bins: {}", numBins, modelSortingBinFaceCounts);
@@ -1166,20 +1166,20 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	}
 
 	private void initBuffers() {
-		hStagingBufferVertices.initialize();
-		hStagingBufferUvs.initialize();
-		hStagingBufferNormals.initialize();
+		hStagingBufferVertices.initialize(client, clientThread);
+		hStagingBufferUvs.initialize(client, clientThread);
+		hStagingBufferNormals.initialize(client, clientThread);
 
-		hRenderBufferVertices.initialize();
-		hRenderBufferUvs.initialize();
-		hRenderBufferNormals.initialize();
+		hRenderBufferVertices.initialize(client, clientThread);
+		hRenderBufferUvs.initialize(client, clientThread);
+		hRenderBufferNormals.initialize(client, clientThread);
 
-		hModelPassthroughBuffer.initialize();
+		hModelPassthroughBuffer.initialize(client, clientThread);
 
-		uboGlobal.initialize(UNIFORM_BLOCK_GLOBAL);
-		uboLights.initialize(UNIFORM_BLOCK_LIGHTS);
-		uboCompute.initialize(UNIFORM_BLOCK_COMPUTE);
-		uboUI.initialize(UNIFORM_BLOCK_UI);
+		uboGlobal.initialize(client, clientThread, UNIFORM_BLOCK_GLOBAL);
+		uboLights.initialize(client, clientThread, UNIFORM_BLOCK_LIGHTS);
+		uboCompute.initialize(client, clientThread, UNIFORM_BLOCK_COMPUTE);
+		uboUI.initialize(client, clientThread, UNIFORM_BLOCK_UI);
 	}
 
 	private void destroyBuffers() {
@@ -2485,9 +2485,14 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			var context = new SceneContext(client, scene, getExpandedMapLoadingChunks(), reuseBuffers, sceneContext);
 			// noinspection SynchronizationOnLocalVariableOrMethodParameter
 			synchronized (context) {
+				context.stagingBufferVertices = hStagingBufferVertices.map(GL_WRITE_ONLY);
+				context.stagingBufferNormals = hStagingBufferNormals.map(GL_WRITE_ONLY);
+				context.stagingBufferUvs = hStagingBufferUvs.map(GL_WRITE_ONLY);
+
 				nextSceneContext = context;
 				proceduralGenerator.generateSceneData(context);
 				environmentManager.loadSceneEnvironments(context);
+				sceneUploader.upload(context);
 			}
 		} catch (OutOfMemoryError oom) {
 			log.error("Ran out of memory while loading scene (32-bit: {}, low memory mode: {}, cache size: {})",
@@ -2531,11 +2536,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		nextSceneContext = null;
 		assert sceneContext != null;
 
-		sceneContext.stagingBufferVertices = hStagingBufferVertices.map(GL_WRITE_ONLY);
-		sceneContext.stagingBufferNormals = hStagingBufferNormals.map(GL_WRITE_ONLY);
-		sceneContext.stagingBufferUvs = hStagingBufferUvs.map(GL_WRITE_ONLY);
-
-		sceneUploader.upload(sceneContext);
+		sceneUploader.prepareBeforeSwap(sceneContext);
 
 		sceneContext.staticUnorderedModelBuffer.flip();
 

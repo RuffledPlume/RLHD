@@ -426,7 +426,7 @@ public class TextureManager {
 			uboMaterials = null;
 		}
 		uboMaterials = new UBOMaterials(materialUniformEntries.size());
-		uboMaterials.initialize(HdPlugin.UNIFORM_BLOCK_MATERIALS);
+		uboMaterials.initialize(client, clientThread, HdPlugin.UNIFORM_BLOCK_MATERIALS);
 
 		for (int i = 0; i < materialUniformEntries.size(); i++) {
 			MaterialEntry entry = materialUniformEntries.get(i);
@@ -483,7 +483,7 @@ public class TextureManager {
 	}
 
 	private void updateUBOWaterTypes() {
-		uboWaterTypes.initialize(HdPlugin.UNIFORM_BLOCK_WATER_TYPES);
+		uboWaterTypes.initialize(client, clientThread, HdPlugin.UNIFORM_BLOCK_WATER_TYPES);
 		for (WaterType type : WaterType.values()) {
 			var struct = uboWaterTypes.waterTypes[type.ordinal()];
 			struct.isFlat.set(type.flat ? 1 : 0);
