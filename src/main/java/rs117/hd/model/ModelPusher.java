@@ -211,10 +211,10 @@ public class ModelPusher {
 			modelOverride.colorOverrides == null;
 
 		// ensure capacity upfront
-		sceneContext.stagingBufferVertices.ensureCapacity(bufferSize);
-		sceneContext.stagingBufferNormals.ensureCapacity(bufferSize);
+		sceneContext.stagingBufferVertices.ensureCapacity(bufferSize * Integer.BYTES);
+		sceneContext.stagingBufferNormals.ensureCapacity(bufferSize * Float.BYTES);
 		if (!skipUVs)
-			sceneContext.stagingBufferUvs.ensureCapacity(bufferSize);
+			sceneContext.stagingBufferUvs.ensureCapacity(bufferSize * Float.BYTES);
 
 		boolean foundCachedVertexData = false;
 		boolean foundCachedNormalData = false;

@@ -1593,6 +1593,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				// viewport buffer.
 				renderBufferOffset = sceneContext.staticVertexCount;
 
+				sceneContext.stagingBufferVertices = hStagingBufferVertices.map(GL_WRITE_ONLY, dynamicOffsetVertices * 4 * VERTEX_SIZE);
+				sceneContext.stagingBufferUvs = hStagingBufferUvs.map(GL_WRITE_ONLY, dynamicOffsetUvs * 4 * UV_SIZE);
+				sceneContext.stagingBufferNormals = hStagingBufferNormals.map(GL_WRITE_ONLY, dynamicOffsetVertices * 4 * VERTEX_SIZE);
+
 				drawnTileCount = 0;
 				drawnStaticRenderableCount = 0;
 				drawnDynamicRenderableCount = 0;
@@ -1773,15 +1777,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		// but it would only lead to micro stuttering when rotating the camera, compared to no rotation.
 		if (!redrawPreviousFrame) {
 			// Geometry buffers
-			sceneContext.stagingBufferVertices.flip();
-			sceneContext.stagingBufferUvs.flip();
-			sceneContext.stagingBufferNormals.flip();
-			hStagingBufferVertices.upload(sceneContext.stagingBufferVertices, dynamicOffsetVertices * 4L * VERTEX_SIZE);
-			hStagingBufferUvs.upload(sceneContext.stagingBufferUvs, dynamicOffsetUvs * 4L * UV_SIZE);
-			hStagingBufferNormals.upload(sceneContext.stagingBufferNormals, dynamicOffsetVertices * 4L * NORMAL_SIZE);
-			sceneContext.stagingBufferVertices.clear();
-			sceneContext.stagingBufferUvs.clear();
-			sceneContext.stagingBufferNormals.clear();
+			hStagingBufferVertices.unmap();
+			hStagingBufferUvs.unmap();
+			hStagingBufferNormals.unmap();
 
 			// Model buffers
 			modelPassthroughBuffer.flip();
@@ -2490,7 +2488,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				nextSceneContext = context;
 				proceduralGenerator.generateSceneData(context);
 				environmentManager.loadSceneEnvironments(context);
-				sceneUploader.upload(context);
 			}
 		} catch (OutOfMemoryError oom) {
 			log.error("Ran out of memory while loading scene (32-bit: {}, low memory mode: {}, cache size: {})",
@@ -2534,22 +2531,20 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		nextSceneContext = null;
 		assert sceneContext != null;
 
-		sceneUploader.prepareBeforeSwap(sceneContext);
+		sceneContext.stagingBufferVertices = hStagingBufferVertices.map(GL_WRITE_ONLY);
+		sceneContext.stagingBufferNormals = hStagingBufferNormals.map(GL_WRITE_ONLY);
+		sceneContext.stagingBufferUvs = hStagingBufferUvs.map(GL_WRITE_ONLY);
+
+		sceneUploader.upload(sceneContext);
 
 		sceneContext.staticUnorderedModelBuffer.flip();
 
 		dynamicOffsetVertices = sceneContext.getVertexOffset();
 		dynamicOffsetUvs = sceneContext.getUvOffset();
 
-		sceneContext.stagingBufferVertices.flip();
-		sceneContext.stagingBufferUvs.flip();
-		sceneContext.stagingBufferNormals.flip();
-		hStagingBufferVertices.upload(sceneContext.stagingBufferVertices);
-		hStagingBufferUvs.upload(sceneContext.stagingBufferUvs);
-		hStagingBufferNormals.upload(sceneContext.stagingBufferNormals);
-		sceneContext.stagingBufferVertices.clear();
-		sceneContext.stagingBufferUvs.clear();
-		sceneContext.stagingBufferNormals.clear();
+		hStagingBufferVertices.unmap();
+		hStagingBufferNormals.unmap();
+		hStagingBufferUvs.unmap();
 
 		if (sceneContext.intersects(areaManager.getArea("PLAYER_OWNED_HOUSE"))) {
 			if (!isInHouse) {
@@ -3139,8 +3134,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				if (modelOverride.hide)
 					return;
 
-				int vertexOffset = dynamicOffsetVertices + sceneContext.getVertexOffset();
-				int uvOffset = dynamicOffsetUvs + sceneContext.getUvOffset();
+				int vertexOffset = sceneContext.getVertexOffset();
+				int uvOffset = sceneContext.getUvOffset();
 
 				int preOrientation = 0;
 				if (ModelHash.getType(hash) == ModelHash.TYPE_OBJECT) {

@@ -30,6 +30,7 @@ import java.nio.IntBuffer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.lwjgl.opengl.*;
+import org.lwjgl.system.MemoryUtil;
 import rs117.hd.HdPlugin;
 import rs117.hd.utils.HDUtils;
 
@@ -44,8 +45,11 @@ public class GLBuffer
 	public final int target;
 	public final int usage;
 
+	public final GpuMappedBuffer mapped = new GpuMappedBuffer(this);
+
 	public int id;
 	public long size;
+
 
 	public void initialize() {
 		initialize(0);
@@ -68,6 +72,39 @@ public class GLBuffer
 		}
 	}
 
+	public GpuMappedBuffer map(int access) {
+		return map(access, 0);
+	}
+
+	public GpuMappedBuffer map(int access, int bytesOffset) {
+		if (!mapped.isMapped()) {
+			glBindBuffer(target, id);
+			ByteBuffer buf = glMapBuffer(target, access);
+			if (buf != null) {
+				mapped.accessType = access;
+				mapped.address = MemoryUtil.memAddress(buf);
+				mapped.buffer = buf;
+			}
+			glBindBuffer(target, 0);
+		}
+
+		if (mapped.buffer != null) {
+			mapped.buffer.position(bytesOffset);
+		}
+
+		return mapped;
+	}
+
+	public void unmap() {
+		if (mapped.isMapped()) {
+			glBindBuffer(target, id);
+			glUnmapBuffer(target);
+			mapped.buffer = null;
+			mapped.address = 0;
+			glBindBuffer(target, 0);
+		}
+	}
+
 	public void ensureCapacity(long numBytes) {
 		ensureCapacity(0, numBytes);
 	}
@@ -82,6 +119,11 @@ public class GLBuffer
 		numBytes = HDUtils.ceilPow2(numBytes);
 		if (log.isDebugEnabled() && numBytes > 1e6)
 			log.debug("Resizing buffer '{}'\t{}", name, String.format("%.2f MB -> %.2f MB", size / 1e6, numBytes / 1e6));
+
+		int mappedBufferPosition = mapped.isMapped() ? mapped.buffer.position() : -1;
+		if (mappedBufferPosition != -1) {
+			unmap();
+		}
 
 		if (byteOffset > 0) {
 			// Create a new buffer and copy the old data to it
@@ -100,6 +142,13 @@ public class GLBuffer
 
 		size = numBytes;
 
+		if (mappedBufferPosition != -1) {
+			map(mapped.accessType);
+			if (mapped.isMapped()) {
+				mapped.buffer.position(mappedBufferPosition);
+			}
+		}
+
 		if (log.isDebugEnabled() && HdPlugin.GL_CAPS.OpenGL43) {
 			GL43C.glObjectLabel(GL43C.GL_BUFFER, id, name);
 			checkGLErrors();
@@ -111,6 +160,7 @@ public class GLBuffer
 	}
 
 	public void upload(ByteBuffer data, long byteOffset) {
+		unmap();
 		long numBytes = data.remaining();
 		ensureCapacity(byteOffset, numBytes);
 		glBufferSubData(target, byteOffset, data);
@@ -121,6 +171,7 @@ public class GLBuffer
 	}
 
 	public void upload(IntBuffer data, long byteOffset) {
+		unmap();
 		long numBytes = 4L * data.remaining();
 		ensureCapacity(byteOffset, numBytes);
 		glBufferSubData(target, byteOffset, data);
@@ -131,6 +182,7 @@ public class GLBuffer
 	}
 
 	public void upload(FloatBuffer data, long byteOffset) {
+		unmap();
 		long numBytes = 4L * data.remaining();
 		ensureCapacity(byteOffset, numBytes);
 		glBufferSubData(target, byteOffset, data);
