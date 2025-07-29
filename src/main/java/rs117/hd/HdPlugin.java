@@ -138,6 +138,7 @@ import rs117.hd.utils.ResourcePath;
 import rs117.hd.utils.ShaderRecompile;
 import rs117.hd.utils.buffer.GLBuffer;
 import rs117.hd.utils.buffer.GpuIntBuffer;
+import rs117.hd.utils.buffer.GpuMappedBuffer;
 import rs117.hd.utils.buffer.SharedGLBuffer;
 
 import static net.runelite.api.Constants.*;
@@ -1166,9 +1167,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	}
 
 	private void initBuffers() {
-		hStagingBufferVertices.initialize(client, clientThread);
-		hStagingBufferUvs.initialize(client, clientThread);
-		hStagingBufferNormals.initialize(client, clientThread);
+		hStagingBufferVertices.initialize(client, clientThread, 256);
+		hStagingBufferUvs.initialize(client, clientThread, 256);
+		hStagingBufferNormals.initialize(client, clientThread, 256);
 
 		hRenderBufferVertices.initialize(client, clientThread);
 		hRenderBufferUvs.initialize(client, clientThread);
@@ -1593,9 +1594,21 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				// viewport buffer.
 				renderBufferOffset = sceneContext.staticVertexCount;
 
-				sceneContext.stagingBufferVertices = hStagingBufferVertices.map(GL_WRITE_ONLY, dynamicOffsetVertices * 4 * VERTEX_SIZE);
-				sceneContext.stagingBufferUvs = hStagingBufferUvs.map(GL_WRITE_ONLY, dynamicOffsetUvs * 4 * UV_SIZE);
-				sceneContext.stagingBufferNormals = hStagingBufferNormals.map(GL_WRITE_ONLY, dynamicOffsetVertices * 4 * VERTEX_SIZE);
+				sceneContext.stagingBufferVertices = hStagingBufferVertices.map(
+					GL_WRITE_ONLY,
+					dynamicOffsetVertices * 4 * VERTEX_SIZE,
+					GpuMappedBuffer.BufferType.INT
+				);
+				sceneContext.stagingBufferUvs = hStagingBufferUvs.map(
+					GL_WRITE_ONLY,
+					dynamicOffsetUvs * 4 * UV_SIZE,
+					GpuMappedBuffer.BufferType.FLOAT
+				);
+				sceneContext.stagingBufferNormals = hStagingBufferNormals.map(
+					GL_WRITE_ONLY,
+					dynamicOffsetVertices * 4 * VERTEX_SIZE,
+					GpuMappedBuffer.BufferType.FLOAT
+				);
 
 				drawnTileCount = 0;
 				drawnStaticRenderableCount = 0;
@@ -2485,14 +2498,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			var context = new SceneContext(client, scene, getExpandedMapLoadingChunks(), reuseBuffers, sceneContext);
 			// noinspection SynchronizationOnLocalVariableOrMethodParameter
 			synchronized (context) {
-				context.stagingBufferVertices = hStagingBufferVertices.map(GL_WRITE_ONLY);
-				context.stagingBufferNormals = hStagingBufferNormals.map(GL_WRITE_ONLY);
-				context.stagingBufferUvs = hStagingBufferUvs.map(GL_WRITE_ONLY);
-
 				nextSceneContext = context;
 				proceduralGenerator.generateSceneData(context);
 				environmentManager.loadSceneEnvironments(context);
-				sceneUploader.upload(context);
 			}
 		} catch (OutOfMemoryError oom) {
 			log.error("Ran out of memory while loading scene (32-bit: {}, low memory mode: {}, cache size: {})",
@@ -2536,7 +2544,11 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		nextSceneContext = null;
 		assert sceneContext != null;
 
-		sceneUploader.prepareBeforeSwap(sceneContext);
+		sceneContext.stagingBufferVertices = hStagingBufferVertices.map(GL_WRITE_ONLY, GpuMappedBuffer.BufferType.INT);
+		sceneContext.stagingBufferNormals = hStagingBufferNormals.map(GL_WRITE_ONLY, GpuMappedBuffer.BufferType.FLOAT);
+		sceneContext.stagingBufferUvs = hStagingBufferUvs.map(GL_WRITE_ONLY, GpuMappedBuffer.BufferType.FLOAT);
+
+		sceneUploader.upload(sceneContext);
 
 		sceneContext.staticUnorderedModelBuffer.flip();
 

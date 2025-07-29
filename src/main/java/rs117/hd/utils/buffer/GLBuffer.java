@@ -34,7 +34,6 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.client.callback.ClientThread;
 import org.lwjgl.opengl.*;
-import org.lwjgl.system.MemoryUtil;
 import rs117.hd.HdPlugin;
 import rs117.hd.utils.HDUtils;
 
@@ -84,16 +83,16 @@ public class GLBuffer
 		}
 	}
 
-	public GpuMappedBuffer map(int access) {
-		return map(access, 0);
+	public GpuMappedBuffer map(int access, GpuMappedBuffer.BufferType bufferType) {
+		return map(access, 0, bufferType);
 	}
 
 	@SneakyThrows
-	public GpuMappedBuffer map(int access, int bytesOffset) {
+	public GpuMappedBuffer map(int access, int bytesOffset, GpuMappedBuffer.BufferType bufferType) {
 		if (!mapped.isMapped()) {
 			if (!client.isClientThread()) {
 				clientThread.invoke(() -> {
-					map(access, bytesOffset);
+					map(access, bytesOffset, bufferType);
 					clientThreadSema.release();
 				});
 				clientThreadSema.acquire();
@@ -103,15 +102,17 @@ public class GLBuffer
 			ByteBuffer buf = glMapBuffer(target, access);
 			if (buf != null) {
 				mapped.accessType = access;
-				mapped.address = MemoryUtil.memAddress(buf);
+				mapped.bufferType = bufferType;
 				mapped.buffer = buf;
+				mapped.bufferInt = bufferType == GpuMappedBuffer.BufferType.INT ? mapped.buffer.asIntBuffer() : null;
+				mapped.bufferFloat = bufferType == GpuMappedBuffer.BufferType.FLOAT ? mapped.buffer.asFloatBuffer() : null;
 			}
 			glBindBuffer(target, 0);
 		}
 
-		if (mapped.buffer != null) {
-			mapped.buffer.position(bytesOffset);
-		}
+		if (mapped.buffer != null) mapped.buffer.position(bytesOffset);
+		if (mapped.bufferInt != null) mapped.bufferInt.position(bytesOffset / 4);
+		if (mapped.bufferFloat != null) mapped.bufferFloat.position(bytesOffset / 4);
 
 		return mapped;
 	}
@@ -123,7 +124,8 @@ public class GLBuffer
 			glBindBuffer(target, id);
 			glUnmapBuffer(target);
 			mapped.buffer = null;
-			mapped.address = 0;
+			mapped.bufferInt = null;
+			mapped.bufferFloat = null;
 			glBindBuffer(target, 0);
 		}
 	}
@@ -134,7 +136,7 @@ public class GLBuffer
 
 	@SneakyThrows
 	public void ensureCapacity(long byteOffset, long numBytes) {
-		long newSize = byteOffset + byteOffset;
+		long newSize = byteOffset + numBytes;
 		if (newSize <= size) {
 			if (client.isClientThread()) {
 				glBindBuffer(target, id);
@@ -155,8 +157,10 @@ public class GLBuffer
 		if (log.isDebugEnabled() && newSize > 1e6)
 			log.debug("Resizing buffer '{}'\t{}", name, String.format("%.2f MB -> %.2f MB", size / 1e6, newSize / 1e6));
 
-		int mappedBufferPosition = mapped.isMapped() ? mapped.buffer.position() : -1;
-		if (mappedBufferPosition != -1) {
+		int mappedBufferPosition = -1;
+		if (mapped.isMapped()) {
+			mappedBufferPosition = mapped.getTypedPosition() * (int) mapped.getTypedSize();
+			mapped.buffer.position(mappedBufferPosition);
 			unmap();
 		}
 
@@ -178,10 +182,8 @@ public class GLBuffer
 		size = newSize;
 
 		if (mappedBufferPosition != -1) {
-			map(mapped.accessType);
-			if (mapped.isMapped()) {
-				mapped.buffer.position(mappedBufferPosition);
-			}
+			map(mapped.accessType, mappedBufferPosition, mapped.bufferType);
+			glBindBuffer(target, id);
 		}
 
 		if (log.isDebugEnabled() && HdPlugin.GL_CAPS.OpenGL43) {

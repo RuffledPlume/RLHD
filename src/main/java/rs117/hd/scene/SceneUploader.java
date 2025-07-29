@@ -706,7 +706,7 @@ public class SceneUploader {
 
 			float terrainData = (float) packTerrainData(true, 0, waterType, tileZ);
 
-			sceneContext.stagingBufferNormals.ensureCapacity(24 * Integer.BYTES);
+			sceneContext.stagingBufferNormals.ensureCapacity(24);
 			sceneContext.stagingBufferNormals.put(neNormals[0], neNormals[2], neNormals[1], terrainData);
 			sceneContext.stagingBufferNormals.put(nwNormals[0], nwNormals[2], nwNormals[1], terrainData);
 			sceneContext.stagingBufferNormals.put(seNormals[0], seNormals[2], seNormals[1], terrainData);
@@ -716,7 +716,7 @@ public class SceneUploader {
 			sceneContext.stagingBufferNormals.put(nwNormals[0], nwNormals[2], nwNormals[1], terrainData);
 
 
-			sceneContext.stagingBufferVertices.ensureCapacity(24 * Float.BYTES);
+			sceneContext.stagingBufferVertices.ensureCapacity(24);
 			sceneContext.stagingBufferVertices.put((float) localNeVertexX, neHeight, localNeVertexY, neColor);
 			sceneContext.stagingBufferVertices.put((float) localNwVertexX, nwHeight, localNwVertexY, nwColor);
 			sceneContext.stagingBufferVertices.put((float) localSeVertexX, seHeight, localSeVertexY, seColor);
@@ -749,7 +749,7 @@ public class SceneUploader {
 			uvx = uvx * uvcos - uvy * uvsin;
 			uvy = tmp * uvsin + uvy * uvcos;
 
-			sceneContext.stagingBufferUvs.ensureCapacity(24 * Float.BYTES);
+			sceneContext.stagingBufferUvs.ensureCapacity(24);
 			sceneContext.stagingBufferUvs.put(uvx, uvy, 0, packedMaterialDataNE);
 			sceneContext.stagingBufferUvs.put(uvx - uvcos, uvy - uvsin, 0, packedMaterialDataNW);
 			sceneContext.stagingBufferUvs.put(uvx + uvsin, uvy - uvcos, 0, packedMaterialDataSE);
@@ -845,7 +845,7 @@ public class SceneUploader {
 			float nwTerrainData = (float) packTerrainData(true, Math.max(1, nwDepth), waterType, tileZ);
 			float neTerrainData = (float) packTerrainData(true, Math.max(1, neDepth), waterType, tileZ);
 
-			sceneContext.stagingBufferNormals.ensureCapacity(24 * Float.BYTES);
+			sceneContext.stagingBufferNormals.ensureCapacity(24);
 			sceneContext.stagingBufferNormals.put(neNormals[0], neNormals[2], neNormals[1], neTerrainData);
 			sceneContext.stagingBufferNormals.put(nwNormals[0], nwNormals[2], nwNormals[1], nwTerrainData);
 			sceneContext.stagingBufferNormals.put(seNormals[0], seNormals[2], seNormals[1], seTerrainData);
@@ -854,7 +854,7 @@ public class SceneUploader {
 			sceneContext.stagingBufferNormals.put(seNormals[0], seNormals[2], seNormals[1], seTerrainData);
 			sceneContext.stagingBufferNormals.put(nwNormals[0], nwNormals[2], nwNormals[1], nwTerrainData);
 
-			sceneContext.stagingBufferVertices.ensureCapacity(24 * Float.BYTES);
+			sceneContext.stagingBufferVertices.ensureCapacity(24);
 			sceneContext.stagingBufferVertices.put((float) localNeVertexX, neHeight + neDepth, localNeVertexY, neColor);
 			sceneContext.stagingBufferVertices.put((float) localNwVertexX, nwHeight + nwDepth, localNwVertexY, nwColor);
 			sceneContext.stagingBufferVertices.put((float) localSeVertexX, seHeight + seDepth, localSeVertexY, seColor);
@@ -874,7 +874,7 @@ public class SceneUploader {
 			int packedMaterialDataNE = modelPusher.packMaterialData(
 				neMaterial, -1, ModelOverride.NONE, UvType.GEOMETRY, false);
 
-			sceneContext.stagingBufferUvs.ensureCapacity(24 * Float.BYTES);
+			sceneContext.stagingBufferUvs.ensureCapacity(24);
 			sceneContext.stagingBufferUvs.put(0, 0, 0, packedMaterialDataNE);
 			sceneContext.stagingBufferUvs.put(1, 0, 0, packedMaterialDataNW);
 			sceneContext.stagingBufferUvs.put(0, 1, 0, packedMaterialDataSE);
@@ -1065,12 +1065,12 @@ public class SceneUploader {
 
 			float terrainData = (float) packTerrainData(true, 0, waterType, tileZ);
 
-			sceneContext.stagingBufferNormals.ensureCapacity(12 * Float.BYTES);
+			sceneContext.stagingBufferNormals.ensureCapacity(12);
 			sceneContext.stagingBufferNormals.put(normalsA[0], normalsA[2], normalsA[1], terrainData);
 			sceneContext.stagingBufferNormals.put(normalsB[0], normalsB[2], normalsB[1], terrainData);
 			sceneContext.stagingBufferNormals.put(normalsC[0], normalsC[2], normalsC[1], terrainData);
 
-			sceneContext.stagingBufferVertices.ensureCapacity(12 * Float.BYTES);
+			sceneContext.stagingBufferVertices.ensureCapacity(12);
 			sceneContext.stagingBufferVertices.put((float) localVertices[0][0], localVertices[0][2], localVertices[0][1], colorA);
 			sceneContext.stagingBufferVertices.put((float) localVertices[1][0], localVertices[1][2], localVertices[1][1], colorB);
 			sceneContext.stagingBufferVertices.put((float) localVertices[2][0], localVertices[2][2], localVertices[2][1], colorC);
@@ -1090,7 +1090,7 @@ public class SceneUploader {
 				uvsin = (float) Math.sin(rad) * -uvScale;
 			}
 
-			sceneContext.stagingBufferUvs.ensureCapacity(12 * Float.BYTES);
+			sceneContext.stagingBufferUvs.ensureCapacity(12);
 			for (int i = 0; i < 3; i++) {
 				float uvx = worldPos[0] + localVertices[i][0] / 128f - 1;
 				float uvy = worldPos[1] + localVertices[i][1] / 128f - 1;
@@ -1198,12 +1198,12 @@ public class SceneUploader {
 				float bTerrainData = (float) packTerrainData(true, Math.max(1, depthB), waterType, tileZ);
 				float cTerrainData = (float) packTerrainData(true, Math.max(1, depthC), waterType, tileZ);
 
-				sceneContext.stagingBufferNormals.ensureCapacity(12 * Float.BYTES);
+				sceneContext.stagingBufferNormals.ensureCapacity(12);
 				sceneContext.stagingBufferNormals.put(normalsA[0], normalsA[2], normalsA[1], aTerrainData);
 				sceneContext.stagingBufferNormals.put(normalsB[0], normalsB[2], normalsB[1], bTerrainData);
 				sceneContext.stagingBufferNormals.put(normalsC[0], normalsC[2], normalsC[1], cTerrainData);
 
-				sceneContext.stagingBufferVertices.ensureCapacity(12 * Float.BYTES);
+				sceneContext.stagingBufferVertices.ensureCapacity(12);
 				sceneContext.stagingBufferVertices.put(
 					(float) localVertices[0][0],
 					localVertices[0][2] + depthA,
@@ -1232,7 +1232,7 @@ public class SceneUploader {
 				int packedMaterialDataC = modelPusher.packMaterialData(
 					materialC, -1, ModelOverride.NONE, UvType.GEOMETRY, false);
 
-				sceneContext.stagingBufferUvs.ensureCapacity(12 * Float.BYTES);
+				sceneContext.stagingBufferUvs.ensureCapacity(12);
 				sceneContext.stagingBufferUvs.put(1 - localVertices[0][0] / 128f, 1 - localVertices[0][1] / 128f, 0, packedMaterialDataA);
 				sceneContext.stagingBufferUvs.put(1 - localVertices[1][0] / 128f, 1 - localVertices[1][1] / 128f, 0, packedMaterialDataB);
 				sceneContext.stagingBufferUvs.put(1 - localVertices[2][0] / 128f, 1 - localVertices[2][1] / 128f, 0, packedMaterialDataC);
@@ -1261,7 +1261,7 @@ public class SceneUploader {
 
 		float terrainData = (float) packTerrainData(true, 0, WaterType.NONE, tileZ);
 
-		sceneContext.stagingBufferNormals.ensureCapacity(24 * Float.BYTES);
+		sceneContext.stagingBufferNormals.ensureCapacity(24);
 		sceneContext.stagingBufferNormals.put(0, -1, 0, terrainData);
 		sceneContext.stagingBufferNormals.put(0, -1, 0, terrainData);
 		sceneContext.stagingBufferNormals.put(0, -1, 0, terrainData);
@@ -1270,7 +1270,7 @@ public class SceneUploader {
 		sceneContext.stagingBufferNormals.put(0, -1, 0, terrainData);
 		sceneContext.stagingBufferNormals.put(0, -1, 0, terrainData);
 
-		sceneContext.stagingBufferVertices.ensureCapacity(24 * Integer.BYTES);
+		sceneContext.stagingBufferVertices.ensureCapacity(24);
 		sceneContext.stagingBufferVertices.put(toX, neHeight, toY, color);
 		sceneContext.stagingBufferVertices.put(fromX, nwHeight, toY, color);
 		sceneContext.stagingBufferVertices.put(toX, seHeight, fromY, color);
@@ -1281,7 +1281,7 @@ public class SceneUploader {
 
 		int packedMaterialData = modelPusher.packMaterialData(Material.BLACK, -1, ModelOverride.NONE, UvType.GEOMETRY, false);
 
-		sceneContext.stagingBufferUvs.ensureCapacity(24 * Float.BYTES);
+		sceneContext.stagingBufferUvs.ensureCapacity(24);
 		sceneContext.stagingBufferUvs.put(0, 0, 0, packedMaterialData);
 		sceneContext.stagingBufferUvs.put(1, 0, 0, packedMaterialData);
 		sceneContext.stagingBufferUvs.put(0, 1, 0, packedMaterialData);

@@ -113,11 +113,11 @@ public class SceneContext {
 	}
 
 	public int getVertexOffset() {
-		return stagingBufferVertices.position() / (VERTEX_SIZE * Integer.BYTES);
+		return stagingBufferVertices.getTypedBuffer().position() / VERTEX_SIZE;
 	}
 
 	public int getUvOffset() {
-		return stagingBufferUvs.position() / (UV_SIZE * Float.BYTES);
+		return stagingBufferUvs.getTypedBuffer().position() / UV_SIZE;
 	}
 
 	/**

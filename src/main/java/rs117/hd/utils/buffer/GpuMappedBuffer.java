@@ -1,114 +1,124 @@
 package rs117.hd.utils.buffer;
 
+import java.nio.Buffer;
 import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.lwjgl.system.MemoryUtil;
 
 @Slf4j
 @RequiredArgsConstructor
 public class GpuMappedBuffer {
+	public enum BufferType {
+		BYTE,
+		INT,
+		FLOAT
+	}
+
 	public final GLBuffer owner;
 
 	public int accessType;
-	public long address;
+	public BufferType bufferType;
+
 	public ByteBuffer buffer;
+	public IntBuffer bufferInt;
+	public FloatBuffer bufferFloat;
 
 	public boolean isMapped() {
 		return buffer != null;
 	}
 
-	public int position() {
-		return buffer != null ? buffer.position() : 0;
+	public int getTypedPosition() {
+		Buffer buf = getTypedBuffer();
+		if (buf != null) {
+			return buf.position();
+		}
+		return 0;
 	}
 
-	public void ensureCapacity(int numBytes) {
-		if (buffer != null)
-			owner.ensureCapacity(buffer.position() + numBytes);
+	public void ensureCapacity(int size) {
+		if (buffer != null) {
+			Buffer buf = getTypedBuffer();
+			owner.ensureCapacity((buf.position() + size) * getTypedSize());
+		}
+	}
+
+	public long getTypedSize() {
+		switch (bufferType) {
+			case BYTE:
+				return 1;
+			case INT:
+			case FLOAT:
+				return 4L;
+		}
+		return 0L;
+	}
+
+	public <T extends Buffer> T getTypedBuffer() {
+		if (buffer == null) {
+			return null;
+		}
+
+		switch (bufferType) {
+			case BYTE:
+				return (T) buffer;
+			case INT:
+				return (T) bufferInt;
+			case FLOAT:
+				return (T) bufferFloat;
+		}
+		return null;
 	}
 
 	public void put(int x, int y, int z, int w) {
-		if (buffer != null) {
-			buffer.putInt(x);
-			buffer.putInt(y);
-			buffer.putInt(z);
-			buffer.putInt(w);
+		if (bufferInt != null) {
+			bufferInt.put(x);
+			bufferInt.put(y);
+			bufferInt.put(z);
+			bufferInt.put(w);
 		}
 	}
 
 	public void put(float x, float y, float z, float w) {
-		if (buffer != null) {
-			buffer.putFloat(x);
-			buffer.putFloat(y);
-			buffer.putFloat(z);
-			buffer.putFloat(w);
+		if (bufferFloat != null) {
+			bufferFloat.put(x);
+			bufferFloat.put(y);
+			bufferFloat.put(z);
+			bufferFloat.put(w);
 		}
 	}
 
 	public void put(float x, float y, float z, int w) {
-		if (buffer != null) {
-			buffer.putFloat(x);
-			buffer.putFloat(y);
-			buffer.putFloat(z);
-			buffer.putInt(w);
+		if (bufferFloat != null) {
+			bufferFloat.put(x);
+			bufferFloat.put(y);
+			bufferFloat.put(z);
+			bufferFloat.put(Float.intBitsToFloat(w));
 		}
 	}
 
 	public void put(int[] array) {
-		if (buffer != null && array != null) {
-			for (int val : array) {
-				buffer.putInt(val);
-			}
+		if (bufferInt != null && array != null) {
+			bufferInt.put(array);
 		}
 	}
 
 	public void put(float[] array) {
-		if (buffer != null && array != null) {
-			for (float val : array) {
-				buffer.putFloat(val);
-			}
+		if (bufferFloat != null && array != null) {
+			bufferFloat.put(array);
 		}
 	}
 
 	public void put(IntBuffer inBuffer) {
-		if (buffer != null) {
-			int srcPos = inBuffer.position();
-			int srcRem = inBuffer.limit() - srcPos;
-			if (srcRem > 0) {
-				long srcBufferAddress = MemoryUtil.memAddress(inBuffer);
-				assert srcBufferAddress != 0;
-
-				int dstPos = position();
-				long dstAddress = address + dstPos * (long) Integer.BYTES;
-				long byteCount = srcRem * (long) Integer.BYTES;
-
-				MemoryUtil.memCopy(srcBufferAddress, dstAddress, byteCount);
-
-				buffer.position(dstPos + (int) byteCount);
-				inBuffer.position(srcPos + srcRem);
-			}
+		if (bufferInt != null) {
+			bufferInt.put(inBuffer);
 		}
 	}
 
 	public void put(FloatBuffer inBuffer) {
-		if (buffer != null) {
-			int srcPos = inBuffer.position();
-			int srcRem = inBuffer.limit() - srcPos;
-			if (srcRem > 0) {
-				long srcBufferAddress = MemoryUtil.memAddress(inBuffer);
-				assert srcBufferAddress != 0;
-
-				int dstPos = position();
-				long dstAddress = address + dstPos * (long) Integer.BYTES;
-				long byteCount = srcRem * (long) Integer.BYTES;
-
-				MemoryUtil.memCopy(srcBufferAddress, dstAddress, byteCount);
-
-				buffer.position(dstPos + (int) byteCount);
-				inBuffer.position(srcPos + srcRem);
-			}
+		if (bufferFloat != null) {
+			bufferFloat.put(inBuffer);
 		}
 	}
 }
