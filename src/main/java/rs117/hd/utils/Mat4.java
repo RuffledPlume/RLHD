@@ -125,6 +125,35 @@ public class Mat4
 		};
 	}
 
+	public static float[][] extractFrustumCorners(float[] invViewProj) {
+		float[][] corners = new float[8][3];
+		int index = 0;
+
+		for (int z = 0; z <= 1; z++) {
+			for (int y = 0; y <= 1; y++) {
+				for (int x = 0; x <= 1; x++) {
+					// Convert from 0/1 to -1/+1 for NDC
+					float ndcX = x * 2.0f - 1.0f;
+					float ndcY = y * 2.0f - 1.0f;
+					float ndcZ = z * 2.0f - 1.0f;
+
+					float[] ndc = new float[] { ndcX, ndcY, ndcZ, 1.0f };
+					float[] world = new float[4];
+
+					projectVec(world, invViewProj, ndc);
+
+					// Store world-space XYZ
+					corners[index][0] = world[0];
+					corners[index][1] = world[1];
+					corners[index][2] = world[2];
+					index++;
+				}
+			}
+		}
+
+		return corners;
+	}
+
 	public static void extractPlanes(
 		float[] mat,
 		float[] left, float[] right,

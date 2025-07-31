@@ -28,6 +28,7 @@ public class SceneView {
 	private final float[] position = new float[3];
 	private final float[] orientation = new float[2];
 
+	// TODO: Condense this into flags... So that way we can mark everything dirty easily
 	private boolean viewMatrixDirty = true;
 	private boolean projectionMatrixDirty = true;
 	private boolean viewProjMatrixDirty = true;
@@ -37,6 +38,7 @@ public class SceneView {
 	private int viewportWidth = 10;
 	private int viewportHeight = 10;
 
+	private float fov = 65.0f;
 	private float zoom = 1.0f;
 	private float nearPlane = 0.5f;
 	private float farPlane = 1000.0f;
@@ -62,6 +64,17 @@ public class SceneView {
 
 	public boolean isDirty() {
 		return viewMatrixDirty | projectionMatrixDirty | viewProjMatrixDirty;
+	}
+
+	public SceneView setFOV(float newFOV) {
+		if (fov != newFOV) {
+			fov = newFOV;
+			projectionMatrixDirty = true;
+			viewProjMatrixDirty = true;
+			invViewProjMatrixDirty = true;
+			frustumPlanesDirty = true;
+		}
+		return this;
 	}
 
 	public SceneView setViewportWidth(int newViewportWidth) {
@@ -242,14 +255,16 @@ public class SceneView {
 
 	public float[] transformPoint(float[] position) {
 		calculateViewProjMatrix();
-		Mat4.projectVec(position, viewProjMatrix, position);
-		return position;
+		float[] vec4 = new float[] { position[0], position[1], position[2], 1.0f };
+		Mat4.projectVec(vec4, viewProjMatrix, vec4);
+		return new float[] { vec4[0], vec4[1], vec4[2] };
 	}
 
 	public float[] invTransformPoint(float[] position) {
 		calculateInvViewProjMatrix();
-		Mat4.projectVec(position, invViewProjMatrix, position);
-		return position;
+		float[] vec4 = new float[] { position[0], position[1], position[2], 1.0f };
+		Mat4.projectVec(vec4, invViewProjMatrix, vec4);
+		return new float[] { vec4[0], vec4[1], vec4[2] };
 	}
 
 	@SneakyThrows
@@ -417,6 +432,11 @@ public class SceneView {
 	public float[][] getFrustumPlanes() {
 		calculateFrustumPlanes();
 		return frustumPlanes.clone();
+	}
+
+	public float[][] getFrustumCorners() {
+		calculateInvViewProjMatrix();
+		return Mat4.extractFrustumCorners(invViewProjMatrix);
 	}
 
 	@RequiredArgsConstructor
