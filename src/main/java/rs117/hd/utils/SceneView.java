@@ -405,7 +405,8 @@ public class SceneView {
 
 	private void calculateInvViewProjMatrix() {
 		if (invViewProjMatrixDirty) {
-			invViewProjMatrix = Mat4.inverse(getViewProjMatrix());
+			calculateViewProjMatrix();
+			invViewProjMatrix = Mat4.inverse(viewProjMatrix);
 			invViewProjMatrixDirty = false;
 		}
 	}

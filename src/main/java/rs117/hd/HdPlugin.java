@@ -1611,7 +1611,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 					sceneCamera.performAsyncTileCulling(frameTimer, sceneContext, true);
 
 					uboGlobal.cameraPos.set(sceneCamera.getPosition());
-					uboGlobal.projectionMatrix.set(sceneCamera.getViewMatrix());
+					uboGlobal.projectionMatrix.set(sceneCamera.getViewProjMatrix());
 					uboGlobal.invProjectionMatrix.set(sceneCamera.getInvViewProjMatrix());
 					uboGlobal.upload();
 				}
@@ -1619,7 +1619,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				directionalLight.setPitch(environmentManager.currentSunAngles[0]);
 				directionalLight.setYaw(PI - environmentManager.currentSunAngles[1]);
 				if (sceneCameraChanged || directionalLight.isDirty()) {
-					float[][] sceneFrustumCorners = sceneCamera.getFrustumCorners();
+					// Reset the directional to avoid error propogation
+					directionalLight.setPosition(sceneCamera.getPosition());
 
 					// Transform frustum corners into light space
 					float minX = Float.POSITIVE_INFINITY;
@@ -1629,28 +1630,38 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 					float minZ = Float.POSITIVE_INFINITY;
 					float maxZ = Float.NEGATIVE_INFINITY;
 
+					float[][] sceneFrustumCorners = sceneCamera.getFrustumCorners();
 					for (float[] corner : sceneFrustumCorners) {
-						float[] lightSpaceCorner = directionalLight.transformPoint(corner);
-
-						minX = Math.min(minX, lightSpaceCorner[0]);
-						maxX = Math.max(maxX, lightSpaceCorner[0]);
-						minY = Math.min(minY, lightSpaceCorner[1]);
-						maxY = Math.max(maxY, lightSpaceCorner[1]);
-						minZ = Math.min(minZ, lightSpaceCorner[2]);
-						maxZ = Math.max(maxZ, lightSpaceCorner[2]);
+						minX = Math.min(minX, corner[0]);
+						maxX = Math.max(maxX, corner[0]);
+						minY = Math.min(minY, corner[1]);
+						maxY = Math.max(maxY, corner[1]);
+						minZ = Math.min(minZ, corner[2]);
+						maxZ = Math.max(maxZ, corner[2]);
 					}
 
-					float centerX = (minX + maxX) * 0.5f;
-					float centerY = (minY + maxY) * 0.5f;
-					float centerZ = (minZ + maxZ) * 0.5f;
 
-					float[] worldCenter = directionalLight.invTransformPoint(new float[] { centerX, centerY, centerZ });
-					directionalLight.setPosition(worldCenter);
-					directionalLight.setViewportWidth((int) (maxX - minX));
-					directionalLight.setViewportHeight((int) (maxY - minY));
+					log.debug(
+						"sceneFrustumCorners[7]: {} {} {}",
+						sceneFrustumCorners[7][0],
+						sceneFrustumCorners[7][1],
+						sceneFrustumCorners[7][2]
+					);
+
+					float centerX = (minX + maxX) / 2.0f;
+					float centerY = (minY + maxY) / 2.0f;
+					float centerZ = (minZ + maxZ) / 2.0f;
+
+					float[] center = new float[] { centerX, centerY, centerZ, 1.0f };
+
+					directionalLight.setPositionX(sceneFrustumCorners[4][0]);
+					directionalLight.setPositionY(sceneFrustumCorners[4][1]);
+					directionalLight.setPositionZ(sceneFrustumCorners[4][2]);
+					directionalLight.setViewportWidth(5000);
+					directionalLight.setViewportHeight(5000);
 					directionalLight.setZoom(1.0f);
-					directionalLight.setNearPlane(minZ);
-					directionalLight.setFarPlane(maxZ);
+					directionalLight.setNearPlane(-10000);
+					directionalLight.setFarPlane(10000);
 
 					directionalLight.performAsyncTileCulling(
 						frameTimer,
