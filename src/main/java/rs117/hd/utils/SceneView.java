@@ -442,28 +442,29 @@ public class SceneView {
 			lock.lock();
 			final int tileSceneOffset = (-SCENE_OFFSET) * LOCAL_TILE_SIZE;
 			int tileIdx = (plane * EXTENDED_SCENE_SIZE * EXTENDED_SCENE_SIZE);
-			int x = tileSceneOffset;
-			for (int tileExX = 0; tileExX < EXTENDED_SCENE_SIZE; tileExX++, x += LOCAL_TILE_SIZE) {
-				int z = tileSceneOffset;
-				for (int tileExY = 0; tileExY < EXTENDED_SCENE_SIZE; tileExY++, z += LOCAL_TILE_SIZE, tileIdx++) {
-					int h0 = tileHeights[tileExX][tileExY];
-					int h1 = tileHeights[tileExX + 1][tileExY];
-					int h2 = tileHeights[tileExX][tileExY + 1];
-					int h3 = tileHeights[tileExX + 1][tileExY + 1];
+			for (int tileExX = 0, x = tileSceneOffset; tileExX < EXTENDED_SCENE_SIZE; tileExX++, x += LOCAL_TILE_SIZE) {
+				final int[] heightsR0 = tileHeights[tileExX];
+				final int[] heightsR1 = tileHeights[tileExX + 1];
+
+				for (int tileExY = 0, z = tileSceneOffset; tileExY < EXTENDED_SCENE_SIZE; tileExY++, z += LOCAL_TILE_SIZE, tileIdx++) {
+					final int h0 = heightsR0[tileExY];
+					final int h1 = heightsR1[tileExY];
+					final int h2 = heightsR0[tileExY + 1];
+					final int h3 = heightsR1[tileExY + 1];
 
 					boolean isVisible = HDUtils.IsTileVisible(x, z, h0, h1, h2, h3, view.frustumPlanes);
 
 					if (!isVisible && underwaterDepthLevels != null) {
-						int dl0 = underwaterDepthLevels[tileExX][tileExY];
-						int dl1 = underwaterDepthLevels[tileExX + 1][tileExY];
-						int dl2 = underwaterDepthLevels[tileExX][tileExY + 1];
-						int dl3 = underwaterDepthLevels[tileExX + 1][tileExY + 1];
+						final int dl0 = underwaterDepthLevels[tileExX][tileExY];
+						final int dl1 = underwaterDepthLevels[tileExX + 1][tileExY];
+						final int dl2 = underwaterDepthLevels[tileExX][tileExY + 1];
+						final int dl3 = underwaterDepthLevels[tileExX + 1][tileExY + 1];
 
 						if (dl0 > 0 || dl1 > 0 || dl2 > 0 || dl3 > 0) {
-							int uh0 = h0 + (dl0 > 0 ? ProceduralGenerator.DEPTH_LEVEL_SLOPE[dl0 - 1] : 0);
-							int uh1 = h1 + (dl1 > 0 ? ProceduralGenerator.DEPTH_LEVEL_SLOPE[dl1 - 1] : 0);
-							int uh2 = h2 + (dl2 > 0 ? ProceduralGenerator.DEPTH_LEVEL_SLOPE[dl2 - 1] : 0);
-							int uh3 = h3 + (dl3 > 0 ? ProceduralGenerator.DEPTH_LEVEL_SLOPE[dl3 - 1] : 0);
+							final int uh0 = h0 + (dl0 > 0 ? ProceduralGenerator.DEPTH_LEVEL_SLOPE[dl0 - 1] : 0);
+							final int uh1 = h1 + (dl1 > 0 ? ProceduralGenerator.DEPTH_LEVEL_SLOPE[dl1 - 1] : 0);
+							final int uh2 = h2 + (dl2 > 0 ? ProceduralGenerator.DEPTH_LEVEL_SLOPE[dl2 - 1] : 0);
+							final int uh3 = h3 + (dl3 > 0 ? ProceduralGenerator.DEPTH_LEVEL_SLOPE[dl3 - 1] : 0);
 
 							isVisible = HDUtils.IsTileVisible(x, z, uh0, uh1, uh2, uh3, view.frustumPlanes);
 						}
