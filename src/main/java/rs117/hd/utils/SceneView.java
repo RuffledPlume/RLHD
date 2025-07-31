@@ -240,7 +240,17 @@ public class SceneView {
 		return Arrays.copyOf(orientation, 2);
 	}
 
-	int test = 0;
+	public float[] transformPoint(float[] position) {
+		calculateViewProjMatrix();
+		Mat4.projectVec(position, viewProjMatrix, position);
+		return position;
+	}
+
+	public float[] invTransformPoint(float[] position) {
+		calculateInvViewProjMatrix();
+		Mat4.projectVec(position, invViewProjMatrix, position);
+		return position;
+	}
 
 	@SneakyThrows
 	public void performAsyncTileCulling(FrameTimer frameTimer, SceneContext ctx, boolean checkUnderwater) {
