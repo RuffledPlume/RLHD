@@ -180,6 +180,7 @@
         "enum": [
           "DISABLED",
           "OBJECT",
+          "OBJECT_NO_GROUND_DISPLACEMENT",
           "VERTEX",
           "VERTEX_WITH_HEMISPHERE_BLEND",
           "VERTEX_JIGGLE"
