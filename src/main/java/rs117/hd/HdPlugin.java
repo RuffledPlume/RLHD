@@ -1534,10 +1534,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 		final Scene scene = client.getScene();
 		int drawDistance = getDrawDistance();
-		boolean drawDistanceChanged = false;
 		if (scene.getDrawDistance() != drawDistance) {
 			scene.setDrawDistance(drawDistance);
-			drawDistanceChanged = true;
 		}
 
 		boolean updateUniforms = true;
