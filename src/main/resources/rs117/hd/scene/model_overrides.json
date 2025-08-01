@@ -33902,6 +33902,7 @@
     "description": "Lumbridge crypt ivy",
     "baseMaterial": "LEAF_VEINS",
     "windDisplacementMode": "VERTEX_JIGGLE",
+    "invertDisplacementStrength": true,
     "objectIds": [ "FAI_FALADOR_IVY_LARGE", "FAI_FALADOR_IVY_MEDIUM", "FAI_FALADOR_IVY_SMALL", "FAI_FALADOR_IVY_MEDIUM_MIRROR", "FAI_FALADOR_IVY_SMALL_MIRRIOR" ],
     "uvType": "MODEL_YZ",
     "uvOrientation": 144,

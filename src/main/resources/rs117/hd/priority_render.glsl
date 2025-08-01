@@ -263,14 +263,33 @@ void applyWindDisplacement(const ObjectWindSample windSample, int vertexFlags, f
     in vec3 normA, in vec3 normB, in vec3 normC,
     inout vec3 displacementA, inout vec3 displacementB, inout vec3 displacementC
 ) {
-    int windDisplacementMode = (vertexFlags >> MATERIAL_FLAG_WIND_SWAYING) & 0x7;
-    if (windDisplacementMode <= WIND_DISPLACEMENT_DISABLED)
-        return;
+	
 
-    float modelDisplacementMod = getModelWindDisplacementMod(vertexFlags);
+float modelDisplacementMod = getModelWindDisplacementMod(vertexFlags);
     float strengthA = saturate(abs(vertA.y) / modelHeight) * modelDisplacementMod;
     float strengthB = saturate(abs(vertB.y) / modelHeight) * modelDisplacementMod;
     float strengthC = saturate(abs(vertC.y) / modelHeight) * modelDisplacementMod;
+
+#if 1
+    {
+        for(int i = 0; i < wobbleCount; i++) {
+            if(worldPos == ivec3(wobblePositions[i].xyz))
+            {
+                float wobbleAmount = wobblePositions[i].w;
+                vec3 wobbleVec = vec3(sin(wobbleAmount * 50.0), 0.0, 0) * (2.5 * wobbleAmount);
+                displacementA += (wobbleVec) * (strengthA > 0.02 ? 1.0 : strengthA);
+                displacementB += (wobbleVec) * (strengthB > 0.02 ? 1.0 : strengthB);
+                displacementC += (wobbleVec) * (strengthC > 0.02 ? 1.0 : strengthC);
+                break;
+            }
+        }
+    }
+    #endif
+
+    int windDisplacementMode = (vertexFlags >> MATERIAL_FLAG_WIND_SWAYING) & 0x7;
+    if (windDisplacementMode <= WIND_DISPLACEMENT_DISABLED)
+        return;
+    
 
 #if WIND_DISPLACEMENT
     if (windDisplacementMode >= WIND_DISPLACEMENT_VERTEX) {

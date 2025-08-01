@@ -47,6 +47,8 @@ public class SceneContext {
 	public final ArrayList<Environment> environments = new ArrayList<>();
 	public byte[][] filledTiles = new byte[EXTENDED_SCENE_SIZE][EXTENDED_SCENE_SIZE];
 
+	public int[] tileHeights = new int[MAX_Z * EXTENDED_SCENE_SIZE * EXTENDED_SCENE_SIZE];
+
 	public int staticVertexCount = 0;
 	public GpuIntBuffer staticUnorderedModelBuffer;
 	public GpuIntBuffer stagingBufferVertices;

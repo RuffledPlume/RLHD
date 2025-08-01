@@ -55,6 +55,7 @@ import javax.swing.SwingUtilities;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
+import net.runelite.api.coords.*;
 import net.runelite.api.events.*;
 import net.runelite.api.hooks.*;
 import net.runelite.client.RuneLite;
@@ -1636,10 +1637,43 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 						frameTimer.begin(Timer.UPDATE_LIGHTS);
 						lightManager.update(sceneContext);
 						frameTimer.end(Timer.UPDATE_LIGHTS);
+
+						uboCompute.updateWobbles(deltaTime);
 					} catch (Exception ex) {
 						log.error("Error while updating environment or lights:", ex);
 						stopPlugin();
 						return;
+					}
+
+					if (sceneContext != null) {
+						String localPlayerAnim = gamevalManager.getAnimName(localPlayer.getAnimation());
+						if (localPlayerAnim != null &&
+							(
+								(localPlayerAnim.contains("WOODCUTTING") && localPlayer.getAnimationFrame() == 4) ||
+								(localPlayerAnim.contains("MINING") && localPlayer.getAnimationFrame() == 9)
+							)) {
+							var localPlayerLP = localPlayer.getLocalLocation();
+							var localPlayerDir = new Angle(localPlayer.getOrientation()).getNearestDirection();
+							int xOffset = localPlayerDir == Direction.EAST ? 1 : localPlayerDir == Direction.WEST ? -1 : 0;
+							int yOffset = localPlayerDir == Direction.NORTH ? 1 : localPlayerDir == Direction.SOUTH ? -1 : 0;
+
+							int tileEeX = localPlayerLP.getSceneX() + xOffset;
+							int tileEeY = localPlayerLP.getSceneY() + yOffset;
+							int playerPlane = localPlayer.getWorldView().getPlane();
+							Tile lookingAtTile = sceneContext.scene.getTiles()[playerPlane][tileEeX][tileEeY];
+
+							GameObject[] gameObjects = lookingAtTile.getGameObjects();
+							for (GameObject gameObject : gameObjects) {
+								if (gameObject == null)
+									continue;
+
+								String objectName = gamevalManager.getObjectName(gameObject.getId());
+								if (objectName.contains("TREE") || objectName.contains("ROCK")) {
+									uboCompute.addWobbleHit(gameObject.getX(), gameObject.getY(), gameObject.getZ());
+									break;
+								}
+							}
+						}
 					}
 				} else {
 					cameraShift[0] = cameraFocalPoint[0] - client.getOculusOrbFocalPointX();
@@ -3292,6 +3326,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		if (!enableFreezeFrame && skipScene != client.getScene())
 			redrawPreviousFrame = false;
 	}
+
+	private float hitCooldown = 0.0f;
 
 	@Subscribe
 	public void onGameTick(GameTick gameTick) {

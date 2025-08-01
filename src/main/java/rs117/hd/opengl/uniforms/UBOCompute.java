@@ -3,11 +3,13 @@ package rs117.hd.opengl.uniforms;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
+import lombok.extern.slf4j.Slf4j;
 import rs117.hd.utils.buffer.SharedGLBuffer;
 
 import static org.lwjgl.opencl.CL10.*;
 import static org.lwjgl.opengl.GL33C.*;
 
+@Slf4j
 public class UBOCompute extends UniformBuffer<SharedGLBuffer> {
 	public static final int MAX_CHARACTER_POSITION_COUNT = 50;
 
@@ -31,12 +33,25 @@ public class UBOCompute extends UniformBuffer<SharedGLBuffer> {
 	public Property windCeiling = addProperty(PropertyType.Float, "windCeiling");
 	public Property windOffset = addProperty(PropertyType.Float, "windOffset");
 
+	private final Property wobbleCount = addProperty(PropertyType.Int, "wobbleCount");
+	private final Property[] wobblePositions = addPropertyArray(PropertyType.FVec4, "wobblePositions", MAX_CHARACTER_POSITION_COUNT);
+
 	private final Property characterPositionCount = addProperty(PropertyType.Int, "characterPositionCount");
 	private final Property[] characterPositions = addPropertyArray(PropertyType.FVec3, "characterPositions", MAX_CHARACTER_POSITION_COUNT);
+
+	private final ArrayList<WobblePair> wobblePairs = new ArrayList<>(wobblePositions.length);
+	private int activeWobbles;
 
 	private final ArrayList<CharacterPositionPair> characterPositionsPairs = new ArrayList<>(characterPositions.length);
 	private int writtenCharacterPositions;
 	private float playerPosX, playerPosZ;
+
+	private static class WobblePair {
+		public int x;
+		public int y;
+		public int plane;
+		public float wobble;
+	}
 
 	private static class CharacterPositionPair {
 		public float x;
@@ -57,6 +72,53 @@ public class UBOCompute extends UniformBuffer<SharedGLBuffer> {
 		}
 
 		return characterPositionsPairs.get(writtenCharacterPositions);
+	}
+
+	public void updateWobbles(float deltaTime) {
+		for (int i = activeWobbles - 1; i >= 0; i--) {
+			WobblePair pair = wobblePairs.get(i);
+			pair.wobble -= deltaTime;
+
+			if (pair.wobble <= 0.0f) {
+				if (i < activeWobbles - 1) {
+					// Move the Pair to the end
+					wobblePairs.remove(i);
+					wobblePairs.add(wobblePairs.size() - 1, pair);
+				}
+				activeWobbles--;
+			} else {
+				wobblePositions[i].set((float) pair.x, (float) pair.plane, (float) pair.y, pair.wobble);
+			}
+		}
+		wobbleCount.set(activeWobbles);
+	}
+
+	public void addWobbleHit(int x, int y, int plane) {
+		if (activeWobbles < wobblePositions.length) {
+			WobblePair pair = null;
+			for (int i = 0; i < activeWobbles; i++) {
+				WobblePair other = wobblePairs.get(i);
+				if (other.x == x && other.y == y && other.plane == plane) {
+					pair = other;
+					break;
+				}
+			}
+
+			if (pair == null) {
+				if (activeWobbles < wobblePairs.size()) {
+					pair = wobblePairs.get(activeWobbles);
+				} else {
+					pair = new WobblePair();
+					wobblePairs.add(pair);
+				}
+				activeWobbles++;
+			}
+
+			pair.x = x;
+			pair.y = y;
+			pair.plane = plane;
+			pair.wobble = 1.0f;
+		}
 	}
 
 	public void addCharacterPosition(int localX, int localZ, int modelRadius) {

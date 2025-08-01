@@ -18,6 +18,9 @@ layout(std140) uniform UBOCompute {
     float windCeiling;
     float windOffset;
 
+    int wobbleCount;
+    vec4 wobblePositions[MAX_CHARACTER_POSITION_COUNT];
+
     int characterPositionCount;
     vec3 characterPositions[MAX_CHARACTER_POSITION_COUNT];
 };
