@@ -144,6 +144,7 @@ import rs117.hd.utils.buffer.SharedGLBuffer;
 
 import static net.runelite.api.Constants.*;
 import static net.runelite.api.Perspective.*;
+import static net.runelite.api.Perspective.SCENE_SIZE;
 import static org.lwjgl.opencl.CL10.*;
 import static org.lwjgl.opengl.GL33C.*;
 import static rs117.hd.HdPluginConfig.*;
@@ -1603,11 +1604,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 				sceneCamera.setZoom(client.getScale());
 				sceneCamera.setNearPlane(NEAR_PLANE);
-				sceneCamera.setFarPlane(getDrawDistance() * LOCAL_TILE_SIZE);
 				sceneCamera.setViewportWidth(viewportWidth);
 				sceneCamera.setViewportHeight(viewportHeight);
 				sceneCamera.setPositionX((float) cameraX).setPositionY((float) cameraY).setPositionZ((float) cameraZ);
-				sceneCamera.setYaw((float) cameraYaw).setPitch((float) cameraPitch - (float) Math.PI);
+				sceneCamera.setYaw((float) cameraYaw).setPitch((float) cameraPitch);
 				boolean sceneCameraChanged = sceneCamera.isDirty();
 
 				if (sceneCameraChanged) {
@@ -1616,58 +1616,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 					uboGlobal.cameraPos.set(sceneCamera.getPosition());
 					uboGlobal.projectionMatrix.set(sceneCamera.getViewProjMatrix());
 					uboGlobal.invProjectionMatrix.set(sceneCamera.getInvViewProjMatrix());
-					uboGlobal.upload();
-				}
-
-				directionalLight.setPitch(environmentManager.currentSunAngles[0]);
-				directionalLight.setYaw(PI - environmentManager.currentSunAngles[1]);
-				if (sceneCameraChanged || directionalLight.isDirty()) {
-					// Reset the directional to avoid error propogation
-					directionalLight.setPosition(sceneCamera.getPosition());
-
-					// Transform frustum corners into light space
-					float minX = Float.POSITIVE_INFINITY;
-					float maxX = Float.NEGATIVE_INFINITY;
-					float minY = Float.POSITIVE_INFINITY;
-					float maxY = Float.NEGATIVE_INFINITY;
-					float minZ = Float.POSITIVE_INFINITY;
-					float maxZ = Float.NEGATIVE_INFINITY;
-
-					float[][] sceneFrustumCorners = sceneCamera.getFrustumCorners();
-					for (float[] corner : sceneFrustumCorners) {
-						minX = Math.min(minX, corner[0]);
-						maxX = Math.max(maxX, corner[0]);
-						minY = Math.min(minY, corner[1]);
-						maxY = Math.max(maxY, corner[1]);
-						minZ = Math.min(minZ, corner[2]);
-						maxZ = Math.max(maxZ, corner[2]);
-					}
-
-					float centerX = (minX + maxX) / 2.0f;
-					float centerY = (minY + maxY) / 2.0f;
-					float centerZ = (minZ + maxZ) / 2.0f;
-
-					float[] center = new float[] { centerX, centerY, centerZ, 1.0f };
-
-					directionalLight.setPositionX(sceneFrustumCorners[4][0]);
-					directionalLight.setPositionY(sceneFrustumCorners[4][1]);
-					directionalLight.setPositionZ(sceneFrustumCorners[4][2]);
-					directionalLight.setViewportWidth(5000);
-					directionalLight.setViewportHeight(5000);
-					directionalLight.setZoom(1.0f);
-					directionalLight.setNearPlane(-10000);
-					directionalLight.setFarPlane(10000);
-
-					directionalLight.performAsyncTileCulling(
-						sceneContext,
-						false
-					);
-
-					// Extract the 3rd column from the light view matrix (the float array is column-major).
-					// This produces the light's direction vector in world space, which we negate in order to
-					// get the light's direction vector pointing away from each fragment
-					uboGlobal.lightDir.set(directionalLight.getForwardDirection());
-					uboGlobal.lightProjectionMatrix.set(directionalLight.getViewProjMatrix());
 					uboGlobal.upload();
 				}
 
@@ -1695,6 +1643,50 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 					sceneCamera.translateX(cameraShift[0]);
 					sceneCamera.translateZ(cameraShift[1]);
+				}
+
+				directionalLight.setPitch(environmentManager.currentSunAngles[0]);
+				directionalLight.setYaw(PI - environmentManager.currentSunAngles[1]);
+				if (sceneCameraChanged || directionalLight.isDirty()) {
+					final int camX = cameraFocalPoint[0];
+					final int camY = cameraFocalPoint[1];
+
+					final int drawDistanceSceneUnits =
+						Math.min(config.shadowDistance().getValue(), getDrawDistance()) * LOCAL_TILE_SIZE / 2;
+					final int east = Math.min(camX + drawDistanceSceneUnits, LOCAL_TILE_SIZE * SCENE_SIZE);
+					final int west = Math.max(camX - drawDistanceSceneUnits, 0);
+					final int north = Math.min(camY + drawDistanceSceneUnits, LOCAL_TILE_SIZE * SCENE_SIZE);
+					final int south = Math.max(camY - drawDistanceSceneUnits, 0);
+
+					final int width = east - west;
+					final int height = north - south;
+					final int depthScale = 10000;
+
+					final int maxDrawDistance = 90;
+					final float maxScale = 0.7f;
+					final float minScale = 0.4f;
+
+					final float scaleMultiplier = 1.0f - (getDrawDistance() / (maxDrawDistance * maxScale));
+					float scale = HDUtils.lerp(maxScale, minScale, scaleMultiplier);
+
+					directionalLight.setViewportWidth(width);
+					directionalLight.setViewportHeight(height);
+					directionalLight.setNearPlane(depthScale);
+					directionalLight.setZoom(scale);
+					directionalLight.setPositionX(-(width / 2f + west));
+					directionalLight.setPositionZ(-(height / 2f + south));
+
+					directionalLight.performAsyncTileCulling(
+						sceneContext,
+						false
+					);
+
+					// Extract the 3rd column from the light view matrix (the float array is column-major).
+					// This produces the light's direction vector in world space, which we negate in order to
+					// get the light's direction vector pointing away from each fragment
+					uboGlobal.lightDir.set(directionalLight.getForwardDirection());
+					uboGlobal.lightProjectionMatrix.set(directionalLight.getViewProjMatrix());
+					uboGlobal.upload();
 				}
 
 				uboCompute.yaw.set(sceneCamera.getYaw());

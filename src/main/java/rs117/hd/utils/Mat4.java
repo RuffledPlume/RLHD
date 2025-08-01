@@ -123,21 +123,13 @@ public class Mat4
 			};
 	}
 
-	public static float[] orthographic(float w, float h, float n, float f) {
-		float l = -w / 2.0f;
-		float r = w / 2.0f;
-		float b = -h / 2.0f;
-		float t = h / 2.0f;
-
-		float[] m = new float[16];
-		m[0] = 2.0f / (r - l);
-		m[5] = 2.0f / (t - b);
-		m[10] = -2.0f / (f - n);
-		m[12] = -(r + l) / (r - l);
-		m[13] = -(t + b) / (t - b);
-		m[14] = -(f + n) / (f - n);
-		m[15] = 1.0f;
-		return m;
+	public static float[] orthographic(float w, float h, float n) {
+		return new float[] {
+			2 / w, 0, 0, 0,
+			0, -2 / h, 0, 0,
+			0, 0, 2 / n, 0,
+			0, 0, 0, 1
+		};
 	}
 
 

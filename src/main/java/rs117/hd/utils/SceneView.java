@@ -47,7 +47,7 @@ public class SceneView {
 
 	private float zoom = 1.0f;
 	private float nearPlane = 0.5f;
-	private float farPlane = 1000.0f;
+	private float farPlane = 0.0f;
 	private boolean isOrthographic = false;
 	private boolean invertPosition = false;
 
@@ -210,20 +210,6 @@ public class SceneView {
 		return Arrays.copyOf(orientation, 2);
 	}
 
-	public float[] transformPoint(float[] position) {
-		calculateViewProjMatrix();
-		float[] vec4 = new float[] { position[0], position[1], position[2], 1.0f };
-		Mat4.projectVec(vec4, viewProjMatrix, vec4);
-		return new float[] { vec4[0], vec4[1], vec4[2] };
-	}
-
-	public float[] invTransformPoint(float[] position) {
-		calculateInvViewProjMatrix();
-		float[] vec4 = new float[] { position[0], position[1], position[2], 1.0f };
-		Mat4.projectVec(vec4, invViewProjMatrix, vec4);
-		return new float[] { vec4[0], vec4[1], vec4[2] };
-	}
-
 	@SneakyThrows
 	public void performAsyncTileCulling(SceneContext ctx, boolean checkUnderwater) {
 		if (ctx == null) {
@@ -314,9 +300,13 @@ public class SceneView {
 		if ((dirtyFlags & PROJECTION_MATRIX_DIRTY) != 0) {
 			projectionMatrix = Mat4.scale(zoom, zoom, 1.0f);
 			if (isOrthographic) {
-				Mat4.mul(projectionMatrix, Mat4.orthographic(viewportWidth, viewportHeight, nearPlane, farPlane));
+				Mat4.mul(projectionMatrix, Mat4.orthographic(viewportWidth, viewportHeight, nearPlane));
 			} else {
-				Mat4.mul(projectionMatrix, Mat4.perspective(viewportWidth, viewportHeight, nearPlane, farPlane));
+				if (farPlane > 0.0f) {
+					Mat4.mul(projectionMatrix, Mat4.perspective(viewportWidth, viewportHeight, nearPlane, farPlane));
+				} else {
+					Mat4.mul(projectionMatrix, Mat4.perspective(viewportWidth, viewportHeight, nearPlane));
+				}
 			}
 			dirtyFlags &= ~PROJECTION_MATRIX_DIRTY;
 		}
