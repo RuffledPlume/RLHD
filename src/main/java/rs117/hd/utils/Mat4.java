@@ -97,33 +97,50 @@ public class Mat4
 		};
 	}
 
+
+	/**
+	 * Create a perspective projection matrix matching vanilla OSRS projection, with a finite far plane.
+	 *
+	 * @param w viewport width
+	 * @param h viewport height
+	 * @param n near plane
+	 * @param f far plane
+	 * @return 4x4 column-major matrix
+	 */
 	public static float[] perspective(float w, float h, float n, float f) {
-		return new float[] {
-			2 / w, 0, 0, 0,
-			0, -2 / h, 0.0f, 0,
-			0.0f, 0.0f, (f + n) / (f - n), 1.0f,
-			0.0f, 0.0f, (f * n) / (n - f), 0.0f
-		};
+		// Same projection as vanilla, except with slightly more depth precision, and a usable far plane for clipping calculations
+		w = 2 / w;
+		h = -2 / h;
+		float a = (1 + n / f) / (n / f - 1);
+		float b = a * n - n;
+		float c = -1; // perspective divide by -z
+
+		return new float[]
+			{
+				w, 0, 0, 0,
+				0, h, 0, 0,
+				0, 0, a, c,
+				0, 0, b, 0
+			};
 	}
 
-	public static float[] perspectiveReverseZ(float w, float h, float n, float f) {
-		return new float[] {
-			2.0f / w, 0, 0, 0,
-			0, -2.0f / h, 0, 0,
-			0, 0, n / (n - f), 1.0f,
-			0, 0, (f * n) / (f - n), 0.0f
-		};
+	public static float[] orthographic(float w, float h, float n, float f) {
+		float l = -w / 2.0f;
+		float r = w / 2.0f;
+		float b = -h / 2.0f;
+		float t = h / 2.0f;
+
+		float[] m = new float[16];
+		m[0] = 2.0f / (r - l);
+		m[5] = 2.0f / (t - b);
+		m[10] = -2.0f / (f - n);
+		m[12] = -(r + l) / (r - l);
+		m[13] = -(t + b) / (t - b);
+		m[14] = -(f + n) / (f - n);
+		m[15] = 1.0f;
+		return m;
 	}
 
-	public static float[] orthographic(float w, float h, float n)
-	{
-		return new float[] {
-			2 / w, 0, 0, 0,
-			0, -2 / h, 0, 0,
-			0, 0, 2 / n, 0,
-			0, 0, 0, 1
-		};
-	}
 
 	public static float[][] extractFrustumCorners(float[] invViewProj) {
 		float[][] corners = new float[8][3];

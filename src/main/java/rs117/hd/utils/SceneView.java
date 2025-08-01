@@ -19,6 +19,18 @@ import static rs117.hd.scene.SceneContext.SCENE_OFFSET;
 
 @Slf4j
 public class SceneView {
+	private static final int PROJECTION_MATRIX_DIRTY = 1;
+	private static final int VIEW_MATRIX_DIRTY = 1 << 1;
+	private static final int VIEW_PROJ_MATRIX_DIRTY = 1 << 2;
+	private static final int INV_VIEW_PROJ_MATRIX_DIRTY = 1 << 3;
+	private static final int FRUSTUM_PLANES_DIRTY = 1 << 4;
+
+	private static final int VIEW_PROJ_CHANGED = VIEW_PROJ_MATRIX_DIRTY | INV_VIEW_PROJ_MATRIX_DIRTY | FRUSTUM_PLANES_DIRTY;
+	private static final int PROJ_CHANGED = PROJECTION_MATRIX_DIRTY | VIEW_PROJ_CHANGED;
+	private static final int VIEW_CHANGED = VIEW_MATRIX_DIRTY | VIEW_PROJ_CHANGED;
+
+	private final FrameTimer frameTimer;
+
 	private float[] viewMatrix;
 	private float[] projectionMatrix;
 	private float[] viewProjMatrix;
@@ -28,32 +40,24 @@ public class SceneView {
 	private final float[] position = new float[3];
 	private final float[] orientation = new float[2];
 
-	// TODO: Condense this into flags... So that way we can mark everything dirty easily
-	private boolean viewMatrixDirty = true;
-	private boolean projectionMatrixDirty = true;
-	private boolean viewProjMatrixDirty = true;
-	private boolean invViewProjMatrixDirty = true;
-	private boolean frustumPlanesDirty = true;
+	private int dirtyFlags = PROJ_CHANGED | VIEW_CHANGED;
 
 	private int viewportWidth = 10;
 	private int viewportHeight = 10;
 
-	private float fov = 65.0f;
 	private float zoom = 1.0f;
 	private float nearPlane = 0.5f;
 	private float farPlane = 1000.0f;
 	private boolean isOrthographic = false;
-	private boolean isReverseZ = false;
 	private boolean invertPosition = false;
 
 	public enum VisibilityResult { UNKNOWN, HIDDEN, VISIBLE }
 
 	private final VisibilityResult[] tileVisibility = new VisibilityResult[MAX_Z * EXTENDED_SCENE_SIZE * EXTENDED_SCENE_SIZE];
 	private final AsyncCullingJob[] cullingJobs = new AsyncCullingJob[MAX_Z];
-	private FrameTimer frameTimer;
 
-	public SceneView(boolean isReverseZ, boolean isOrthographic, boolean invertPosition) {
-		this.isReverseZ = isReverseZ;
+	public SceneView(FrameTimer frameTimer, boolean isOrthographic, boolean invertPosition) {
+		this.frameTimer = frameTimer;
 		this.isOrthographic = isOrthographic;
 		this.invertPosition = invertPosition;
 
@@ -63,27 +67,13 @@ public class SceneView {
 	}
 
 	public boolean isDirty() {
-		return viewMatrixDirty | projectionMatrixDirty | viewProjMatrixDirty;
-	}
-
-	public SceneView setFOV(float newFOV) {
-		if (fov != newFOV) {
-			fov = newFOV;
-			projectionMatrixDirty = true;
-			viewProjMatrixDirty = true;
-			invViewProjMatrixDirty = true;
-			frustumPlanesDirty = true;
-		}
-		return this;
+		return dirtyFlags != 0;
 	}
 
 	public SceneView setViewportWidth(int newViewportWidth) {
 		if (viewportWidth != newViewportWidth) {
 			viewportWidth = newViewportWidth;
-			projectionMatrixDirty = true;
-			viewProjMatrixDirty = true;
-			invViewProjMatrixDirty = true;
-			frustumPlanesDirty = true;
+			dirtyFlags |= PROJ_CHANGED;
 		}
 		return this;
 	}
@@ -91,10 +81,7 @@ public class SceneView {
 	public SceneView setViewportHeight(int newViewportHeight) {
 		if (viewportHeight != newViewportHeight) {
 			viewportHeight = newViewportHeight;
-			projectionMatrixDirty = true;
-			viewProjMatrixDirty = true;
-			invViewProjMatrixDirty = true;
-			frustumPlanesDirty = true;
+			dirtyFlags |= PROJ_CHANGED;
 		}
 		return this;
 	}
@@ -102,10 +89,7 @@ public class SceneView {
 	public SceneView setNearPlane(float newNearPlane) {
 		if (nearPlane != newNearPlane) {
 			nearPlane = newNearPlane;
-			projectionMatrixDirty = true;
-			viewProjMatrixDirty = true;
-			invViewProjMatrixDirty = true;
-			frustumPlanesDirty = true;
+			dirtyFlags |= PROJ_CHANGED;
 		}
 		return this;
 	}
@@ -113,10 +97,7 @@ public class SceneView {
 	public SceneView setFarPlane(float newFarPlane) {
 		if (farPlane != newFarPlane) {
 			farPlane = newFarPlane;
-			projectionMatrixDirty = true;
-			viewProjMatrixDirty = true;
-			invViewProjMatrixDirty = true;
-			frustumPlanesDirty = true;
+			dirtyFlags |= PROJ_CHANGED;
 		}
 		return this;
 	}
@@ -124,10 +105,7 @@ public class SceneView {
 	public SceneView setZoom(float newZoom) {
 		if (zoom != newZoom) {
 			zoom = newZoom;
-			projectionMatrixDirty = true;
-			viewProjMatrixDirty = true;
-			invViewProjMatrixDirty = true;
-			frustumPlanesDirty = true;
+			dirtyFlags |= PROJ_CHANGED;
 		}
 		return this;
 	}
@@ -143,10 +121,7 @@ public class SceneView {
 	public SceneView setPositionX(float x) {
 		if (position[0] != x) {
 			position[0] = x;
-			viewMatrixDirty = true;
-			viewProjMatrixDirty = true;
-			invViewProjMatrixDirty = true;
-			frustumPlanesDirty = true;
+			dirtyFlags |= VIEW_CHANGED;
 		}
 		return this;
 	}
@@ -162,10 +137,7 @@ public class SceneView {
 	public SceneView setPositionY(float y) {
 		if (position[1] != y) {
 			position[1] = y;
-			viewMatrixDirty = true;
-			viewProjMatrixDirty = true;
-			invViewProjMatrixDirty = true;
-			frustumPlanesDirty = true;
+			dirtyFlags |= VIEW_CHANGED;
 		}
 		return this;
 	}
@@ -181,10 +153,7 @@ public class SceneView {
 	public SceneView setPositionZ(float z) {
 		if (position[2] != z) {
 			position[2] = z;
-			viewMatrixDirty = true;
-			viewProjMatrixDirty = true;
-			invViewProjMatrixDirty = true;
-			frustumPlanesDirty = true;
+			dirtyFlags |= VIEW_CHANGED;
 		}
 		return this;
 	}
@@ -194,10 +163,7 @@ public class SceneView {
 			position[0] = newPosition[0];
 			position[1] = newPosition[1];
 			position[2] = newPosition[2];
-			viewMatrixDirty = true;
-			viewProjMatrixDirty = true;
-			invViewProjMatrixDirty = true;
-			frustumPlanesDirty = true;
+			dirtyFlags |= VIEW_CHANGED;
 		}
 		return this;
 	}
@@ -211,10 +177,7 @@ public class SceneView {
 			position[0] += translation[0];
 			position[1] += translation[1];
 			position[2] += translation[2];
-			viewMatrixDirty = true;
-			viewProjMatrixDirty = true;
-			invViewProjMatrixDirty = true;
-			frustumPlanesDirty = true;
+			dirtyFlags |= VIEW_CHANGED;
 		}
 		return this;
 	}
@@ -222,10 +185,7 @@ public class SceneView {
 	public SceneView setYaw(float yaw) {
 		if (orientation[0] != yaw) {
 			orientation[0] = yaw;
-			viewMatrixDirty = true;
-			viewProjMatrixDirty = true;
-			invViewProjMatrixDirty = true;
-			frustumPlanesDirty = true;
+			dirtyFlags |= VIEW_CHANGED;
 		}
 		return this;
 	}
@@ -237,10 +197,7 @@ public class SceneView {
 	public SceneView setPitch(float pitch) {
 		if (orientation[1] != pitch) {
 			orientation[1] = pitch;
-			viewMatrixDirty = true;
-			viewProjMatrixDirty = true;
-			invViewProjMatrixDirty = true;
-			frustumPlanesDirty = true;
+			dirtyFlags |= VIEW_CHANGED;
 		}
 		return this;
 	}
@@ -268,7 +225,7 @@ public class SceneView {
 	}
 
 	@SneakyThrows
-	public void performAsyncTileCulling(FrameTimer frameTimer, SceneContext ctx, boolean checkUnderwater) {
+	public void performAsyncTileCulling(SceneContext ctx, boolean checkUnderwater) {
 		if (ctx == null) {
 			return;
 		}
@@ -279,7 +236,6 @@ public class SceneView {
 
 		calculateFrustumPlanes();
 		Arrays.fill(tileVisibility, VisibilityResult.UNKNOWN);
-		this.frameTimer = frameTimer;
 
 		for (AsyncCullingJob planeJob : cullingJobs) {
 			planeJob.tileHeights = ctx.scene.getTileHeights()[planeJob.plane];
@@ -320,10 +276,7 @@ public class SceneView {
 		if (orientation[0] != newOrientation[0] || orientation[1] != newOrientation[1]) {
 			orientation[0] = newOrientation[0];
 			orientation[1] = newOrientation[1];
-			viewMatrixDirty = true;
-			viewProjMatrixDirty = true;
-			invViewProjMatrixDirty = true;
-			frustumPlanesDirty = true;
+			dirtyFlags |= PROJ_CHANGED;
 		}
 		return this;
 	}
@@ -334,7 +287,7 @@ public class SceneView {
 	}
 
 	private void calculateViewMatrix() {
-		if (viewMatrixDirty) {
+		if ((dirtyFlags & VIEW_MATRIX_DIRTY) != 0) {
 			viewMatrix = Mat4.identity();
 			Mat4.mul(viewMatrix, Mat4.rotateX(orientation[1]));
 			Mat4.mul(viewMatrix, Mat4.rotateY(orientation[0]));
@@ -348,7 +301,7 @@ public class SceneView {
 					)
 				);
 			}
-			viewMatrixDirty = false;
+			dirtyFlags &= ~VIEW_MATRIX_DIRTY;
 		}
 	}
 
@@ -358,25 +311,14 @@ public class SceneView {
 	}
 
 	private void calculateProjectionMatrix() {
-		if (projectionMatrixDirty) {
+		if ((dirtyFlags & PROJECTION_MATRIX_DIRTY) != 0) {
+			projectionMatrix = Mat4.scale(zoom, zoom, 1.0f);
 			if (isOrthographic) {
-				projectionMatrix = Mat4.scale(zoom, zoom, zoom);
-				Mat4.mul(projectionMatrix, Mat4.orthographic(viewportWidth, viewportHeight, nearPlane));
+				Mat4.mul(projectionMatrix, Mat4.orthographic(viewportWidth, viewportHeight, nearPlane, farPlane));
 			} else {
-				projectionMatrix = Mat4.scale(zoom, zoom, 1);
-				if (isReverseZ) {
-					Mat4.mul(
-						projectionMatrix,
-						Mat4.perspectiveReverseZ(viewportWidth, viewportHeight, nearPlane, farPlane)
-					);
-				} else {
-					Mat4.mul(
-						projectionMatrix,
-						Mat4.perspective(viewportWidth, viewportHeight, nearPlane, farPlane)
-					);
-				}
+				Mat4.mul(projectionMatrix, Mat4.perspective(viewportWidth, viewportHeight, nearPlane, farPlane));
 			}
-			projectionMatrixDirty = false;
+			dirtyFlags &= ~PROJECTION_MATRIX_DIRTY;
 		}
 	}
 
@@ -386,7 +328,7 @@ public class SceneView {
 	}
 
 	private void calculateViewProjMatrix() {
-		if (viewProjMatrixDirty) {
+		if ((dirtyFlags & VIEW_PROJ_MATRIX_DIRTY) != 0) {
 			calculateViewMatrix();
 			calculateProjectionMatrix();
 
@@ -394,7 +336,7 @@ public class SceneView {
 			Mat4.mul(viewProjMatrix, projectionMatrix);
 			Mat4.mul(viewProjMatrix, viewMatrix);
 
-			viewProjMatrixDirty = false;
+			dirtyFlags &= ~VIEW_PROJ_MATRIX_DIRTY;
 		}
 	}
 
@@ -404,10 +346,10 @@ public class SceneView {
 	}
 
 	private void calculateInvViewProjMatrix() {
-		if (invViewProjMatrixDirty) {
+		if ((dirtyFlags & INV_VIEW_PROJ_MATRIX_DIRTY) != 0) {
 			calculateViewProjMatrix();
 			invViewProjMatrix = Mat4.inverse(viewProjMatrix);
-			invViewProjMatrixDirty = false;
+			dirtyFlags &= ~INV_VIEW_PROJ_MATRIX_DIRTY;
 		}
 	}
 
@@ -417,7 +359,7 @@ public class SceneView {
 	}
 
 	private void calculateFrustumPlanes() {
-		if (frustumPlanesDirty) {
+		if ((dirtyFlags & FRUSTUM_PLANES_DIRTY) != 0) {
 			calculateViewProjMatrix();
 			Mat4.extractPlanes(
 				viewProjMatrix,
@@ -426,7 +368,7 @@ public class SceneView {
 				frustumPlanes[4], frustumPlanes[5],
 				true
 			);
-			frustumPlanesDirty = false;
+			dirtyFlags &= ~FRUSTUM_PLANES_DIRTY;
 		}
 	}
 

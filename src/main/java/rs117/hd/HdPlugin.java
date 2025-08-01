@@ -470,8 +470,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	private final Map<Long, ModelOffsets> frameModelInfoMap = new HashMap<>();
 
 	// Camera position and orientation may be reused from the old scene while hopping, prior to drawScene being called
-	public final SceneView sceneCamera = new SceneView(true, false, true);
-	public final SceneView directionalLight = new SceneView(false, true, false);
+	public SceneView sceneCamera;
+	public SceneView directionalLight;
 	public final int[] cameraFocalPoint = new int[2];
 	private final int[] cameraShift = new int[2];
 
@@ -689,6 +689,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				skipScene = null;
 				isInHouse = false;
 				isInChambersOfXeric = false;
+
+				sceneCamera = new SceneView(frameTimer, false, true);
+				directionalLight = new SceneView(frameTimer, true, false);
 
 				// We need to force the client to reload the scene since we're changing GPU flags
 				if (client.getGameState() == GameState.LOGGED_IN)
@@ -1608,7 +1611,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				boolean sceneCameraChanged = sceneCamera.isDirty();
 
 				if (sceneCameraChanged) {
-					sceneCamera.performAsyncTileCulling(frameTimer, sceneContext, true);
+					sceneCamera.performAsyncTileCulling(sceneContext, true);
 
 					uboGlobal.cameraPos.set(sceneCamera.getPosition());
 					uboGlobal.projectionMatrix.set(sceneCamera.getViewProjMatrix());
@@ -1618,7 +1621,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 				directionalLight.setPitch(environmentManager.currentSunAngles[0]);
 				directionalLight.setYaw(PI - environmentManager.currentSunAngles[1]);
-				if (sceneCameraChanged || directionalLight.isDirty()) {
+				if (false) { //sceneCameraChanged || directionalLight.isDirty()) {
 					// Reset the directional to avoid error propogation
 					directionalLight.setPosition(sceneCamera.getPosition());
 
@@ -1640,14 +1643,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 						maxZ = Math.max(maxZ, corner[2]);
 					}
 
-
-					log.debug(
-						"sceneFrustumCorners[7]: {} {} {}",
-						sceneFrustumCorners[7][0],
-						sceneFrustumCorners[7][1],
-						sceneFrustumCorners[7][2]
-					);
-
 					float centerX = (minX + maxX) / 2.0f;
 					float centerY = (minY + maxY) / 2.0f;
 					float centerZ = (minZ + maxZ) / 2.0f;
@@ -1664,7 +1659,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 					directionalLight.setFarPlane(10000);
 
 					directionalLight.performAsyncTileCulling(
-						frameTimer,
 						sceneContext,
 						false
 					);
