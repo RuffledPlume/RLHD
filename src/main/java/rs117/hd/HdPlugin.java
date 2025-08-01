@@ -1607,7 +1607,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				sceneCamera.setViewportWidth(viewportWidth);
 				sceneCamera.setViewportHeight(viewportHeight);
 				sceneCamera.setPositionX((float) cameraX).setPositionY((float) cameraY).setPositionZ((float) cameraZ);
-				sceneCamera.setYaw((float) cameraYaw).setPitch((float) cameraPitch);
+				sceneCamera.setYaw((float) cameraYaw).setPitch((float) cameraPitch - (float) Math.PI);
 				boolean sceneCameraChanged = sceneCamera.isDirty();
 
 				if (sceneCameraChanged) {
@@ -1621,7 +1621,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 				directionalLight.setPitch(environmentManager.currentSunAngles[0]);
 				directionalLight.setYaw(PI - environmentManager.currentSunAngles[1]);
-				if (false) { //sceneCameraChanged || directionalLight.isDirty()) {
+				if (sceneCameraChanged || directionalLight.isDirty()) {
 					// Reset the directional to avoid error propogation
 					directionalLight.setPosition(sceneCamera.getPosition());
 

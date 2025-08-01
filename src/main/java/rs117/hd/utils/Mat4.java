@@ -110,11 +110,10 @@ public class Mat4
 	public static float[] perspective(float w, float h, float n, float f) {
 		// Same projection as vanilla, except with slightly more depth precision, and a usable far plane for clipping calculations
 		w = 2 / w;
-		h = -2 / h;
+		h = 2 / h;
 		float a = (1 + n / f) / (n / f - 1);
 		float b = a * n - n;
 		float c = -1; // perspective divide by -z
-
 		return new float[]
 			{
 				w, 0, 0, 0,
