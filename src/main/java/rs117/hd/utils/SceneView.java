@@ -51,11 +51,7 @@ public class SceneView {
 	private boolean isOrthographic = false;
 	private boolean invertPosition = false;
 
-	public enum VisibilityResult {
-		UNKNOWN, IN_PROGRESS, HIDDEN, VISIBLE;
-
-		public boolean isValid() { return this == HIDDEN || this == VISIBLE; }
-	}
+	public enum VisibilityResult { UNKNOWN, IN_PROGRESS, HIDDEN, VISIBLE }
 
 	private VisibilityResult[] tileVisibility = new VisibilityResult[MAX_Z * EXTENDED_SCENE_SIZE * EXTENDED_SCENE_SIZE];
 
