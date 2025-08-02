@@ -133,6 +133,7 @@ import rs117.hd.utils.ColorUtils;
 import rs117.hd.utils.DeveloperTools;
 import rs117.hd.utils.FileWatcher;
 import rs117.hd.utils.HDUtils;
+import rs117.hd.utils.Mat4;
 import rs117.hd.utils.ModelHash;
 import rs117.hd.utils.PopupUtils;
 import rs117.hd.utils.Props;
@@ -144,7 +145,6 @@ import rs117.hd.utils.buffer.SharedGLBuffer;
 
 import static net.runelite.api.Constants.*;
 import static net.runelite.api.Perspective.*;
-import static net.runelite.api.Perspective.SCENE_SIZE;
 import static org.lwjgl.opencl.CL10.*;
 import static org.lwjgl.opengl.GL33C.*;
 import static rs117.hd.HdPluginConfig.*;
@@ -691,8 +691,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				isInHouse = false;
 				isInChambersOfXeric = false;
 
-				sceneCamera = new SceneView(frameTimer, false, true);
-				directionalLight = new SceneView(frameTimer, true, false);
+				sceneCamera = new SceneView(frameTimer, false);
+				directionalLight = new SceneView(frameTimer, true);
 
 				// We need to force the client to reload the scene since we're changing GPU flags
 				if (client.getGameState() == GameState.LOGGED_IN)
@@ -1604,10 +1604,11 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 				sceneCamera.setZoom(client.getScale());
 				sceneCamera.setNearPlane(NEAR_PLANE);
+				sceneCamera.setFarPlane(drawDistance * LOCAL_TILE_SIZE);
 				sceneCamera.setViewportWidth(viewportWidth);
 				sceneCamera.setViewportHeight(viewportHeight);
 				sceneCamera.setPositionX((float) cameraX).setPositionY((float) cameraY).setPositionZ((float) cameraZ);
-				sceneCamera.setYaw((float) cameraYaw).setPitch((float) cameraPitch);
+				sceneCamera.setYaw((float) cameraYaw).setPitch((float) cameraPitch - (float) Math.PI);
 				boolean sceneCameraChanged = sceneCamera.isDirty();
 
 				if (sceneCameraChanged) {
@@ -1648,33 +1649,30 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				directionalLight.setPitch(environmentManager.currentSunAngles[0]);
 				directionalLight.setYaw(PI - environmentManager.currentSunAngles[1]);
 				if (sceneCameraChanged || directionalLight.isDirty()) {
-					final int camX = cameraFocalPoint[0];
-					final int camY = cameraFocalPoint[1];
 
-					final int drawDistanceSceneUnits =
-						Math.min(config.shadowDistance().getValue(), getDrawDistance()) * LOCAL_TILE_SIZE / 2;
-					final int east = Math.min(camX + drawDistanceSceneUnits, LOCAL_TILE_SIZE * SCENE_SIZE);
-					final int west = Math.max(camX - drawDistanceSceneUnits, 0);
-					final int north = Math.min(camY + drawDistanceSceneUnits, LOCAL_TILE_SIZE * SCENE_SIZE);
-					final int south = Math.max(camY - drawDistanceSceneUnits, 0);
+					// Transform frustum corners into light space
+					float minX = Float.POSITIVE_INFINITY;
+					float maxX = Float.NEGATIVE_INFINITY;
+					float minZ = Float.POSITIVE_INFINITY;
+					float maxZ = Float.NEGATIVE_INFINITY;
 
-					final int width = east - west;
-					final int height = north - south;
-					final int depthScale = 10000;
+					float[][] sceneFrustumCorners = Mat4.extractFrustumCorners(sceneCamera.getInvViewProjMatrix());
+					for (float[] corner : sceneFrustumCorners) {
+						minX = Math.min(minX, corner[0]);
+						maxX = Math.max(maxX, corner[0]);
+						minZ = Math.min(minZ, corner[2]);
+						maxZ = Math.max(maxZ, corner[2]);
+					}
 
-					final int maxDrawDistance = 90;
-					final float maxScale = 0.7f;
-					final float minScale = 0.4f;
+					int size = Math.max((int) (maxX - minX), (int) (maxZ - minZ));
+					directionalLight.setPositionX((minX + maxX) * 0.5f);
+					directionalLight.setPositionZ((minZ + maxZ) * 0.5f);
+					directionalLight.setNearPlane(10000);
+					directionalLight.setZoom(1.0f);
+					directionalLight.setViewportWidth(size);
+					directionalLight.setViewportHeight(size);
 
-					final float scaleMultiplier = 1.0f - (getDrawDistance() / (maxDrawDistance * maxScale));
-					float scale = HDUtils.lerp(maxScale, minScale, scaleMultiplier);
-
-					directionalLight.setViewportWidth(width);
-					directionalLight.setViewportHeight(height);
-					directionalLight.setNearPlane(depthScale);
-					directionalLight.setZoom(scale);
-					directionalLight.setPositionX(-(width / 2f + west));
-					directionalLight.setPositionZ(-(height / 2f + south));
+					directionalLight.performAsyncTileCulling(sceneContext, false);
 
 					// Extract the 3rd column from the light view matrix (the float array is column-major).
 					// This produces the light's direction vector in world space, which we negate in order to
@@ -1685,7 +1683,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				}
 
 				uboCompute.yaw.set(sceneCamera.getYaw());
-				uboCompute.pitch.set(sceneCamera.getPitch());
+				uboCompute.pitch.set(sceneCamera.getPitch() + (float) Math.PI);
 				uboCompute.centerX.set(client.getCenterX());
 				uboCompute.centerY.set(client.getCenterY());
 				uboCompute.zoom.set(client.getScale());

@@ -49,7 +49,6 @@ public class SceneView {
 	private float nearPlane = 0.5f;
 	private float farPlane = 0.0f;
 	private boolean isOrthographic = false;
-	private boolean invertPosition = false;
 
 	public enum VisibilityResult { UNKNOWN, IN_PROGRESS, HIDDEN, VISIBLE }
 
@@ -58,10 +57,9 @@ public class SceneView {
 	private final AsyncCullingJob[] cullingJobs = new AsyncCullingJob[MAX_Z];
 	private final AsyncTileVisibilityClear clearJob = new AsyncTileVisibilityClear();
 
-	public SceneView(FrameTimer frameTimer, boolean isOrthographic, boolean invertPosition) {
+	public SceneView(FrameTimer frameTimer, boolean isOrthographic) {
 		this.frameTimer = frameTimer;
 		this.isOrthographic = isOrthographic;
-		this.invertPosition = invertPosition;
 
 		for (int plane = 0; plane < MAX_Z; plane++) {
 			cullingJobs[plane] = new AsyncCullingJob(this, plane);
@@ -287,9 +285,9 @@ public class SceneView {
 				Mat4.mul(
 					viewMatrix,
 					Mat4.translate(
-						invertPosition ? -position[0] : position[0],
-						invertPosition ? -position[1] : position[1],
-						invertPosition ? -position[2] : position[2]
+						-position[0],
+						-position[1],
+						-position[2]
 					)
 				);
 			}
