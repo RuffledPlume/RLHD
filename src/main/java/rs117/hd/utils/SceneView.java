@@ -94,12 +94,20 @@ public class SceneView {
 		return this;
 	}
 
+	public float getNearPlane() {
+		return nearPlane;
+	}
+
 	public SceneView setFarPlane(float newFarPlane) {
 		if (farPlane != newFarPlane) {
 			farPlane = newFarPlane;
 			dirtyFlags |= PROJ_CHANGED;
 		}
 		return this;
+	}
+
+	public float getFarPlane() {
+		return farPlane;
 	}
 
 	public SceneView setZoom(float newZoom) {

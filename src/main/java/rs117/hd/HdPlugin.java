@@ -84,6 +84,7 @@ import rs117.hd.config.DynamicLights;
 import rs117.hd.config.SeasonalHemisphere;
 import rs117.hd.config.SeasonalTheme;
 import rs117.hd.config.ShadingMode;
+import rs117.hd.config.ShadowDistance;
 import rs117.hd.config.ShadowMode;
 import rs117.hd.config.UIScalingMode;
 import rs117.hd.config.VanillaShadowMode;
@@ -140,6 +141,7 @@ import rs117.hd.utils.Props;
 import rs117.hd.utils.ResourcePath;
 import rs117.hd.utils.SceneView;
 import rs117.hd.utils.ShaderRecompile;
+import rs117.hd.utils.Vector;
 import rs117.hd.utils.buffer.GLBuffer;
 import rs117.hd.utils.buffer.SharedGLBuffer;
 
@@ -1649,28 +1651,32 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				directionalLight.setPitch(environmentManager.currentSunAngles[0]);
 				directionalLight.setYaw(PI - environmentManager.currentSunAngles[1]);
 				if (sceneCameraChanged || directionalLight.isDirty()) {
-
-					// Transform frustum corners into light space
-					float minX = Float.POSITIVE_INFINITY;
-					float maxX = Float.NEGATIVE_INFINITY;
-					float minZ = Float.POSITIVE_INFINITY;
-					float maxZ = Float.NEGATIVE_INFINITY;
-
+					int shadowDistance = Math.min(config.shadowDistance().getValue() * LOCAL_TILE_SIZE, (int)sceneCamera.getNearPlane());
 					float[][] sceneFrustumCorners = Mat4.extractFrustumCorners(sceneCamera.getInvViewProjMatrix());
+					HDUtils.clipFrustumToDistance(sceneFrustumCorners, sceneCamera.getPosition(), shadowDistance * LOCAL_TILE_SIZE);
+
+					float[] center = new float[3];
 					for (float[] corner : sceneFrustumCorners) {
-						minX = Math.min(minX, corner[0]);
-						maxX = Math.max(maxX, corner[0]);
-						minZ = Math.min(minZ, corner[2]);
-						maxZ = Math.max(maxZ, corner[2]);
+						center[0] += corner[0];
+						center[1] += corner[1];
+						center[2] += corner[2];
+					}
+					Vector.div(center, center, (float)sceneFrustumCorners.length);
+
+					float radius = 0f;
+					for (float[] corner : sceneFrustumCorners) {
+						float dx = corner[0] - center[0];
+						float dy = corner[1] - center[1];
+						float dz = corner[2] - center[2];
+						radius = Math.max(radius, Vector.length(dx, dy, dz));
 					}
 
-					int size = Math.max((int) (maxX - minX), (int) (maxZ - minZ));
-					directionalLight.setPositionX((minX + maxX) * 0.5f);
-					directionalLight.setPositionZ((minZ + maxZ) * 0.5f);
+					directionalLight.setPositionX(center[0]);
+					directionalLight.setPositionZ(center[2]);
 					directionalLight.setNearPlane(10000);
 					directionalLight.setZoom(1.0f);
-					directionalLight.setViewportWidth(size);
-					directionalLight.setViewportHeight(size);
+					directionalLight.setViewportWidth((int)(radius * 2));
+					directionalLight.setViewportHeight((int)(radius * 2));
 
 					directionalLight.performAsyncTileCulling(sceneContext, false);
 

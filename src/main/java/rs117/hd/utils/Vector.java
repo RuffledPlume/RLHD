@@ -7,6 +7,17 @@ public class Vector {
 		return Arrays.copyOf(v, v.length);
 	}
 
+	public static float[] div(float[] out, float[] a, float[] b) {
+		for (int i = 0; i < out.length; i++)
+			out[i] = a[i] / b[i];
+		return out;
+	}
+	public static float[] div(float[] out, float[] a, float b) {
+		for (int i = 0; i < out.length; i++)
+			out[i] = a[i] / b;
+		return out;
+	}
+
 	public static float[] add(float[] out, float[] a, float[] b) {
 		for (int i = 0; i < out.length; i++)
 			out[i] = a[i] + b[i];
