@@ -1676,11 +1676,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 					directionalLight.setPositionX(-(width / 2f + west));
 					directionalLight.setPositionZ(-(height / 2f + south));
 
-					directionalLight.performAsyncTileCulling(
-						sceneContext,
-						false
-					);
-
 					// Extract the 3rd column from the light view matrix (the float array is column-major).
 					// This produces the light's direction vector in world space, which we negate in order to
 					// get the light's direction vector pointing away from each fragment

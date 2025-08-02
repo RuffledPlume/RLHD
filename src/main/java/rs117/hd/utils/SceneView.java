@@ -51,10 +51,16 @@ public class SceneView {
 	private boolean isOrthographic = false;
 	private boolean invertPosition = false;
 
-	public enum VisibilityResult { UNKNOWN, HIDDEN, VISIBLE }
+	public enum VisibilityResult {
+		UNKNOWN, IN_PROGRESS, HIDDEN, VISIBLE;
 
-	private final VisibilityResult[] tileVisibility = new VisibilityResult[MAX_Z * EXTENDED_SCENE_SIZE * EXTENDED_SCENE_SIZE];
+		public boolean isValid() { return this == HIDDEN || this == VISIBLE; }
+	}
+
+	private VisibilityResult[] tileVisibility = new VisibilityResult[MAX_Z * EXTENDED_SCENE_SIZE * EXTENDED_SCENE_SIZE];
+
 	private final AsyncCullingJob[] cullingJobs = new AsyncCullingJob[MAX_Z];
+	private final AsyncTileVisibilityClear clearJob = new AsyncTileVisibilityClear();
 
 	public SceneView(FrameTimer frameTimer, boolean isOrthographic, boolean invertPosition) {
 		this.frameTimer = frameTimer;
@@ -216,40 +222,44 @@ public class SceneView {
 			return;
 		}
 
+		clearJob.complete(true);
 		for (AsyncCullingJob planeJob : cullingJobs) {
 			planeJob.complete(true);
 		}
 
 		calculateFrustumPlanes();
-		Arrays.fill(tileVisibility, VisibilityResult.UNKNOWN);
+
+		// Swap the Visibility results with last frames, which should have been cleared by now
+		VisibilityResult[] temp = tileVisibility;
+		tileVisibility = clearJob.prevTileVisibility;
+		clearJob.execute(temp);
 
 		for (AsyncCullingJob planeJob : cullingJobs) {
-			planeJob.tileHeights = ctx.scene.getTileHeights()[planeJob.plane];
-			planeJob.underwaterDepthLevels =
-				checkUnderwater && ctx.underwaterDepthLevels != null ? ctx.underwaterDepthLevels[planeJob.plane] : null;
-
-			planeJob.inFlight = true;
-			HdPlugin.THREAD_POOL.execute(planeJob);
+			planeJob.execute(
+				ctx.scene.getTileHeights()[planeJob.plane],
+				checkUnderwater && ctx.underwaterDepthLevels != null ? ctx.underwaterDepthLevels[planeJob.plane] : null
+			);
 		}
 	}
 
 	@SneakyThrows
 	public boolean isTileVisible(int plane, int tileExX, int tileExY) {
+		frameTimer.begin(Timer.VISIBILITY_CHECK);
 		final int tileIdx = (plane * EXTENDED_SCENE_SIZE * EXTENDED_SCENE_SIZE) + (tileExX * EXTENDED_SCENE_SIZE) + tileExY;
 		VisibilityResult result = tileVisibility[tileIdx];
 
-		// Async Job has already processed the result, so we can use it without waiting
-		if (result != VisibilityResult.UNKNOWN) {
-			return result == VisibilityResult.VISIBLE;
+		if (result == VisibilityResult.UNKNOWN) {
+			// Process on client thread, rather than waiting for result
+			result = cullingJobs[plane].performTileCulling(tileIdx, tileExX, tileExY);
 		}
 
-		frameTimer.begin(Timer.VISIBILITY_CHECK);
-		do {
-			cullingJobs[plane].complete(false); // Spin Wait, so that if this tiles result becomes available we can continue
+		// If the Tile is still in-progress then wait for the job to complete
+		while (result == VisibilityResult.IN_PROGRESS) {
+			Thread.yield();
 			result = tileVisibility[tileIdx];
-		} while (result == VisibilityResult.UNKNOWN);
-		frameTimer.end(Timer.VISIBILITY_CHECK);
+		}
 
+		frameTimer.end(Timer.VISIBILITY_CHECK);
 		return result == VisibilityResult.VISIBLE;
 	}
 
@@ -372,16 +382,17 @@ public class SceneView {
 		return Mat4.extractFrustumCorners(invViewProjMatrix);
 	}
 
-	@RequiredArgsConstructor
-	public static final class AsyncCullingJob implements Runnable {
+	public static final class AsyncTileVisibilityClear implements Runnable {
 		private final ReentrantLock lock = new ReentrantLock();
-		private final SceneView view;
-		private final int plane;
 
+		private VisibilityResult[] prevTileVisibility = new VisibilityResult[MAX_Z * EXTENDED_SCENE_SIZE * EXTENDED_SCENE_SIZE];
 		private boolean inFlight = false;
-		public int[][] tileHeights;
-		public int[][] underwaterDepthLevels;
 
+		public void execute(VisibilityResult[] prevTileVisibility) {
+			this.prevTileVisibility = prevTileVisibility;
+			inFlight = true;
+			HdPlugin.THREAD_POOL.execute(this);
+		}
 
 		@SneakyThrows
 		public void complete(boolean block) {
@@ -399,45 +410,100 @@ public class SceneView {
 			}
 		}
 
-		@SneakyThrows
 		@Override
 		public void run() {
 			lock.lock();
-			final int tileSceneOffset = (-SCENE_OFFSET) * LOCAL_TILE_SIZE;
-			int tileIdx = (plane * EXTENDED_SCENE_SIZE * EXTENDED_SCENE_SIZE);
-			for (int tileExX = 0, x = tileSceneOffset; tileExX < EXTENDED_SCENE_SIZE; tileExX++, x += LOCAL_TILE_SIZE) {
-				final int[] heightsR0 = tileHeights[tileExX];
-				final int[] heightsR1 = tileHeights[tileExX + 1];
+			Arrays.fill(prevTileVisibility, VisibilityResult.UNKNOWN);
+			lock.unlock();
+		}
+	}
 
-				for (int tileExY = 0, z = tileSceneOffset; tileExY < EXTENDED_SCENE_SIZE; tileExY++, z += LOCAL_TILE_SIZE, tileIdx++) {
-					final int h0 = heightsR0[tileExY];
-					final int h1 = heightsR1[tileExY];
-					final int h2 = heightsR0[tileExY + 1];
-					final int h3 = heightsR1[tileExY + 1];
+	@RequiredArgsConstructor
+	public static final class AsyncCullingJob implements Runnable {
+		private final ReentrantLock lock = new ReentrantLock();
+		private final ReentrantLock cullingLock = new ReentrantLock();
+		private final SceneView view;
+		private final int plane;
 
-					boolean isVisible = HDUtils.IsTileVisible(x, z, h0, h1, h2, h3, view.frustumPlanes);
+		private boolean inFlight = false;
+		private int[][] tileHeights;
+		private int[][] underwaterDepthLevels;
 
-					if (!isVisible && underwaterDepthLevels != null) {
-						final int dl0 = underwaterDepthLevels[tileExX][tileExY];
-						final int dl1 = underwaterDepthLevels[tileExX + 1][tileExY];
-						final int dl2 = underwaterDepthLevels[tileExX][tileExY + 1];
-						final int dl3 = underwaterDepthLevels[tileExX + 1][tileExY + 1];
+		public void execute(int[][] tileHeights, int[][] underwaterDepthLevels) {
+			this.tileHeights = tileHeights;
+			this.underwaterDepthLevels = underwaterDepthLevels;
+			inFlight = true;
+			HdPlugin.THREAD_POOL.execute(this);
+		}
 
-						if (dl0 > 0 || dl1 > 0 || dl2 > 0 || dl3 > 0) {
-							final int uh0 = h0 + (dl0 > 0 ? ProceduralGenerator.DEPTH_LEVEL_SLOPE[dl0 - 1] : 0);
-							final int uh1 = h1 + (dl1 > 0 ? ProceduralGenerator.DEPTH_LEVEL_SLOPE[dl1 - 1] : 0);
-							final int uh2 = h2 + (dl2 > 0 ? ProceduralGenerator.DEPTH_LEVEL_SLOPE[dl2 - 1] : 0);
-							final int uh3 = h3 + (dl3 > 0 ? ProceduralGenerator.DEPTH_LEVEL_SLOPE[dl3 - 1] : 0);
+		@SneakyThrows
+		public void complete(boolean block) {
+			if (!inFlight) return;
 
-							isVisible = HDUtils.IsTileVisible(x, z, uh0, uh1, uh2, uh3, view.frustumPlanes);
-						}
-					}
-
-					view.tileVisibility[tileIdx] = isVisible ? VisibilityResult.VISIBLE : VisibilityResult.HIDDEN;
+			if (block) {
+				lock.lock();
+				lock.unlock();
+				inFlight = false;
+			} else {
+				if (lock.tryLock(100, TimeUnit.NANOSECONDS)) {
+					lock.unlock();
+					inFlight = false;
 				}
 			}
-			lock.unlock();
-			inFlight = false;
+		}
+
+		@Override
+		public void run() {
+			lock.lock();
+			try {
+				int tileIdx = plane * EXTENDED_SCENE_SIZE * EXTENDED_SCENE_SIZE;
+				for (int tileExX = 0; tileExX < EXTENDED_SCENE_SIZE; tileExX++) {
+					for (int tileExY = 0; tileExY < EXTENDED_SCENE_SIZE; tileExY++, tileIdx++) {
+						performTileCulling(tileIdx, tileExX, tileExY);
+					}
+				}
+			} finally {
+				lock.unlock();
+				inFlight = false;
+			}
+		}
+
+		public VisibilityResult performTileCulling(int tileIdx, int tileExX, int tileExY) {
+			VisibilityResult result = view.tileVisibility[tileIdx];
+			if (result != VisibilityResult.UNKNOWN) { // Skip over tiles that are being processed or are known
+				return result;
+			}
+			view.tileVisibility[tileIdx] = VisibilityResult.IN_PROGRESS; // Signal that we are processing this tile (Could be Client or Job Thread doing so)
+
+			final int h0 = tileHeights[tileExX][tileExY];
+			final int h1 = tileHeights[tileExX + 1][tileExY];
+			final int h2 = tileHeights[tileExX][tileExY + 1];
+			final int h3 = tileHeights[tileExX + 1][tileExY + 1];
+
+			int x = (tileExX - SCENE_OFFSET) * LOCAL_TILE_SIZE;
+			int z = (tileExY - SCENE_OFFSET) * LOCAL_TILE_SIZE;
+
+			result = HDUtils.IsTileVisible(x, z, h0, h1, h2, h3, view.frustumPlanes) ? VisibilityResult.VISIBLE : VisibilityResult.HIDDEN;
+
+			if (result == VisibilityResult.HIDDEN && underwaterDepthLevels != null) {
+				final int dl0 = underwaterDepthLevels[tileExX][tileExY];
+				final int dl1 = underwaterDepthLevels[tileExX + 1][tileExY];
+				final int dl2 = underwaterDepthLevels[tileExX][tileExY + 1];
+				final int dl3 = underwaterDepthLevels[tileExX + 1][tileExY + 1];
+
+				if (dl0 > 0 || dl1 > 0 || dl2 > 0 || dl3 > 0) {
+					final int uh0 = h0 + (dl0 > 0 ? ProceduralGenerator.DEPTH_LEVEL_SLOPE[dl0 - 1] : 0);
+					final int uh1 = h1 + (dl1 > 0 ? ProceduralGenerator.DEPTH_LEVEL_SLOPE[dl1 - 1] : 0);
+					final int uh2 = h2 + (dl2 > 0 ? ProceduralGenerator.DEPTH_LEVEL_SLOPE[dl2 - 1] : 0);
+					final int uh3 = h3 + (dl3 > 0 ? ProceduralGenerator.DEPTH_LEVEL_SLOPE[dl3 - 1] : 0);
+
+					result = HDUtils.IsTileVisible(x, z, uh0, uh1, uh2, uh3, view.frustumPlanes) ?
+						VisibilityResult.VISIBLE :
+						VisibilityResult.HIDDEN;
+				}
+			}
+
+			return view.tileVisibility[tileIdx] = result;
 		}
 	}
 }
