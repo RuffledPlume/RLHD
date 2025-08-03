@@ -1652,31 +1652,41 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				if (sceneCameraChanged || directionalLight.isViewDirty()) {
 					int shadowDistance = config.shadowDistance().getValue() * LOCAL_TILE_SIZE;
 					int maxDistance = Math.min(shadowDistance, (int) sceneCamera.getFarPlane());
-					float[][] sceneFrustumCorners = Mat4.extractFrustumCorners(sceneCamera.getInvViewProjMatrix());
-					HDUtils.clipFrustumToDistance(sceneFrustumCorners, sceneCamera.getPosition(), maxDistance);
 
-					float[] center = new float[3];
+					float[][] sceneFrustumCorners = Mat4.extractFrustumCorners(sceneCamera.getInvViewProjMatrix());
+					HDUtils.clipFrustumToDistance(sceneFrustumCorners, maxDistance);
+
+					float[] centerXZ = new float[2];
 					for (float[] corner : sceneFrustumCorners) {
-						center[0] += corner[0];
-						center[1] += corner[1];
-						center[2] += corner[2];
+						centerXZ[0] += corner[0];
+						centerXZ[1] += corner[2];
 					}
-					Vector.div(center, center, (float)sceneFrustumCorners.length);
+					Vector.div(centerXZ, centerXZ, (float) sceneFrustumCorners.length);
 
 					float radius = 0f;
 					for (float[] corner : sceneFrustumCorners) {
-						float dx = corner[0] - center[0];
-						float dy = corner[1] - center[1];
-						float dz = corner[2] - center[2];
-						radius = Math.max(radius, Vector.length(dx, dy, dz));
+						float dx = corner[0] - centerXZ[0];
+						float dz = corner[2] - centerXZ[1];
+						radius = Math.max(radius, Vector.length(dx, dz));
 					}
 
-					directionalLight.setPositionX(center[0]);
-					directionalLight.setPositionZ(center[2]);
+					// Offset Center by Half radius
+					{
+						float[] cameraToCenterXZ = Vector.subtract(
+							centerXZ,
+							new float[] { sceneCamera.getPositionX(), sceneCamera.getPositionZ() }
+						);
+						Vector.normalize(cameraToCenterXZ);
+						Vector.multiply(cameraToCenterXZ, cameraToCenterXZ, radius * 0.25f);
+						Vector.add(centerXZ, centerXZ, cameraToCenterXZ);
+					}
+
+					directionalLight.setPositionX(centerXZ[0]);
+					directionalLight.setPositionZ(centerXZ[1]);
 					directionalLight.setNearPlane(10000);
 					directionalLight.setZoom(1.0f);
-					directionalLight.setViewportWidth((int) (radius));
-					directionalLight.setViewportHeight((int) (radius));
+					directionalLight.setViewportWidth((int) radius);
+					directionalLight.setViewportHeight((int) radius);
 					directionalLight.performAsyncTileCulling(sceneContext, false);
 
 

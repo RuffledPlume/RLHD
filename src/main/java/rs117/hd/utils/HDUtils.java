@@ -632,15 +632,22 @@ public class HDUtils {
 		return (plane * EXTENDED_SCENE_SIZE * EXTENDED_SCENE_SIZE) + (tileExX * EXTENDED_SCENE_SIZE) + tileExY;
 	}
 
-	public static void clipFrustumToDistance(float[][] frustumCorners, float[] cameraPosition, float maxDistance) {
-		for (int i = 0; i < frustumCorners.length; i++) {
-			float[] corner = frustumCorners[i];
-			float[] dir = Vector.subtract(corner, cameraPosition);
-			float len = Vector.length(dir);
+	public static void clipFrustumToDistance(float[][] frustumCorners, float maxDistance) {
+		if (frustumCorners.length != 8) {
+			return;
+		}
+
+		// Clip Far Plane Corners
+		for (int i = 4; i < frustumCorners.length; i++) {
+			float[] nearCorner = frustumCorners[i - 4];
+			float[] farCorner = frustumCorners[i];
+			float[] nearToFarVec = Vector.subtract(farCorner, nearCorner);
+			float len = Vector.length(nearToFarVec);
+
 			if (len > 1e-5f && len > maxDistance) {
-				Vector.normalize(dir);
-				float[] clipped = Vector.multiply(dir, maxDistance);
-				frustumCorners[i] = Vector.add(clipped, cameraPosition);
+				Vector.normalize(nearToFarVec);
+				float[] clipped = Vector.multiply(nearToFarVec, maxDistance);
+				frustumCorners[i] = Vector.add(clipped, nearCorner);
 			}
 		}
 	}
