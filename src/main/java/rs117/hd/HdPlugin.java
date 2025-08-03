@@ -1605,16 +1605,13 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 				sceneCamera.setZoom(client.getScale());
 				sceneCamera.setNearPlane(NEAR_PLANE);
-				sceneCamera.setFarPlane(drawDistance * LOCAL_TILE_SIZE);
 				sceneCamera.setViewportWidth(viewportWidth);
 				sceneCamera.setViewportHeight(viewportHeight);
 				sceneCamera.setPositionX((float) cameraX).setPositionY((float) cameraY).setPositionZ((float) cameraZ);
-				sceneCamera.setYaw((float) cameraYaw).setPitch((float) cameraPitch - (float) Math.PI);
+				sceneCamera.setYaw((float) cameraYaw).setPitch((float) cameraPitch);
 				boolean sceneCameraChanged = sceneCamera.isDirty();
 
 				if (sceneCameraChanged) {
-					sceneCamera.performAsyncTileCulling(sceneContext, true);
-
 					uboGlobal.cameraPos.set(sceneCamera.getPosition());
 					uboGlobal.projectionMatrix.set(sceneCamera.getViewProjMatrix());
 					uboGlobal.invProjectionMatrix.set(sceneCamera.getInvViewProjMatrix());
@@ -1650,11 +1647,15 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				directionalLight.setPitch(environmentManager.currentSunAngles[0]);
 				directionalLight.setYaw(PI - environmentManager.currentSunAngles[1]);
 				if (sceneCameraChanged || directionalLight.isViewDirty()) {
-					int shadowDistance = config.shadowDistance().getValue() * LOCAL_TILE_SIZE;
+					// Define a Finite Plane before extracting corners
+					sceneCamera.setFarPlane(drawDistance * LOCAL_TILE_SIZE);
+
+					int shadowDistance = config.shadowDistance().getValue() * LOCAL_TILE_SIZE * (configExpandShadowDraw ? 2 : 1);
 					int maxDistance = Math.min(shadowDistance, (int) sceneCamera.getFarPlane());
 
 					float[][] sceneFrustumCorners = Mat4.extractFrustumCorners(sceneCamera.getInvViewProjMatrix());
 					HDUtils.clipFrustumToDistance(sceneFrustumCorners, maxDistance);
+					sceneCamera.setFarPlane(0.0f); // Reset so Scene can use Infinite Plane instead
 
 					float[] centerXZ = new float[2];
 					for (float[] corner : sceneFrustumCorners) {
@@ -1683,7 +1684,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 					directionalLight.setPositionX(centerXZ[0]);
 					directionalLight.setPositionZ(centerXZ[1]);
-					directionalLight.setNearPlane(10000);
+					directionalLight.setNearPlane(100000);
 					directionalLight.setZoom(1.0f);
 					directionalLight.setViewportWidth((int) radius);
 					directionalLight.setViewportHeight((int) radius);
@@ -1698,8 +1699,12 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 					uboGlobal.upload();
 				}
 
+				if (sceneCameraChanged) {
+					sceneCamera.performAsyncTileCulling(sceneContext, true);
+				}
+
 				uboCompute.yaw.set(sceneCamera.getYaw());
-				uboCompute.pitch.set(sceneCamera.getPitch() + (float) Math.PI);
+				uboCompute.pitch.set(sceneCamera.getPitch());
 				uboCompute.centerX.set(client.getCenterX());
 				uboCompute.centerY.set(client.getCenterY());
 				uboCompute.zoom.set(client.getScale());

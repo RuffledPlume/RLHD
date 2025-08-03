@@ -641,7 +641,7 @@ public class HDUtils {
 		for (int i = 4; i < frustumCorners.length; i++) {
 			float[] nearCorner = frustumCorners[i - 4];
 			float[] farCorner = frustumCorners[i];
-			float[] nearToFarVec = Vector.subtract(farCorner, nearCorner);
+			float[] nearToFarVec = Vector.subtract(nearCorner, farCorner);
 			float len = Vector.length(nearToFarVec);
 
 			if (len > 1e-5f && len > maxDistance) {

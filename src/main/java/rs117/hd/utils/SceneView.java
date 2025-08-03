@@ -462,6 +462,7 @@ public class SceneView {
 		public void run() {
 			lock.lock();
 			try {
+				// TODO - Optimization: Read Extended Chunk Config, instead of always performing culling for the whole scene
 				int tileIdx = plane * EXTENDED_SCENE_SIZE * EXTENDED_SCENE_SIZE;
 				for (int tileExX = 0; tileExX < EXTENDED_SCENE_SIZE; tileExX++) {
 					for (int tileExY = 0; tileExY < EXTENDED_SCENE_SIZE; tileExY++, tileIdx++) {
