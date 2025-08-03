@@ -24,8 +24,6 @@
  */
 package rs117.hd.utils;
 
-import java.util.ArrayList;
-import java.util.List;
 import java.util.Random;
 import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
@@ -638,10 +636,11 @@ public class HDUtils {
 		for (int i = 0; i < frustumCorners.length; i++) {
 			float[] corner = frustumCorners[i];
 			float[] dir = Vector.subtract(corner, cameraPosition);
-			if (Vector.length(dir) > maxDistance) {
+			float len = Vector.length(dir);
+			if (len > 1e-5f && len > maxDistance) {
 				Vector.normalize(dir);
-				frustumCorners[i] = Vector.multiply(dir, maxDistance);
-				Vector.add(frustumCorners[i], frustumCorners[i], cameraPosition);
+				float[] clipped = Vector.multiply(dir, maxDistance);
+				frustumCorners[i] = Vector.add(clipped, cameraPosition);
 			}
 		}
 	}

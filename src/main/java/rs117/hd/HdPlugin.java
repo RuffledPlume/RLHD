@@ -84,7 +84,6 @@ import rs117.hd.config.DynamicLights;
 import rs117.hd.config.SeasonalHemisphere;
 import rs117.hd.config.SeasonalTheme;
 import rs117.hd.config.ShadingMode;
-import rs117.hd.config.ShadowDistance;
 import rs117.hd.config.ShadowMode;
 import rs117.hd.config.UIScalingMode;
 import rs117.hd.config.VanillaShadowMode;
@@ -1650,10 +1649,11 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 				directionalLight.setPitch(environmentManager.currentSunAngles[0]);
 				directionalLight.setYaw(PI - environmentManager.currentSunAngles[1]);
-				if (sceneCameraChanged || directionalLight.isDirty()) {
-					int shadowDistance = Math.min(config.shadowDistance().getValue() * LOCAL_TILE_SIZE, (int)sceneCamera.getNearPlane());
+				if (sceneCameraChanged || directionalLight.isViewDirty()) {
+					int shadowDistance = config.shadowDistance().getValue() * LOCAL_TILE_SIZE;
+					int maxDistance = Math.min(shadowDistance, (int) sceneCamera.getFarPlane());
 					float[][] sceneFrustumCorners = Mat4.extractFrustumCorners(sceneCamera.getInvViewProjMatrix());
-					HDUtils.clipFrustumToDistance(sceneFrustumCorners, sceneCamera.getPosition(), shadowDistance * LOCAL_TILE_SIZE);
+					HDUtils.clipFrustumToDistance(sceneFrustumCorners, sceneCamera.getPosition(), maxDistance);
 
 					float[] center = new float[3];
 					for (float[] corner : sceneFrustumCorners) {
@@ -1675,10 +1675,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 					directionalLight.setPositionZ(center[2]);
 					directionalLight.setNearPlane(10000);
 					directionalLight.setZoom(1.0f);
-					directionalLight.setViewportWidth((int)(radius * 2));
-					directionalLight.setViewportHeight((int)(radius * 2));
-
+					directionalLight.setViewportWidth((int) (radius));
+					directionalLight.setViewportHeight((int) (radius));
 					directionalLight.performAsyncTileCulling(sceneContext, false);
+
 
 					// Extract the 3rd column from the light view matrix (the float array is column-major).
 					// This produces the light's direction vector in world space, which we negate in order to

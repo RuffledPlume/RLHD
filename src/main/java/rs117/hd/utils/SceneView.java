@@ -70,6 +70,10 @@ public class SceneView {
 		return dirtyFlags != 0;
 	}
 
+	public boolean isProjDirty() { return (dirtyFlags & PROJECTION_MATRIX_DIRTY) != 0; }
+
+	public boolean isViewDirty() { return (dirtyFlags & VIEW_MATRIX_DIRTY) != 0; }
+
 	public SceneView setViewportWidth(int newViewportWidth) {
 		if (viewportWidth != newViewportWidth) {
 			viewportWidth = newViewportWidth;
