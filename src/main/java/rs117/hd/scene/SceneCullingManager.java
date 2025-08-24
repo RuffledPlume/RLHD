@@ -74,6 +74,19 @@ public class SceneCullingManager {
 
 	public void startUp() { }
 
+	public void waitOnCulling() {
+		playerCullingJob.awaitCompletion(true);
+		npcCullingJob.awaitCompletion(true);
+		projectileCullingJob.awaitCompletion(true);
+		graphicObjectCullingJob.awaitCompletion(true);
+
+		for (FrustumTileCullingJob[] frustumCullingJob : frustumCullingJobs) {
+			for (FrustumTileCullingJob cullingJob : frustumCullingJob) {
+				cullingJob.awaitCompletion(true);
+			}
+		}
+	}
+
 	public boolean ensureCullingComplete() {
 		if(!cullingInFlight) {
 			return false;
@@ -224,7 +237,7 @@ public class SceneCullingManager {
 
 						cullingJob.sceneContext = sceneContext;
 
-						cullingJob.submit();
+						cullingJob.submit(Job.SUBMIT_PARALLEL);
 					}
 				}
 			}
@@ -245,7 +258,7 @@ public class SceneCullingManager {
 			}
 
 			if (!playerCullingJob.spheres.isEmpty()) {
-				playerCullingJob.submit();
+				playerCullingJob.submit(Job.SUBMIT_PARALLEL);
 			}
 
 			for (NPC npc : wv.npcs()) {
@@ -260,7 +273,7 @@ public class SceneCullingManager {
 			}
 
 			if (!npcCullingJob.spheres.isEmpty()) {
-				npcCullingJob.submit();
+				npcCullingJob.submit(Job.SUBMIT_PARALLEL);
 			}
 
 			for (Projectile projectile : sceneContext.knownProjectiles) {
@@ -274,7 +287,7 @@ public class SceneCullingManager {
 			}
 
 			if (!projectileCullingJob.spheres.isEmpty()) {
-				projectileCullingJob.submit();
+				projectileCullingJob.submit(Job.SUBMIT_PARALLEL);
 			}
 
 			// Build Graphics Object Culling
@@ -289,12 +302,12 @@ public class SceneCullingManager {
 			}
 
 			if (!graphicObjectCullingJob.spheres.isEmpty()) {
-				graphicObjectCullingJob.submit();
+				graphicObjectCullingJob.submit(Job.SUBMIT_PARALLEL);
 			}
 		}
 
 		if (!clearJob.clearTargets.isEmpty()) {
-			clearJob.submit();
+			clearJob.submit(Job.SUBMIT_PARALLEL);
 		}
 		cullingViews.clear();
 	}
@@ -330,13 +343,13 @@ public class SceneCullingManager {
 
 		public int getVisibleTile(int idx) { return visibleTiles[idx]; }
 
-		public boolean isPlayerVisible(int id) { return players.contains(id); }
+		public boolean isPlayerVisible(Player player) { return players.contains(player.getId()); }
 
-		public boolean isNPCVisible(int id) { return npcs.contains(id); }
+		public boolean isNPCVisible(NPC npc) { return npcs.contains(npc.getIndex()); }
 
-		public boolean isProjectileVisible(int id) { return projectiles.contains(id); }
+		public boolean isProjectileVisible(Projectile projectile) { return projectiles.contains(projectile.getId()); }
 
-		public boolean isGraphicsObjectVisible(int id) { return graphicsObjects.contains(id); }
+		public boolean isGraphicsObjectVisible(GraphicsObject dynamicObject) { return graphicsObjects.contains(dynamicObject.getId()); }
 
 		public byte getTileResult(int tileIdx) {
 			return tiles[tileIdx];

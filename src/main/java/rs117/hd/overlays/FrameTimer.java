@@ -111,6 +111,12 @@ public class FrameTimer {
 		cumulativeError = 0;
 	}
 
+	public void begin(Timer timer, boolean condition) {
+		if(condition) {
+			begin(timer);
+		}
+	}
+
 	public void begin(Timer timer) {
 		if (log.isDebugEnabled() && timer.gpuDebugGroup && HdPlugin.GL_CAPS.OpenGL43) {
 			if (glDebugGroupStack.contains(timer)) {
@@ -133,6 +139,12 @@ public class FrameTimer {
 			timings[timer.ordinal()] -= System.nanoTime() - cumulativeError;
 		}
 		activeTimers[timer.ordinal()] = true;
+	}
+
+	public void end(Timer timer, boolean condition) {
+		if(condition) {
+			end(timer);
+		}
 	}
 
 	public void end(Timer timer) {

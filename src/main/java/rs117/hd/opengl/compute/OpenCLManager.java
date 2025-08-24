@@ -327,11 +327,11 @@ public class OpenCLManager {
 			passthroughProgram = compileProgram(stack, "comp_unordered.cl", includes);
 			passthroughKernel = getKernel(stack, passthroughProgram, KERNEL_NAME_PASSTHROUGH);
 
-			sortingPrograms = new long[plugin.numSortingBins];
-			sortingKernels = new long[plugin.numSortingBins];
-			for (int i = 0; i < plugin.numSortingBins; i++) {
-				int faceCount = plugin.modelSortingBinFaceCounts[i];
-				int threadCount = plugin.modelSortingBinThreadCounts[i];
+			sortingPrograms = new long[plugin.modelSortingBuffers.numSortingBins];
+			sortingKernels = new long[plugin.modelSortingBuffers.numSortingBins];
+			for (int i = 0; i < plugin.modelSortingBuffers.numSortingBins; i++) {
+				int faceCount = plugin.modelSortingBuffers.modelSortingBinFaceCounts[i];
+				int threadCount = plugin.modelSortingBuffers.modelSortingBinThreadCounts[i];
 				int facesPerThread = ceil((float) faceCount / threadCount);
 				includes = includes
 					.define("THREAD_COUNT", threadCount)
@@ -447,8 +447,8 @@ public class OpenCLManager {
 				if (numModels == 0)
 					continue;
 
-				int faceCount = plugin.modelSortingBinFaceCounts[i];
-				int threadCount = plugin.modelSortingBinThreadCounts[i];
+				int faceCount = plugin.modelSortingBuffers.modelSortingBinFaceCounts[i];
+				int threadCount = plugin.modelSortingBuffers.modelSortingBinThreadCounts[i];
 				long kernel = sortingKernels[i];
 
 				clSetKernelArg(kernel, 0, (long) (SHARED_SIZE + faceCount) * Integer.BYTES);

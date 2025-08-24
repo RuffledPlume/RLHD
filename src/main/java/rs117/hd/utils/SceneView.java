@@ -276,13 +276,13 @@ public class SceneView {
 			}
 		} else {
 			if (renderable instanceof NPC) {
-				return cullingResults.isNPCVisible(((NPC) renderable).getId());
+				return cullingResults.isNPCVisible((NPC) renderable);
 			} else if (renderable instanceof Player) {
-				return cullingResults.isPlayerVisible(((Player) renderable).getId());
+				return cullingResults.isPlayerVisible((Player) renderable);
 			} else if (renderable instanceof Projectile) {
-				return cullingResults.isProjectileVisible(((Projectile) renderable).getId());
+				return cullingResults.isProjectileVisible((Projectile) renderable);
 			} else if(renderable instanceof GraphicsObject) {
-				return cullingResults.isGraphicsObjectVisible(((GraphicsObject) renderable).getId());
+				return cullingResults.isGraphicsObjectVisible((GraphicsObject) renderable);
 			}
 		}
 

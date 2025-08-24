@@ -1,5 +1,6 @@
 package rs117.hd.utils;
 
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -14,13 +15,51 @@ import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
 public abstract class Job implements Runnable {
+	public final static class JobPool<T> {
+		private final ArrayDeque<T> pool = new ArrayDeque<>();
+		private final CreateFunc<T> createFunc;
+
+		public interface CreateFunc<T> { T create(); }
+
+		public JobPool(CreateFunc<T> createFunc) {
+			this.createFunc = createFunc;
+		}
+
+		public void push(T job) {
+			synchronized (pool) {
+				pool.add(job);
+			}
+		}
+
+		public T pop() {
+			final T job;
+			synchronized (pool) {
+				job = pool.isEmpty() ? null : pool.pop();
+			}
+			return job != null ? job : createFunc.create();
+		}
+	}
+
 	public static boolean FORCE_JOBS_RUN_SYNCHRONOUSLY = false;
+
+	public static final int SUBMIT_SERIAL = 0;
+	public static final int SUBMIT_PARALLEL = 1;
+	public static final int SUBMIT_SYNCHRONOUSLY = 2;
 
 	private static final HashSet<Job> CIRCULAR_DEP_SET = new HashSet<>();
 
 	private static int THREAD_POOL_SIZE = 0;
+
+	private static final ExecutorService SERIAL_THREAD = Executors.newFixedThreadPool(1,
+		(r) -> {
+		Thread poolThread = new Thread(r);
+		poolThread.setName("117 HD - Serial Thread");
+		poolThread.setPriority(Thread.NORM_PRIORITY + 3);
+		return poolThread;
+	});
+
 	private static final ExecutorService THREAD_POOL = Executors.newFixedThreadPool(
-		Math.max(1, Runtime.getRuntime().availableProcessors()),
+		Math.max(1, Runtime.getRuntime().availableProcessors() - 1),
 		(r) -> {
 			Thread poolThread = new Thread(r);
 			poolThread.setName("117 HD - Job Thread: " + ++THREAD_POOL_SIZE);
@@ -90,12 +129,8 @@ public abstract class Job implements Runnable {
 		return inFlight.get();
 	}
 
-	public void submit() {
-		submit(false);
-	}
-
 	@SneakyThrows
-	public void submit(boolean runSynchronously) {
+	public void submit(int submitType) {
 		complete(); // If already done before, ensure cleanup
 
 		try {
@@ -109,10 +144,16 @@ public abstract class Job implements Runnable {
 		inFlight.set(true);
 		isCompleted = false;
 
-		if (FORCE_JOBS_RUN_SYNCHRONOUSLY || runSynchronously) {
+
+
+		if (FORCE_JOBS_RUN_SYNCHRONOUSLY || submitType == SUBMIT_SYNCHRONOUSLY) {
 			run();
 		} else {
-			THREAD_POOL.execute(this);
+			if(submitType == SUBMIT_SERIAL) {
+				SERIAL_THREAD.execute(this);
+			} else {
+				THREAD_POOL.execute(this);
+			}
 		}
 	}
 

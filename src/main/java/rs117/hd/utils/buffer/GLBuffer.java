@@ -113,8 +113,10 @@ public class GLBuffer
 
 	public void upload(ByteBuffer data, long byteOffset) {
 		long numBytes = data.remaining();
-		ensureCapacity(byteOffset, numBytes);
-		glBufferSubData(target, byteOffset, data);
+		if(numBytes > 0) {
+			ensureCapacity(byteOffset, numBytes);
+			glBufferSubData(target, byteOffset, data);
+		}
 	}
 
 	public void upload(IntBuffer data) {
@@ -123,8 +125,10 @@ public class GLBuffer
 
 	public void upload(IntBuffer data, long byteOffset) {
 		long numBytes = 4L * data.remaining();
-		ensureCapacity(byteOffset, numBytes);
-		glBufferSubData(target, byteOffset, data);
+		if(numBytes > 0) {
+			ensureCapacity(byteOffset, numBytes);
+			glBufferSubData(target, byteOffset, data);
+		}
 	}
 
 	public void upload(FloatBuffer data) {
@@ -133,8 +137,10 @@ public class GLBuffer
 
 	public void upload(FloatBuffer data, long byteOffset) {
 		long numBytes = 4L * data.remaining();
-		ensureCapacity(byteOffset, numBytes);
-		glBufferSubData(target, byteOffset, data);
+		if(numBytes > 0) {
+			ensureCapacity(byteOffset, numBytes);
+			glBufferSubData(target, byteOffset, data);
+		}
 	}
 
 	public void upload(GpuIntBuffer data) {

@@ -19,25 +19,7 @@ public class StaticTileData {
 
 	public final List<StaticRenderableInstance> renderables = new ArrayList<>();
 
-	public void reset() {
-		if (modelBuffer != null) {
-			modelBuffer.reset();
-		}
-
-		if (underwaterBuffer != null) {
-			underwaterBuffer.reset();
-		}
-
-		if (paintBuffer != null) {
-			paintBuffer.reset();
-		}
-
-		for (StaticRenderableInstance instance : renderables) {
-			instance.renderableBuffer.reset();
-		}
-	}
-
-	public StaticRenderableInstance getStaticRenderableInstance(StaticRenderable renderable, int x, int y, int z, int orientation) {
+	public int getStaticRenderableInstanceIdx(StaticRenderable renderable, int x, int y, int z, int orientation) {
 		for (int i = 0; i < renderables.size(); i++) {
 			final StaticRenderableInstance instance = renderables.get(i);
 			if (instance.renderable == renderable &&
@@ -45,10 +27,10 @@ public class StaticTileData {
 				instance.y == y &&
 				instance.z == z &&
 				instance.orientation == orientation) {
-				return instance;
+				return i;
 			}
 		}
-		return null;
+		return -1;
 	}
 
 	public void merge(StaticTileData other) {
