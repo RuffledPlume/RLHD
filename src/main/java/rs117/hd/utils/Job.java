@@ -130,7 +130,7 @@ public abstract class Job implements Runnable {
 	}
 
 	@SneakyThrows
-	public void submit(int submitType) {
+	public Job submit(int submitType) {
 		complete(); // If already done before, ensure cleanup
 
 		try {
@@ -144,8 +144,6 @@ public abstract class Job implements Runnable {
 		inFlight.set(true);
 		isCompleted = false;
 
-
-
 		if (FORCE_JOBS_RUN_SYNCHRONOUSLY || submitType == SUBMIT_SYNCHRONOUSLY) {
 			run();
 		} else {
@@ -155,6 +153,8 @@ public abstract class Job implements Runnable {
 				THREAD_POOL.execute(this);
 			}
 		}
+
+		return this;
 	}
 
 	public Job awaitCompletion(boolean block) {

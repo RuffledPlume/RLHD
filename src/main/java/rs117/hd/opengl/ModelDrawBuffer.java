@@ -54,6 +54,10 @@ public final class ModelDrawBuffer extends GLBuffer {
 	}
 
 	public void draw() {
+		if(indicesCount <= 0){
+			return;
+		}
+
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, id);
 		glDrawElements(GL_TRIANGLES, indicesCount, GL_UNSIGNED_INT, 0);
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);

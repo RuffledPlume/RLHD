@@ -3,7 +3,16 @@ package rs117.hd.opengl.renderjobs;
 import rs117.hd.data.ModelSortingBuffers;
 import rs117.hd.data.SceneDrawContext;
 import rs117.hd.scene.SceneContext;
+import rs117.hd.utils.buffer.GLBuffer;
 
+import static org.lwjgl.opengl.GL11C.GL_FLOAT;
+import static org.lwjgl.opengl.GL11C.GL_INT;
+import static org.lwjgl.opengl.GL15C.GL_ARRAY_BUFFER;
+import static org.lwjgl.opengl.GL15C.glBindBuffer;
+import static org.lwjgl.opengl.GL20C.glEnableVertexAttribArray;
+import static org.lwjgl.opengl.GL20C.glVertexAttribPointer;
+import static org.lwjgl.opengl.GL30C.glBindVertexArray;
+import static org.lwjgl.opengl.GL30C.glVertexAttribIPointer;
 import static rs117.hd.HdPlugin.NORMAL_SIZE;
 import static rs117.hd.HdPlugin.UV_SIZE;
 import static rs117.hd.HdPlugin.VERTEX_SIZE;
@@ -11,6 +20,8 @@ import static rs117.hd.HdPlugin.checkGLErrors;
 
 public class UploadSceneBuffer extends RenderJob{
 	private static final JobPool<UploadSceneBuffer> POOL = new JobPool<>(UploadSceneBuffer::new);
+
+	private int vaoScene;
 
 	@Override
 	protected void doRenderWork(SceneDrawContext drawContext, SceneContext sceneContext) {
@@ -47,9 +58,35 @@ public class UploadSceneBuffer extends RenderJob{
 		// each vertex is an ivec4, which is 16 bytes
 		drawContext.hRenderBufferNormals.ensureCapacity(drawContext.renderBufferOffset * 16L);
 
+		updateSceneVao(drawContext.hRenderBufferVertices, drawContext.hRenderBufferUvs, drawContext.hRenderBufferNormals);
+
 		checkGLErrors();
 
 		POOL.push(this);
+	}
+
+	private void updateSceneVao(GLBuffer vertexBuffer, GLBuffer uvBuffer, GLBuffer normalBuffer) {
+		glBindVertexArray(vaoScene);
+
+		glEnableVertexAttribArray(0);
+		glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer.id);
+		glVertexAttribPointer(0, 3, GL_FLOAT, false, 16, 0);
+
+		glEnableVertexAttribArray(1);
+		glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer.id);
+		glVertexAttribIPointer(1, 1, GL_INT, 16, 12);
+
+		glEnableVertexAttribArray(2);
+		glBindBuffer(GL_ARRAY_BUFFER, uvBuffer.id);
+		glVertexAttribPointer(2, 3, GL_FLOAT, false, 16, 0);
+
+		glEnableVertexAttribArray(3);
+		glBindBuffer(GL_ARRAY_BUFFER, uvBuffer.id);
+		glVertexAttribIPointer(3, 1, GL_INT, 16, 12);
+
+		glEnableVertexAttribArray(4);
+		glBindBuffer(GL_ARRAY_BUFFER, normalBuffer.id);
+		glVertexAttribPointer(4, 4, GL_FLOAT, false, 0, 0);
 	}
 
 	public static void addToQueue() { POOL.pop().submit(SUBMIT_SERIAL); }

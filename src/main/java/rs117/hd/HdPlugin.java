@@ -97,11 +97,15 @@ import rs117.hd.model.ModelOffsets;
 import rs117.hd.model.ModelPusher;
 import rs117.hd.opengl.compute.ComputeMode;
 import rs117.hd.opengl.compute.OpenCLManager;
+import rs117.hd.opengl.renderjobs.BlitSceneFBOToBackBuffer;
 import rs117.hd.opengl.renderjobs.BuildSceneDrawBuffer;
 import rs117.hd.opengl.renderjobs.ChangeAWTOwnership;
 import rs117.hd.opengl.renderjobs.ModelSortingPass;
 import rs117.hd.opengl.renderjobs.PushStaticModelData;
 import rs117.hd.opengl.renderjobs.RenderJob;
+import rs117.hd.opengl.renderjobs.RenderScenePass;
+import rs117.hd.opengl.renderjobs.RenderUIPass;
+import rs117.hd.opengl.renderjobs.SwapBuffers;
 import rs117.hd.opengl.renderjobs.TiledLightingPass;
 import rs117.hd.opengl.renderjobs.UploadSceneBuffer;
 import rs117.hd.opengl.renderjobs.UploadUITexture;
@@ -1119,30 +1123,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		}
 	}
 
-	private void updateSceneVao(GLBuffer vertexBuffer, GLBuffer uvBuffer, GLBuffer normalBuffer) {
-		glBindVertexArray(vaoScene);
-
-		glEnableVertexAttribArray(0);
-		glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer.id);
-		glVertexAttribPointer(0, 3, GL_FLOAT, false, 16, 0);
-
-		glEnableVertexAttribArray(1);
-		glBindBuffer(GL_ARRAY_BUFFER, vertexBuffer.id);
-		glVertexAttribIPointer(1, 1, GL_INT, 16, 12);
-
-		glEnableVertexAttribArray(2);
-		glBindBuffer(GL_ARRAY_BUFFER, uvBuffer.id);
-		glVertexAttribPointer(2, 3, GL_FLOAT, false, 16, 0);
-
-		glEnableVertexAttribArray(3);
-		glBindBuffer(GL_ARRAY_BUFFER, uvBuffer.id);
-		glVertexAttribIPointer(3, 1, GL_INT, 16, 12);
-
-		glEnableVertexAttribArray(4);
-		glBindBuffer(GL_ARRAY_BUFFER, normalBuffer.id);
-		glVertexAttribPointer(4, 4, GL_FLOAT, false, 0, 0);
-	}
-
 	private void destroyVaos() {
 		if (vaoScene != 0)
 			glDeleteVertexArrays(vaoScene);
@@ -1276,7 +1256,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	}
 
 	private void updateSceneFbo() {
-		if (uiResolution == null)
+		if (uiResolution == null || true)
 			return;
 
 		int[] viewport = {
@@ -1304,6 +1284,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		// Check if scene FBO needs to be recreated
 		if (Arrays.equals(sceneViewport, viewport))
 			return;
+
+		ChangeAWTOwnership.addToQueue(awtContext, SceneDrawContext.AWTContextOwner.Client);
 
 		destroySceneFbo();
 		sceneViewport = viewport;
@@ -1383,6 +1365,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		// Reset
 		glBindFramebuffer(GL_FRAMEBUFFER, awtContext.getFramebuffer(false));
 		glBindRenderbuffer(GL_RENDERBUFFER, 0);
+
+		ChangeAWTOwnership.addToQueue(awtContext, SceneDrawContext.AWTContextOwner.RenderThread);
 	}
 
 	private void destroySceneFbo() {
@@ -1527,8 +1511,12 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		if (sceneContext == null || sceneViewport == null)
 			return;
 
-		frameTimer.begin(Timer.DRAW_FRAME);
-		frameTimer.begin(Timer.DRAW_SCENE);
+		// Note: This will block until the previous frame has finished swapping the buffers
+		ChangeAWTOwnership.addToQueue(awtContext, SceneDrawContext.AWTContextOwner.Client);
+
+		// Process pending config changes before drawing scene & whilst we have the lock on the AWTContext
+		if (!pendingConfigChanges.isEmpty())
+			SwingUtilities.invokeLater(this::processPendingConfigChanges);
 
 		final Scene scene = client.getScene();
 		int drawDistance = getDrawDistance();
@@ -1629,13 +1617,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 					Arrays.fill(cameraShift, 0);
 
 					try {
-						frameTimer.begin(Timer.UPDATE_ENVIRONMENT);
 						environmentManager.update(sceneContext);
-						frameTimer.end(Timer.UPDATE_ENVIRONMENT);
 
-						frameTimer.begin(Timer.UPDATE_LIGHTS);
 						lightManager.update(sceneContext);
-						frameTimer.end(Timer.UPDATE_LIGHTS);
 					} catch (Exception ex) {
 						log.error("Error while updating environment or lights:", ex);
 						stopPlugin();
@@ -1774,61 +1758,39 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			uboLights.upload();
 			uboLightsCulling.upload();
 
-			if (configTiledLighting) {
-				updateTiledLightingFbo();
-			}
+			///if (configTiledLighting) {
+			//	updateTiledLightingFbo(); TODO: FIX ME
+			//}
 		}
+
 		updateGlobalUBO();
 
+		// Release lock of the AWT Context back to the RenderThread
 		ChangeAWTOwnership.addToQueue(awtContext, SceneDrawContext.AWTContextOwner.RenderThread);
 
+		/* TODO: FIX ME
 		if (configTiledLighting && configDynamicLights != DynamicLights.NONE && fboTiledLighting != 0) {
 			TiledLightingPass.addToQueue(tiledLightingResolution,
 				fboTiledLighting, texTiledLighting,
 				vaoTri, configDynamicLights,
 				tiledLightingImageStoreProgram, tiledLightingShaderPrograms);
-		}
+		}*/
 
-		WaitForCullingResults.addToQueue(sceneCullingManager);
-		PushStaticModelData.addToQueue(sceneCullingManager.combinedTileVisibility);
-		BuildSceneDrawBuffer.addToQueue(sceneCamera.getCullingResults());
-		UploadSceneBuffer.addToQueue();
-
-
-		frameTimer.begin(Timer.DRAW_SCENE_DRAW_CALLS);
+		//WaitForCullingResults.addToQueue(sceneCullingManager);
+		//PushStaticModelData.addToQueue(sceneCullingManager.combinedTileVisibility);
+		//BuildSceneDrawBuffer.addToQueue(sceneCamera.getCullingResults());
+		//UploadSceneBuffer.addToQueue();
 	}
 
 	@Override
 	public void postDrawScene() {
 		if (sceneContext == null)
 			return;
-		frameTimer.end(Timer.DRAW_SCENE_DRAW_CALLS);
 
 		sceneDrawContext.sceneDrawOrder.signal();
 
-		frameTimer.end(Timer.DRAW_SCENE);
-		frameTimer.begin(Timer.RENDER_FRAME);
-
-		if (computeMode == ComputeMode.OPENCL) {
-			// The docs for clEnqueueAcquireGLObjects say all pending GL operations must be completed before calling
-			// clEnqueueAcquireGLObjects, and recommends calling glFinish() as the only portable way to do that.
-			// However, no issues have been observed from not calling it, and so will leave disabled for now.
-			// glFinish();
-
-			uboCompute.upload();
-
-			clManager.compute(
-				uboCompute.glBuffer,
-				sceneDrawContext.numPassthroughModels, modelSortingBuffers.numModelsToSort,
-				sceneDrawContext.hModelPassthroughBuffer, modelSortingBuffers.hModelSortingBuffers,
-				hStagingBufferVertices, hStagingBufferUvs, hStagingBufferNormals,
-				hRenderBufferVertices, hRenderBufferUvs, hRenderBufferNormals
-			);
-		} else {
-			ModelSortingPass.addToQueue(uboCompute, modelPassthroughComputeProgram, modelSortingComputePrograms);
-		}
-
-		checkGLErrors();
+		// TODO: OpenCL Version
+		//ModelSortingPass.addToQueue(uboCompute, modelPassthroughComputeProgram, modelSortingComputePrograms);
 	}
 
 	public void initShaderHotswapping() {
@@ -1968,14 +1930,13 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	public void draw(int overlayColor) {
 		final GameState gameState = client.getGameState();
 		if (gameState == GameState.STARTING) {
-			frameTimer.end(Timer.DRAW_FRAME);
 			return;
 		}
+
+		// Make sure RenderThread has AWT Ownership
 		ChangeAWTOwnership.addToQueue(awtContext, SceneDrawContext.AWTContextOwner.RenderThread);
 
 		prepareInterfaceTexture();
-
-		ChangeAWTOwnership.addToQueue(awtContext, SceneDrawContext.AWTContextOwner.Client);
 
 		if (lastFrameTimeMillis > 0) {
 			deltaTime = (float) ((System.currentTimeMillis() - lastFrameTimeMillis) / 1000.);
@@ -2010,169 +1971,17 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		}
 
 		updateSceneFbo();
-		updateSceneVao(hRenderBufferVertices, hRenderBufferUvs, hRenderBufferNormals);
 
 		// Draw 3d scene
 		if (hasLoggedIn && sceneContext != null && sceneViewport != null) {
-			// Before reading the SSBOs written to from postDrawScene() we must insert a barrier
-			if (computeMode == ComputeMode.OPENCL) {
-				clManager.finish();
-			}
-
-			if (configShadowsEnabled && fboShadowMap != 0 && environmentManager.currentDirectionalStrength > 0) {
-				frameTimer.begin(Timer.RENDER_SHADOWS);
-
-				// Render to the shadow depth map
-				glViewport(0, 0, shadowMapResolution, shadowMapResolution);
-				glBindFramebuffer(GL_FRAMEBUFFER, fboShadowMap);
-				glClearDepth(1);
-				glClear(GL_DEPTH_BUFFER_BIT);
-				glDepthFunc(GL_LEQUAL);
-
-				shadowProgram.use();
-
-				glEnable(GL_CULL_FACE);
-				glEnable(GL_DEPTH_TEST);
-
-				glBindVertexArray(vaoScene);
-				sceneDrawContext.directionalDrawBuffer.draw();
-
-				glDisable(GL_CULL_FACE);
-				glDisable(GL_DEPTH_TEST);
-
-				frameTimer.end(Timer.RENDER_SHADOWS);
-			}
-
-			sceneProgram.use();
-
-			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboScene);
-			glToggle(GL_MULTISAMPLE, msaaSamples > 1);
-			glViewport(0, 0, sceneResolution[0], sceneResolution[1]);
-
-			// Clear scene
-			frameTimer.begin(Timer.CLEAR_SCENE);
-
-			glClearColor(
-				gammaCorrectedFogColor[0],
-				gammaCorrectedFogColor[1],
-				gammaCorrectedFogColor[2],
-				1f
-			);
-			glClearDepth(0);
-			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-			frameTimer.end(Timer.CLEAR_SCENE);
-
-			frameTimer.begin(Timer.RENDER_SCENE);
-
-			// We just allow the GL to do face culling. Note this requires the priority renderer
-			// to have logic to disregard culled faces in the priority depth testing.
-			glEnable(GL_CULL_FACE);
-			glCullFace(GL_BACK);
-
-			// Enable blending for alpha
-			glEnable(GL_BLEND);
-			glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
-
-			// Draw with buffers bound to scene VAO
-			glBindVertexArray(vaoScene);
-
-			// When there are custom tiles, we need depth testing to draw them in the correct order, but the rest of the
-			// scene doesn't support depth testing, so we only write depths for custom tiles.
-			if (sceneContext.staticCustomTilesVertexCount > 0) {
-				// Draw gap filler tiles first, without depth testing
-				if (sceneContext.staticGapFillerTilesVertexCount > 0) {
-					glDisable(GL_DEPTH_TEST);
-					glDrawArrays(
-						GL_TRIANGLES,
-						sceneContext.staticGapFillerTilesOffset,
-						sceneContext.staticGapFillerTilesVertexCount
-					);
-				}
-
-				glEnable(GL_DEPTH_TEST);
-				glDepthFunc(GL_GREATER);
-
-				// Draw custom tiles, writing depth
-				glDepthMask(true);
-				glDrawArrays(
-					GL_TRIANGLES,
-					sceneContext.staticCustomTilesOffset,
-					sceneContext.staticCustomTilesVertexCount
-				);
-
-				// Draw the rest of the scene with depth testing, but not against itself
-				glDepthMask(false);
-			} else {
-				// Draw everything without depth testing
-				glDisable(GL_DEPTH_TEST);
-			}
-
-			// Draw all Scene Geometry
-			sceneDrawContext.sceneDrawBuffer.draw();
-
-			frameTimer.end(Timer.RENDER_SCENE);
-
-			glDisable(GL_BLEND);
-			glDisable(GL_CULL_FACE);
-			glDisable(GL_MULTISAMPLE);
-			glDisable(GL_DEPTH_TEST);
-			glDepthMask(true);
-			glUseProgram(0);
-
-			glBindFramebuffer(GL_READ_FRAMEBUFFER, fboScene);
-			if (fboSceneResolve != 0) {
-				// Blit from the scene FBO to the multisample resolve FBO
-				glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboSceneResolve);
-				glBlitFramebuffer(
-					0, 0, sceneResolution[0], sceneResolution[1],
-					0, 0, sceneResolution[0], sceneResolution[1],
-					GL_COLOR_BUFFER_BIT, GL_NEAREST
-				);
-				glBindFramebuffer(GL_READ_FRAMEBUFFER, fboSceneResolve);
-			}
-
-			// Blit from the resolved FBO to the default FBO
-			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, awtContext.getFramebuffer(false));
-			glBlitFramebuffer(
-				0, 0, sceneResolution[0], sceneResolution[1],
-				sceneViewport[0], sceneViewport[1], sceneViewport[0] + sceneViewport[2], sceneViewport[1] + sceneViewport[3],
-				GL_COLOR_BUFFER_BIT, config.sceneScalingMode().glFilter
-			);
-		} else {
-			glClearColor(0, 0, 0, 1f);
-			glClear(GL_COLOR_BUFFER_BIT);
+			//RenderScenePass.addToQueue(sceneProgram, fboScene, msaaSamples, sceneResolution, gammaCorrectedFogColor, vaoScene, sceneDrawContext.sceneDrawBuffer);
+			//BlitSceneFBOToBackBuffer.addToQueue(awtContext, fboScene, fboSceneResolve, sceneResolution, sceneViewport, config.sceneScalingMode().glFilter);
 		}
 
 		drawUi(overlayColor);
 
-		glBindFramebuffer(GL_FRAMEBUFFER, awtContext.getFramebuffer(false));
-
-		try {
-			frameTimer.begin(Timer.SWAP_BUFFERS);
-			awtContext.swapBuffers();
-			frameTimer.end(Timer.SWAP_BUFFERS);
-			drawManager.processDrawComplete(this::screenshot);
-		} catch (RuntimeException ex) {
-			// this is always fatal
-			if (!canvas.isValid()) {
-				// this might be AWT shutting down on VM shutdown, ignore it
-				return;
-			}
-
-			log.error("Unable to swap buffers:", ex);
-		}
-
-		glBindFramebuffer(GL_FRAMEBUFFER, awtContext.getFramebuffer(false));
-
-		frameTimer.end(Timer.DRAW_FRAME);
-		frameTimer.end(Timer.RENDER_FRAME);
-		frameTimer.endFrameAndReset();
+		SwapBuffers.addToQueue(awtContext);
 		frameModelInfoMap.clear();
-		checkGLErrors();
-
-		// Process pending config changes after the EDT is done with any pending work, which could include further config changes
-		if (!pendingConfigChanges.isEmpty())
-			SwingUtilities.invokeLater(this::processPendingConfigChanges);
 	}
 
 	private void drawUi(int overlayColor) {
@@ -2183,47 +1992,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		if (client.getGameState().getState() < GameState.LOADING.getState())
 			overlayColor = 0;
 
-
-		frameTimer.begin(Timer.RENDER_UI);
-
-		glBindFramebuffer(GL_FRAMEBUFFER, awtContext.getFramebuffer(false));
-		// Disable alpha writes, just in case the default FBO has an alpha channel
-		glColorMask(true, true, true, false);
-
-		glViewport(0, 0, actualUiResolution[0], actualUiResolution[1]);
-
-		tiledLightingOverlay.render();
-
-		uiProgram.use();
-		uboUI.sourceDimensions.set(uiResolution);
-		uboUI.targetDimensions.set(actualUiResolution);
-		uboUI.alphaOverlay.set(ColorUtils.srgba(overlayColor));
-		uboUI.upload();
-
-		// Set the sampling function used when stretching the UI.
-		// This is probably better done with sampler objects instead of texture parameters, but this is easier and likely more portable.
-		// See https://www.khronos.org/opengl/wiki/Sampler_Object for details.
-		// GL_NEAREST makes sampling for bicubic/xBR simpler, so it should be used whenever linear isn't
-		final int function = config.uiScalingMode() == UIScalingMode.LINEAR ? GL_LINEAR : GL_NEAREST;
-		glActiveTexture(TEXTURE_UNIT_UI);
-		glBindTexture(GL_TEXTURE_2D, texUi);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, function);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, function);
-
-		glEnable(GL_BLEND);
-		glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
-		glBindVertexArray(vaoTri);
-		glDrawArrays(GL_TRIANGLES, 0, 3);
-
-		shadowMapOverlay.render();
-		gammaCalibrationOverlay.render();
-
-		// Reset
-		glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
-		glDisable(GL_BLEND);
-		glColorMask(true, true, true, true);
-
-		frameTimer.end(Timer.RENDER_UI);
+		RenderUIPass.addToQueue(awtContext, uiProgram, uboUI, actualUiResolution, config.uiScalingMode() == UIScalingMode.LINEAR ? GL_LINEAR : GL_NEAREST, vaoTri, texUi, overlayColor, uiResolution);
 	}
 
 	/**
@@ -2344,6 +2113,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			return;
 		}
 
+		// Take Ownership before uploading the static model data
+		ChangeAWTOwnership.addToQueue(awtContext, SceneDrawContext.AWTContextOwner.Client);
+
 		// If the scene wasn't loaded by a call to loadScene, load it synchronously instead
 		if (nextSceneContext == null) {
 			loadSceneInternal(scene);
@@ -2396,6 +2168,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		}
 
 		RenderJob.setSceneContext(sceneContext);
+
+		// Return ownership to the Renderthread
+		ChangeAWTOwnership.addToQueue(awtContext, SceneDrawContext.AWTContextOwner.RenderThread);
 	}
 
 	public void reloadSceneNextGameTick() {
@@ -2767,8 +2542,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			}
 		}
 
-		frameTimer.begin(Timer.VISIBILITY_CHECK, enableDetailedTimers);
-
 		final int plane = ModelHash.getPlane(hash);
 		final int tileExX = (x >> LOCAL_COORD_BITS) + SCENE_OFFSET;
 		final int tileExY = (z >> LOCAL_COORD_BITS) + SCENE_OFFSET;
@@ -2784,20 +2557,14 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				isStatic,
 				tileIdx)));
 
-		frameTimer.end(Timer.VISIBILITY_CHECK, enableDetailedTimers);
-
 		if (!isVisibleInScene && !isVisibleInShadow) {
 			return;
 		}
 
 		if (staticRenderable != null) {
 			if(isVisibleInScene) {
-				frameTimer.begin(Timer.CLICKBOX_CHECK, enableDetailedTimers);
 				client.checkClickbox(projection, model, orientation, x, y, z, hash);
-				frameTimer.end(Timer.CLICKBOX_CHECK, enableDetailedTimers);
 			}
-
-			frameTimer.begin(Timer.DRAW_STATIC_RENDERABLE, enableDetailedTimers);
 
 			final StaticTileData staticTileData = sceneContext.staticTileData[tileIdx];
 			int renderableInstanceIDx = staticTileData.getStaticRenderableInstanceIdx(
@@ -2813,8 +2580,6 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			} else {
 				staticRenderable.appendInstanceToTile(staticTileData, x, y, z, orientation);
 			}
-
-			frameTimer.end(Timer.DRAW_STATIC_RENDERABLE, enableDetailedTimers);
 		}
 	}
 

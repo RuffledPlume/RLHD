@@ -1,5 +1,6 @@
 package rs117.hd.opengl.renderjobs;
 
+import rs117.hd.HdPlugin;
 import rs117.hd.data.SceneDrawContext;
 import rs117.hd.scene.SceneContext;
 import rs117.hd.utils.Job;
