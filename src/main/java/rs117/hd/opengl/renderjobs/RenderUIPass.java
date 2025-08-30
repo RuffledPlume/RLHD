@@ -3,6 +3,7 @@ package rs117.hd.opengl.renderjobs;
 import net.runelite.rlawt.AWTContext;
 import rs117.hd.config.UIScalingMode;
 import rs117.hd.data.SceneDrawContext;
+import rs117.hd.opengl.AWTContextWrapper;
 import rs117.hd.opengl.shader.ShaderProgram;
 import rs117.hd.opengl.uniforms.UBOUI;
 import rs117.hd.overlays.Timer;
@@ -37,7 +38,6 @@ import static rs117.hd.HdPlugin.TEXTURE_UNIT_UI;
 public class RenderUIPass extends RenderJob {
 	private static final JobPool<RenderUIPass> POOL = new JobPool<>(RenderUIPass::new);
 
-	private AWTContext awtContext;
 	private ShaderProgram uiProgram;
 	private UBOUI uboUI;
 	private int[] actualUiResolution;
@@ -47,9 +47,11 @@ public class RenderUIPass extends RenderJob {
 	private int overlayColor;
 	private int[] uiResolution;
 
+	public RenderUIPass() {super(POOL);}
+
 	@Override
-	protected void doRenderWork(SceneDrawContext drawContext, SceneContext sceneContext) {
-		glBindFramebuffer(GL_FRAMEBUFFER, awtContext.getFramebuffer(false));
+	protected void doRenderWork(AWTContextWrapper awtContextWrapper, SceneDrawContext drawContext, SceneContext sceneContext) {
+		glBindFramebuffer(GL_FRAMEBUFFER, awtContextWrapper.getBackBuffer());
 		// Disable alpha writes, just in case the default FBO has an alpha channel
 		glColorMask(true, true, true, false);
 
@@ -80,13 +82,10 @@ public class RenderUIPass extends RenderJob {
 		glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
 		glDisable(GL_BLEND);
 		glColorMask(true, true, true, true);
-
-		POOL.push(this);
 	}
 
-	public static void addToQueue(AWTContext awtContext, ShaderProgram uiProgram, UBOUI uboUI, int[] actualUiResolution, int scalingFunction, int vaoTri, int texUi, int overlayColor, int[] uiResolution) {
+	public static void addToQueue(ShaderProgram uiProgram, UBOUI uboUI, int[] actualUiResolution, int scalingFunction, int vaoTri, int texUi, int overlayColor, int[] uiResolution) {
 		RenderUIPass job = POOL.pop();
-		job.awtContext = awtContext;
 		job.uiProgram = uiProgram;
 		job.uboUI = uboUI;
 		job.actualUiResolution = actualUiResolution;

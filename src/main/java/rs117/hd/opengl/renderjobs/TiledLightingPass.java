@@ -1,8 +1,10 @@
 package rs117.hd.opengl.renderjobs;
 
 import java.util.List;
+import net.runelite.rlawt.AWTContext;
 import rs117.hd.config.DynamicLights;
 import rs117.hd.data.SceneDrawContext;
+import rs117.hd.opengl.AWTContextWrapper;
 import rs117.hd.opengl.shader.TiledLightingShaderProgram;
 import rs117.hd.scene.SceneContext;
 
@@ -33,8 +35,10 @@ public class TiledLightingPass extends RenderJob {
 	private TiledLightingShaderProgram tiledLightingImageStoreProgram;
 	private List<TiledLightingShaderProgram> tiledLightingShaderPrograms;
 
+	public TiledLightingPass() {super(POOL);}
+
 	@Override
-	protected void doRenderWork(SceneDrawContext drawContext, SceneContext sceneContext) {
+	protected void doRenderWork(AWTContextWrapper awtContextWrapper, SceneDrawContext drawContext, SceneContext sceneContext) {
 		glViewport(0, 0, tiledLightingResolution[0], tiledLightingResolution[1]);
 		glBindFramebuffer(GL_FRAMEBUFFER, fboTiledLighting);
 
@@ -57,10 +61,6 @@ public class TiledLightingPass extends RenderJob {
 				glDrawArrays(GL_TRIANGLES, 0, 3);
 			}
 		}
-
-		checkGLErrors();
-
-		POOL.push(this);
 	}
 
 	public static void addToQueue(

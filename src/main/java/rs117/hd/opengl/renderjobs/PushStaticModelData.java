@@ -1,8 +1,10 @@
 package rs117.hd.opengl.renderjobs;
 
+import net.runelite.rlawt.AWTContext;
 import rs117.hd.data.SceneDrawContext;
 import rs117.hd.data.StaticRenderableInstance;
 import rs117.hd.data.StaticTileData;
+import rs117.hd.opengl.AWTContextWrapper;
 import rs117.hd.scene.SceneContext;
 import rs117.hd.scene.SceneCullingManager;
 
@@ -15,8 +17,10 @@ public class PushStaticModelData extends RenderJob {
 
 	private SceneCullingManager.CullingResults cullingResults;
 
+	public PushStaticModelData() {super(POOL);}
+
 	@Override
-	protected void doRenderWork(SceneDrawContext drawContext, SceneContext sceneContext) {
+	protected void doRenderWork(AWTContextWrapper awtContextWrapper, SceneDrawContext drawContext, SceneContext sceneContext) {
 		for(int i = 0; i < cullingResults.getNumVisibleTiles(); i++) {
 			final int tileIdx = cullingResults.getVisibleTile(i);
 			final StaticTileData tileData = sceneContext.staticTileData[tileIdx];
@@ -89,10 +93,6 @@ public class PushStaticModelData extends RenderJob {
 				drawContext.renderBufferOffset += instance.renderableBuffer.vertexCount;
 			}
 		}
-
-		checkGLErrors();
-
-		POOL.push(this);
 	}
 
 	public static void addToQueue(SceneCullingManager.CullingResults cullingResults) {

@@ -1,7 +1,9 @@
 package rs117.hd.opengl.renderjobs;
 
+import net.runelite.rlawt.AWTContext;
 import rs117.hd.data.SceneDrawContext;
 import rs117.hd.data.SceneDrawOrder;
+import rs117.hd.opengl.AWTContextWrapper;
 import rs117.hd.scene.SceneContext;
 import rs117.hd.scene.SceneCullingManager;
 
@@ -12,8 +14,10 @@ public class BuildSceneDrawBuffer extends RenderJob {
 
 	private SceneCullingManager.CullingResults cullingResults;
 
+	public BuildSceneDrawBuffer() {super(POOL);}
+
 	@Override
-	protected void doRenderWork(SceneDrawContext drawContext, SceneContext sceneContext) {
+	protected void doRenderWork(AWTContextWrapper awtContextWrapper, SceneDrawContext drawContext, SceneContext sceneContext) {
 		// Note: Due to a lack of ZBuffer, the SceneDrawBuffer has to wait the sceneDrawOrder to be built by DrawCallback
 		drawContext.sceneDrawOrder.waitForSignal();
 
@@ -44,10 +48,6 @@ public class BuildSceneDrawBuffer extends RenderJob {
 		}
 
 		drawContext.sceneDrawBuffer.upload();
-
-		checkGLErrors();
-
-		POOL.push(this);
 	}
 
 	public static void addToQueue(SceneCullingManager.CullingResults cullingResults) {

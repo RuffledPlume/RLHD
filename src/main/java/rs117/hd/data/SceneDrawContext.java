@@ -11,7 +11,6 @@ import static org.lwjgl.opengl.GL15C.GL_STREAM_DRAW;
 
 @RequiredArgsConstructor
 public class SceneDrawContext {
-	public enum AWTContextOwner { Client, RenderThread }
 
 	public final ModelDrawBuffer sceneDrawBuffer = new ModelDrawBuffer("Scene");
 	public final ModelDrawBuffer directionalDrawBuffer = new ModelDrawBuffer("Directional Shadow");
@@ -33,8 +32,6 @@ public class SceneDrawContext {
 		"Model Passthrough", GL_ARRAY_BUFFER, GL_STREAM_DRAW, CL_MEM_READ_ONLY);
 
 	public GpuIntBuffer modelPassthroughBuffer;
-
-	public AWTContextOwner currentAWTContextOwner = AWTContextOwner.Client;
 
 	public int dynamicOffsetVertices;
 	public int dynamicOffsetUvs;

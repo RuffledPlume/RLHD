@@ -1,6 +1,8 @@
 package rs117.hd.opengl.renderjobs;
 
+import net.runelite.rlawt.AWTContext;
 import rs117.hd.data.SceneDrawContext;
+import rs117.hd.opengl.AWTContextWrapper;
 import rs117.hd.scene.SceneContext;
 import rs117.hd.utils.buffer.GLBuffer;
 import rs117.hd.utils.buffer.GpuFloatBuffer;
@@ -11,10 +13,11 @@ public class UploadGPUFloatBuffer extends RenderJob {
 	private GLBuffer glBuffer;
 	private GpuFloatBuffer buffer;
 
+	public UploadGPUFloatBuffer() {super(POOL);}
+
 	@Override
-	protected void doRenderWork(SceneDrawContext drawContext, SceneContext sceneContext) {
+	protected void doRenderWork(AWTContextWrapper awtContextWrapper, SceneDrawContext drawContext, SceneContext sceneContext) {
 		glBuffer.upload(buffer);
-		POOL.push(this);
 	}
 
 	public static void submit(GLBuffer glBuffer, GpuFloatBuffer buffer) {

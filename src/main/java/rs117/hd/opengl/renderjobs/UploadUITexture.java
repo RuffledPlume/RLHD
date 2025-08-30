@@ -3,7 +3,9 @@ package rs117.hd.opengl.renderjobs;
 import java.nio.ByteBuffer;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
+import net.runelite.rlawt.AWTContext;
 import rs117.hd.data.SceneDrawContext;
+import rs117.hd.opengl.AWTContextWrapper;
 import rs117.hd.scene.SceneContext;
 
 import static org.lwjgl.opengl.GL11C.GL_RGBA;
@@ -37,8 +39,10 @@ public class UploadUITexture extends RenderJob {
 	private int height;
 	private boolean resize;
 
+	public UploadUITexture() {super(POOL);}
+
 	@Override
-	protected void doRenderWork(SceneDrawContext drawContext, SceneContext sceneContext) {
+	protected void doRenderWork(AWTContextWrapper awtContextWrapper, SceneDrawContext drawContext, SceneContext sceneContext) {
 		if(resize) {
 			glBindBuffer(GL_PIXEL_UNPACK_BUFFER, pboUi);
 			glBufferData(GL_PIXEL_UNPACK_BUFFER, uiResolution[0] * uiResolution[1] * 4L, GL_STREAM_DRAW);
@@ -64,8 +68,6 @@ public class UploadUITexture extends RenderJob {
 			glBindTexture(GL_TEXTURE_2D, texUi);
 			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, width, height, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, 0);
 		}
-
-		POOL.push(this);
 	}
 
 	public static void addToQueue(BufferProvider bufferProvider, int[] uiResolution, int pboUi, int texUi, boolean resize) {

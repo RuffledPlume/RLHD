@@ -175,6 +175,10 @@ public class FrameTimer {
 			timings[timer.ordinal()] += time;
 	}
 
+	public void addRenderJob(String jobName, long time) {
+
+	}
+
 	public void endFrameAndReset() {
 		if (HdPlugin.GL_CAPS.OpenGL43) {
 			while (!glDebugGroupStack.isEmpty()) {

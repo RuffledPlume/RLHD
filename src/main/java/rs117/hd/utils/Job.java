@@ -12,10 +12,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.Getter;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
+import rs117.hd.opengl.renderjobs.RenderJob;
 
 @Slf4j
 public abstract class Job implements Runnable {
-	public final static class JobPool<T> {
+	public final static class JobPool<T extends RenderJob> {
 		private final ArrayDeque<T> pool = new ArrayDeque<>();
 		private final CreateFunc<T> createFunc;
 
@@ -25,9 +26,9 @@ public abstract class Job implements Runnable {
 			this.createFunc = createFunc;
 		}
 
-		public void push(T job) {
+		public void push(RenderJob job) {
 			synchronized (pool) {
-				pool.add(job);
+				pool.add((T) job);
 			}
 		}
 

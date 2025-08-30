@@ -1,8 +1,10 @@
 package rs117.hd.opengl.renderjobs;
 
 import java.util.List;
+import net.runelite.rlawt.AWTContext;
 import org.lwjgl.opengl.*;
 import rs117.hd.data.SceneDrawContext;
+import rs117.hd.opengl.AWTContextWrapper;
 import rs117.hd.opengl.shader.ModelSortingComputeProgram;
 import rs117.hd.opengl.shader.ShaderProgram;
 import rs117.hd.opengl.uniforms.UBOCompute;
@@ -18,8 +20,10 @@ public class ModelSortingPass extends RenderJob {
 	private ShaderProgram modelPassthroughComputeProgram;
 	private List<ModelSortingComputeProgram> modelSortingComputePrograms;
 
+	public ModelSortingPass() {super(POOL);}
+
 	@Override
-	protected void doRenderWork(SceneDrawContext drawContext, SceneContext sceneContext) {
+	protected void doRenderWork(AWTContextWrapper awtContextWrapper, SceneDrawContext drawContext, SceneContext sceneContext) {
 		// Compute is split into a passthrough shader for unsorted models,
 		// and multiple sizes of sorting shaders to better utilize the GPU
 

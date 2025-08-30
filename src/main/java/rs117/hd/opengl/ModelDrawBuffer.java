@@ -38,7 +38,9 @@ public final class ModelDrawBuffer extends GLBuffer {
 	}
 
 	public void upload() {
-		UploadGPUIntBuffer.submit(this, stagingIndices);
+		stagingIndices.flip();
+		upload(stagingIndices);
+		stagingIndices.clear();
 	}
 
 	@Override

@@ -1,7 +1,9 @@
 package rs117.hd.opengl.renderjobs;
 
+import net.runelite.rlawt.AWTContext;
 import rs117.hd.data.ModelSortingBuffers;
 import rs117.hd.data.SceneDrawContext;
+import rs117.hd.opengl.AWTContextWrapper;
 import rs117.hd.scene.SceneContext;
 import rs117.hd.utils.buffer.GLBuffer;
 
@@ -23,8 +25,10 @@ public class UploadSceneBuffer extends RenderJob{
 
 	private int vaoScene;
 
+	public UploadSceneBuffer() { super(POOL);}
+
 	@Override
-	protected void doRenderWork(SceneDrawContext drawContext, SceneContext sceneContext) {
+	protected void doRenderWork(AWTContextWrapper awtContextWrapper, SceneDrawContext drawContext, SceneContext sceneContext) {
 
 		sceneContext.stagingBufferVertices.flip();
 		sceneContext.stagingBufferUvs.flip();
@@ -59,10 +63,6 @@ public class UploadSceneBuffer extends RenderJob{
 		drawContext.hRenderBufferNormals.ensureCapacity(drawContext.renderBufferOffset * 16L);
 
 		updateSceneVao(drawContext.hRenderBufferVertices, drawContext.hRenderBufferUvs, drawContext.hRenderBufferNormals);
-
-		checkGLErrors();
-
-		POOL.push(this);
 	}
 
 	private void updateSceneVao(GLBuffer vertexBuffer, GLBuffer uvBuffer, GLBuffer normalBuffer) {
@@ -89,5 +89,9 @@ public class UploadSceneBuffer extends RenderJob{
 		glVertexAttribPointer(4, 4, GL_FLOAT, false, 0, 0);
 	}
 
-	public static void addToQueue() { POOL.pop().submit(SUBMIT_SERIAL); }
+	public static void addToQueue(int vaoScene) {
+		UploadSceneBuffer job = POOL.pop();
+		job.vaoScene = vaoScene;
+		job.submit(SUBMIT_SERIAL);
+	}
 }

@@ -95,18 +95,17 @@ import rs117.hd.data.StaticTileData;
 import rs117.hd.model.ModelHasher;
 import rs117.hd.model.ModelOffsets;
 import rs117.hd.model.ModelPusher;
+import rs117.hd.opengl.AWTContextWrapper;
 import rs117.hd.opengl.compute.ComputeMode;
 import rs117.hd.opengl.compute.OpenCLManager;
 import rs117.hd.opengl.renderjobs.BlitSceneFBOToBackBuffer;
 import rs117.hd.opengl.renderjobs.BuildSceneDrawBuffer;
-import rs117.hd.opengl.renderjobs.ChangeAWTOwnership;
 import rs117.hd.opengl.renderjobs.ModelSortingPass;
 import rs117.hd.opengl.renderjobs.PushStaticModelData;
 import rs117.hd.opengl.renderjobs.RenderJob;
 import rs117.hd.opengl.renderjobs.RenderScenePass;
 import rs117.hd.opengl.renderjobs.RenderUIPass;
 import rs117.hd.opengl.renderjobs.SwapBuffers;
-import rs117.hd.opengl.renderjobs.TiledLightingPass;
 import rs117.hd.opengl.renderjobs.UploadSceneBuffer;
 import rs117.hd.opengl.renderjobs.UploadUITexture;
 import rs117.hd.opengl.shader.ModelPassthroughComputeProgram;
@@ -125,7 +124,6 @@ import rs117.hd.overlays.FrameTimer;
 import rs117.hd.overlays.GammaCalibrationOverlay;
 import rs117.hd.overlays.ShadowMapOverlay;
 import rs117.hd.overlays.TiledLightingOverlay;
-import rs117.hd.overlays.Timer;
 import rs117.hd.scene.AreaManager;
 import rs117.hd.scene.EnvironmentManager;
 import rs117.hd.scene.FishingSpotReplacer;
@@ -159,7 +157,6 @@ import rs117.hd.utils.Props;
 import rs117.hd.utils.ResourcePath;
 import rs117.hd.utils.SceneView;
 import rs117.hd.utils.ShaderRecompile;
-import rs117.hd.utils.buffer.GLBuffer;
 import rs117.hd.utils.buffer.SharedGLBuffer;
 
 import static net.runelite.api.Constants.*;
@@ -373,7 +370,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	public static GLCapabilities GL_CAPS;
 
 	private Canvas canvas;
-	private AWTContext awtContext;
+	private AWTContextWrapper awtContextWrapper;
 	private Callback debugCallback;
 	private ComputeMode computeMode = ComputeMode.OPENGL;
 
@@ -571,11 +568,11 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 					if (!canvas.isValid())
 						return false;
 
-					awtContext = new AWTContext(canvas);
-					awtContext.configurePixelFormat(0, 0, 0);
+					awtContextWrapper = new AWTContextWrapper(new AWTContext(canvas));
+					awtContextWrapper.getContext().configurePixelFormat(0, 0, 0);
 				}
 
-				awtContext.createGLContext();
+				awtContextWrapper.getContext().createGLContext();
 
 				canvas.setIgnoreRepaint(true);
 
@@ -685,7 +682,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 				int maxComputeThreadCount;
 				if (computeMode == ComputeMode.OPENCL) {
-					clManager.startUp(awtContext);
+					clManager.startUp(awtContextWrapper.getContext());
 					maxComputeThreadCount = clManager.getMaxWorkGroupSize();
 				} else {
 					maxComputeThreadCount = glGetInteger(GL43C.GL_MAX_COMPUTE_WORK_GROUP_INVOCATIONS);
@@ -755,6 +752,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 				RenderJob.setRenderDrawContext(sceneDrawContext);
 				RenderJob.setSceneContext(sceneContext);
+				RenderJob.setFrameTimer(frameTimer);
+				RenderJob.setAwtContextWrapper(awtContextWrapper);
 
 				// We need to force the client to reload the scene since we're changing GPU flags
 				if (client.getGameState() == GameState.LOGGED_IN)
@@ -823,9 +822,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				clManager.shutDown();
 			}
 
-			if (awtContext != null)
-				awtContext.destroy();
-			awtContext = null;
+			if (awtContextWrapper != null)
+				awtContextWrapper.destroy();
+			awtContextWrapper = null;
 
 			if (debugCallback != null)
 				debugCallback.free();
@@ -1256,7 +1255,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 	}
 
 	private void updateSceneFbo() {
-		if (uiResolution == null || true)
+		if (uiResolution == null)
 			return;
 
 		int[] viewport = {
@@ -1285,13 +1284,13 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		if (Arrays.equals(sceneViewport, viewport))
 			return;
 
-		ChangeAWTOwnership.addToQueue(awtContext, SceneDrawContext.AWTContextOwner.Client);
+		awtContextWrapper.queueOwnershipChange(AWTContextWrapper.Owner.Client);
 
 		destroySceneFbo();
 		sceneViewport = viewport;
 
 		// Bind default FBO to check whether anti-aliasing is forced
-		int defaultFramebuffer = awtContext.getFramebuffer(false);
+		int defaultFramebuffer = awtContextWrapper.getBackBuffer();
 		glBindFramebuffer(GL_FRAMEBUFFER, defaultFramebuffer);
 		final int forcedAASamples = glGetInteger(GL_SAMPLES);
 		msaaSamples = forcedAASamples != 0 ? forcedAASamples : min(config.antiAliasingMode().getSamples(), glGetInteger(GL_MAX_SAMPLES));
@@ -1363,10 +1362,10 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		}
 
 		// Reset
-		glBindFramebuffer(GL_FRAMEBUFFER, awtContext.getFramebuffer(false));
+		glBindFramebuffer(GL_FRAMEBUFFER, awtContextWrapper.getBackBuffer());
 		glBindRenderbuffer(GL_RENDERBUFFER, 0);
 
-		ChangeAWTOwnership.addToQueue(awtContext, SceneDrawContext.AWTContextOwner.RenderThread);
+		awtContextWrapper.queueOwnershipChange(AWTContextWrapper.Owner.RenderThread);
 	}
 
 	private void destroySceneFbo() {
@@ -1440,7 +1439,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		glReadBuffer(GL_NONE);
 
 		// Reset FBO
-		glBindFramebuffer(GL_FRAMEBUFFER, awtContext.getFramebuffer(false));
+		glBindFramebuffer(GL_FRAMEBUFFER, awtContextWrapper.getBackBuffer());
 	}
 
 	private void initDummyShadowMap() {
@@ -1511,8 +1510,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		if (sceneContext == null || sceneViewport == null)
 			return;
 
-		// Note: This will block until the previous frame has finished swapping the buffers
-		ChangeAWTOwnership.addToQueue(awtContext, SceneDrawContext.AWTContextOwner.Client);
+		awtContextWrapper.queueOwnershipChange(AWTContextWrapper.Owner.Client);
 
 		// Process pending config changes before drawing scene & whilst we have the lock on the AWTContext
 		if (!pendingConfigChanges.isEmpty())
@@ -1766,7 +1764,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		updateGlobalUBO();
 
 		// Release lock of the AWT Context back to the RenderThread
-		ChangeAWTOwnership.addToQueue(awtContext, SceneDrawContext.AWTContextOwner.RenderThread);
+		awtContextWrapper.queueOwnershipChange(AWTContextWrapper.Owner.RenderThread);
 
 		/* TODO: FIX ME
 		if (configTiledLighting && configDynamicLights != DynamicLights.NONE && fboTiledLighting != 0) {
@@ -1776,10 +1774,15 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				tiledLightingImageStoreProgram, tiledLightingShaderPrograms);
 		}*/
 
-		//WaitForCullingResults.addToQueue(sceneCullingManager);
-		//PushStaticModelData.addToQueue(sceneCullingManager.combinedTileVisibility);
-		//BuildSceneDrawBuffer.addToQueue(sceneCamera.getCullingResults());
-		//UploadSceneBuffer.addToQueue();
+		// Upon logging in, the client will draw some frames with zero geometry before it hides the login screen
+		if (sceneDrawContext.renderBufferOffset > 0) {
+			hasLoggedIn = true;
+		}
+
+		WaitForCullingResults.addToQueue(sceneCullingManager);
+		PushStaticModelData.addToQueue(sceneCullingManager.combinedTileVisibility);
+		BuildSceneDrawBuffer.addToQueue(sceneCamera.getCullingResults());
+		UploadSceneBuffer.addToQueue(vaoScene);
 	}
 
 	@Override
@@ -1790,7 +1793,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		sceneDrawContext.sceneDrawOrder.signal();
 
 		// TODO: OpenCL Version
-		//ModelSortingPass.addToQueue(uboCompute, modelPassthroughComputeProgram, modelSortingComputePrograms);
+		ModelSortingPass.addToQueue(uboCompute, modelPassthroughComputeProgram, modelSortingComputePrograms);
 	}
 
 	public void initShaderHotswapping() {
@@ -1934,7 +1937,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		}
 
 		// Make sure RenderThread has AWT Ownership
-		ChangeAWTOwnership.addToQueue(awtContext, SceneDrawContext.AWTContextOwner.RenderThread);
+		awtContextWrapper.queueOwnershipChange(AWTContextWrapper.Owner.RenderThread);
 
 		prepareInterfaceTexture();
 
@@ -1965,22 +1968,17 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 			directionalLight.invalidateTileVisibility();
 		}
 
-		// Upon logging in, the client will draw some frames with zero geometry before it hides the login screen
-		if (sceneDrawContext.renderBufferOffset > 0) {
-			hasLoggedIn = true;
-		}
-
 		updateSceneFbo();
 
 		// Draw 3d scene
 		if (hasLoggedIn && sceneContext != null && sceneViewport != null) {
-			//RenderScenePass.addToQueue(sceneProgram, fboScene, msaaSamples, sceneResolution, gammaCorrectedFogColor, vaoScene, sceneDrawContext.sceneDrawBuffer);
-			//BlitSceneFBOToBackBuffer.addToQueue(awtContext, fboScene, fboSceneResolve, sceneResolution, sceneViewport, config.sceneScalingMode().glFilter);
+			RenderScenePass.addToQueue(sceneProgram, fboScene, msaaSamples, sceneResolution, gammaCorrectedFogColor, vaoScene, sceneDrawContext.sceneDrawBuffer);
+			BlitSceneFBOToBackBuffer.addToQueue(fboScene, fboSceneResolve, sceneResolution, sceneViewport, config.sceneScalingMode().glFilter);
 		}
 
 		drawUi(overlayColor);
 
-		SwapBuffers.addToQueue(awtContext);
+		SwapBuffers.addToQueue();
 		frameModelInfoMap.clear();
 	}
 
@@ -1992,13 +1990,14 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		if (client.getGameState().getState() < GameState.LOADING.getState())
 			overlayColor = 0;
 
-		RenderUIPass.addToQueue(awtContext, uiProgram, uboUI, actualUiResolution, config.uiScalingMode() == UIScalingMode.LINEAR ? GL_LINEAR : GL_NEAREST, vaoTri, texUi, overlayColor, uiResolution);
+		RenderUIPass.addToQueue(uiProgram, uboUI, actualUiResolution, config.uiScalingMode() == UIScalingMode.LINEAR ? GL_LINEAR : GL_NEAREST, vaoTri, texUi, overlayColor, uiResolution);
 	}
 
 	/**
      * Convert the front framebuffer to an Image
      */
 	private Image screenshot() {
+		/* TODO: Fix Me :)
 		if (uiResolution == null)
 			return null;
 
@@ -2027,6 +2026,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		}
 
 		return image;
+		*/
+		return null;
 	}
 
 	@Override
@@ -2114,7 +2115,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		}
 
 		// Take Ownership before uploading the static model data
-		ChangeAWTOwnership.addToQueue(awtContext, SceneDrawContext.AWTContextOwner.Client);
+		awtContextWrapper.queueOwnershipChange(AWTContextWrapper.Owner.Client);
 
 		// If the scene wasn't loaded by a call to loadScene, load it synchronously instead
 		if (nextSceneContext == null) {
@@ -2170,7 +2171,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		RenderJob.setSceneContext(sceneContext);
 
 		// Return ownership to the Renderthread
-		ChangeAWTOwnership.addToQueue(awtContext, SceneDrawContext.AWTContextOwner.RenderThread);
+		awtContextWrapper.queueOwnershipChange(AWTContextWrapper.Owner.RenderThread);
 	}
 
 	public void reloadSceneNextGameTick() {
@@ -2478,7 +2479,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				break;
 		}
 
-		int actualSwapInterval = awtContext.setSwapInterval(swapInterval);
+		int actualSwapInterval = awtContextWrapper.getContext().setSwapInterval(swapInterval);
 		if (actualSwapInterval != swapInterval) {
 			log.info("unsupported swap interval {}, got {}", swapInterval, actualSwapInterval);
 		}
@@ -2660,7 +2661,9 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 		// @formatter:on
 	}
 
-	public static void checkGLErrors() {
+	public static void checkGLErrors() { checkGLErrors(null);}
+
+	public static void checkGLErrors(String ctx) {
 		if (SKIP_GL_ERROR_CHECKS)
 			return;
 
@@ -2694,7 +2697,11 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 					break;
 			}
 
-			log.debug("glGetError:", new Exception(errStr));
+			if(ctx != null) {
+				log.debug("{} glGetError:", ctx, new Exception(errStr));
+			} else {
+				log.debug("glGetError:", new Exception(errStr));
+			}
 		}
 	}
 
