@@ -1,15 +1,14 @@
 package rs117.hd.opengl.renderjobs;
 
-import net.runelite.rlawt.AWTContext;
 import rs117.hd.data.SceneDrawContext;
 import rs117.hd.data.StaticRenderableInstance;
 import rs117.hd.data.StaticTileData;
 import rs117.hd.opengl.AWTContextWrapper;
 import rs117.hd.scene.SceneContext;
 import rs117.hd.scene.SceneCullingManager;
+import rs117.hd.utils.buffer.GpuIntBuffer;
 
 import static net.runelite.api.Perspective.*;
-import static rs117.hd.HdPlugin.checkGLErrors;
 import static rs117.hd.scene.SceneContext.SCENE_OFFSET;
 
 public class PushStaticModelData extends RenderJob {
@@ -29,68 +28,23 @@ public class PushStaticModelData extends RenderJob {
 			final int tileY = (tileData.tileExY - SCENE_OFFSET) * LOCAL_TILE_SIZE;
 
 			if(tileData.modelBuffer != null) {
-				drawContext.modelPassthroughBuffer.ensureCapacity(8).getBuffer()
-					.put(tileData.modelBuffer.vertexOffset)
-					.put(tileData.modelBuffer.uvOffset)
-					.put(tileData.modelBuffer.vertexCount / 3)
-					.put(drawContext.renderBufferOffset)
-					.put(0)
-					.put(tileX)
-					.put(0)
-					.put(tileY);
-
-				tileData.modelBuffer.renderBufferOffset = drawContext.renderBufferOffset;
-				drawContext.renderBufferOffset += tileData.modelBuffer.vertexCount;
-				drawContext.numPassthroughModels++;
+				tileData.modelBuffer.push(drawContext, tileX,  tileY);
 			}
 
 			if(tileData.underwaterBuffer != null) {
-				drawContext.modelPassthroughBuffer.ensureCapacity(8).getBuffer()
-					.put(tileData.underwaterBuffer.vertexOffset)
-					.put(tileData.underwaterBuffer.uvOffset)
-					.put(tileData.underwaterBuffer.vertexCount / 3)
-					.put(drawContext.renderBufferOffset)
-					.put(0)
-					.put(tileX)
-					.put(0)
-					.put(tileY);
-
-				tileData.underwaterBuffer.renderBufferOffset = drawContext.renderBufferOffset;
-				drawContext.renderBufferOffset += tileData.underwaterBuffer.vertexCount;
-				drawContext.numPassthroughModels++;
+				tileData.underwaterBuffer.push(drawContext, tileX, tileY);
 			}
 
 			if(tileData.paintBuffer != null) {
-				drawContext.modelPassthroughBuffer.ensureCapacity(8).getBuffer()
-					.put(tileData.paintBuffer.vertexOffset)
-					.put(tileData.paintBuffer.uvOffset)
-					.put(tileData.paintBuffer.vertexCount / 3)
-					.put(drawContext.renderBufferOffset)
-					.put(0)
-					.put(tileX)
-					.put(0)
-					.put(tileY);
-				tileData.paintBuffer.renderBufferOffset = drawContext.renderBufferOffset;
-				drawContext.renderBufferOffset += tileData.paintBuffer.vertexCount;
-				drawContext.numPassthroughModels++;
+				tileData.paintBuffer.push(drawContext, tileX, tileY);
 			}
 
 			for(int k = 0; k < tileData.renderables.size(); k++) {
-				StaticRenderableInstance instance = tileData.renderables.get(k);
-
+				final StaticRenderableInstance instance = tileData.renderables.get(k);
 				final int faceCount = instance.renderableBuffer.vertexCount / 3;
-				drawContext.modelSortingBuffers.bufferForTriangles(faceCount).ensureCapacity(8).getBuffer()
-					.put(instance.renderableBuffer.vertexOffset)
-					.put(instance.renderableBuffer.uvOffset)
-					.put(faceCount)
-					.put(drawContext.renderBufferOffset)
-					.put(instance.orientation | (instance.renderable.hillskew ? 1 : 0) << 26 |  tileData.plane << 24)
-					.put(instance.x)
-					.put(instance.y << 16 | instance.renderable.height & 0xFFFF)
-					.put(instance.z);
+				final GpuIntBuffer modelInfoBuffer = drawContext.modelSortingBuffers.bufferForTriangles(faceCount);
 
-				instance.renderableBuffer.renderBufferOffset = drawContext.renderBufferOffset;
-				drawContext.renderBufferOffset += instance.renderableBuffer.vertexCount;
+				instance.renderableBuffer.push(drawContext, modelInfoBuffer, instance, tileData.plane);
 			}
 		}
 	}

@@ -1,6 +1,5 @@
 package rs117.hd.opengl.renderjobs;
 
-import net.runelite.rlawt.AWTContext;
 import rs117.hd.data.ModelSortingBuffers;
 import rs117.hd.data.SceneDrawContext;
 import rs117.hd.opengl.AWTContextWrapper;
@@ -18,7 +17,6 @@ import static org.lwjgl.opengl.GL30C.glVertexAttribIPointer;
 import static rs117.hd.HdPlugin.NORMAL_SIZE;
 import static rs117.hd.HdPlugin.UV_SIZE;
 import static rs117.hd.HdPlugin.VERTEX_SIZE;
-import static rs117.hd.HdPlugin.checkGLErrors;
 
 public class UploadSceneBuffer extends RenderJob{
 	private static final JobPool<UploadSceneBuffer> POOL = new JobPool<>(UploadSceneBuffer::new);
@@ -29,21 +27,19 @@ public class UploadSceneBuffer extends RenderJob{
 
 	@Override
 	protected void doRenderWork(AWTContextWrapper awtContextWrapper, SceneDrawContext drawContext, SceneContext sceneContext) {
-
 		sceneContext.stagingBufferVertices.flip();
 		sceneContext.stagingBufferUvs.flip();
 		sceneContext.stagingBufferNormals.flip();
+		drawContext.modelPassthroughBuffer.flip();
 
 		drawContext.hStagingBufferVertices.upload(sceneContext.stagingBufferVertices, drawContext.dynamicOffsetVertices * 4L * VERTEX_SIZE);
 		drawContext.hStagingBufferUvs.upload(sceneContext.stagingBufferUvs, drawContext.dynamicOffsetUvs * 4L * UV_SIZE);
 		drawContext.hStagingBufferNormals.upload(sceneContext.stagingBufferNormals, drawContext.dynamicOffsetVertices * 4L * NORMAL_SIZE);
+		drawContext.hModelPassthroughBuffer.upload(drawContext.modelPassthroughBuffer);
 
 		sceneContext.stagingBufferVertices.clear();
 		sceneContext.stagingBufferUvs.clear();
 		sceneContext.stagingBufferNormals.clear();
-
-		drawContext.modelPassthroughBuffer.flip();
-		drawContext.hModelPassthroughBuffer.upload(drawContext.modelPassthroughBuffer);
 		drawContext.modelPassthroughBuffer.clear();
 
 		final ModelSortingBuffers modelSortingBuffers = drawContext.modelSortingBuffers;
@@ -87,6 +83,8 @@ public class UploadSceneBuffer extends RenderJob{
 		glEnableVertexAttribArray(4);
 		glBindBuffer(GL_ARRAY_BUFFER, normalBuffer.id);
 		glVertexAttribPointer(4, 4, GL_FLOAT, false, 0, 0);
+
+		glBindVertexArray(0);
 	}
 
 	public static void addToQueue(int vaoScene) {

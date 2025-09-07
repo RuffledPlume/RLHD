@@ -1,13 +1,10 @@
 package rs117.hd.opengl.renderjobs;
 
-import net.runelite.rlawt.AWTContext;
 import rs117.hd.data.SceneDrawContext;
 import rs117.hd.data.SceneDrawOrder;
 import rs117.hd.opengl.AWTContextWrapper;
 import rs117.hd.scene.SceneContext;
 import rs117.hd.scene.SceneCullingManager;
-
-import static rs117.hd.HdPlugin.checkGLErrors;
 
 public class BuildSceneDrawBuffer extends RenderJob {
 	private static final JobPool<BuildSceneDrawBuffer> POOL = new JobPool<>(BuildSceneDrawBuffer::new);
@@ -35,11 +32,11 @@ public class BuildSceneDrawBuffer extends RenderJob {
 					drawContext.sceneDrawBuffer.addModel(sceneContext.staticTileData[drawOrder].modelBuffer);
 					break;
 				case SceneDrawOrder.DRAW_TYPE_STATIC_RENDERABLE:
-					int tileIdx = drawOrder & 0xFFFF;
-					int instanceIdx = drawOrder >> 16;
-					if(instanceIdx < sceneContext.staticTileData[tileIdx].renderables.size()) {
-						drawContext.sceneDrawBuffer.addModel(sceneContext.staticTileData[tileIdx].renderables.get(instanceIdx).renderableBuffer);
-					}
+					//int tileIdx = drawOrder & 0xFFFF;
+					//int instanceIdx = drawOrder >> 16;
+					//if(instanceIdx < sceneContext.staticTileData[tileIdx].renderables.size()) {
+					//	drawContext.sceneDrawBuffer.addModel(sceneContext.staticTileData[tileIdx].renderables.get(instanceIdx).renderableBuffer);
+					//}
 					break;
 				case SceneDrawOrder.DRAW_TYPE_DYNAMIC_RENDERABLE:
 					// TODO: Implement

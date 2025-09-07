@@ -4,8 +4,6 @@ import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.rlawt.AWTContext;
 import org.lwjgl.opengl.*;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import rs117.hd.HdPlugin;
 import rs117.hd.data.SceneDrawContext;
 import rs117.hd.opengl.renderjobs.DrawFence;
@@ -16,7 +14,6 @@ import rs117.hd.utils.Job;
 @Slf4j
 public class AWTContextWrapper {
 	private static final Job.JobPool<ChangeAWTOwnership> POOL = new Job.JobPool<>(ChangeAWTOwnership::new);
-	private static final Logger log = LoggerFactory.getLogger(AWTContextWrapper.class);
 
 	public enum Owner { Client, None, RenderThread }
 
@@ -85,7 +82,6 @@ public class AWTContextWrapper {
 		}
 	}
 
-	@Slf4j
 	private static class ChangeAWTOwnership extends RenderJob {
 		protected static int PENDING_CHANGES = 0;
 		protected Owner newOwner;
