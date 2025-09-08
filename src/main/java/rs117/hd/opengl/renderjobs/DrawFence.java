@@ -1,12 +1,12 @@
 package rs117.hd.opengl.renderjobs;
 
-import net.runelite.rlawt.AWTContext;
 import rs117.hd.data.SceneDrawContext;
 import rs117.hd.opengl.AWTContextWrapper;
 import rs117.hd.scene.SceneContext;
+import rs117.hd.utils.ObjectPool;
 
 public class DrawFence extends RenderJob {
-	private static JobPool<DrawFence> POOL = new JobPool<>(DrawFence::new);
+	private static ObjectPool<DrawFence> POOL = new ObjectPool<>(DrawFence::new);
 
 	public DrawFence() {super(POOL);}
 

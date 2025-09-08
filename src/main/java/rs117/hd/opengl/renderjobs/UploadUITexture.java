@@ -3,10 +3,10 @@ package rs117.hd.opengl.renderjobs;
 import java.nio.ByteBuffer;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
-import net.runelite.rlawt.AWTContext;
 import rs117.hd.data.SceneDrawContext;
 import rs117.hd.opengl.AWTContextWrapper;
 import rs117.hd.scene.SceneContext;
+import rs117.hd.utils.ObjectPool;
 
 import static org.lwjgl.opengl.GL11C.GL_RGBA;
 import static org.lwjgl.opengl.GL11C.GL_TEXTURE_2D;
@@ -28,7 +28,7 @@ import static rs117.hd.HdPlugin.TEXTURE_UNIT_UI;
 
 @Slf4j
 public class UploadUITexture extends RenderJob {
-	private static final JobPool<UploadUITexture> POOL = new JobPool<>(UploadUITexture::new);
+	private static final ObjectPool<UploadUITexture> POOL = new ObjectPool<>(UploadUITexture::new);
 
 	private int pboUi;
 	private int texUi;

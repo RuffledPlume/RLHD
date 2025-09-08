@@ -1,14 +1,14 @@
 package rs117.hd.opengl.renderjobs;
 
-import net.runelite.rlawt.AWTContext;
 import rs117.hd.data.SceneDrawContext;
 import rs117.hd.opengl.AWTContextWrapper;
 import rs117.hd.scene.SceneContext;
+import rs117.hd.utils.ObjectPool;
 import rs117.hd.utils.buffer.GLBuffer;
 import rs117.hd.utils.buffer.GpuIntBuffer;
 
 public class UploadGPUIntBuffer extends RenderJob {
-	private static final JobPool<UploadGPUIntBuffer> POOL = new JobPool<>(UploadGPUIntBuffer::new);
+	private static final ObjectPool<UploadGPUIntBuffer> POOL = new ObjectPool<>(UploadGPUIntBuffer::new);
 
 	private GLBuffer glBuffer;
 	private GpuIntBuffer buffer;

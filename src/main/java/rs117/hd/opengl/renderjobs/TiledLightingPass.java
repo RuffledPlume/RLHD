@@ -1,12 +1,12 @@
 package rs117.hd.opengl.renderjobs;
 
 import java.util.List;
-import net.runelite.rlawt.AWTContext;
 import rs117.hd.config.DynamicLights;
 import rs117.hd.data.SceneDrawContext;
 import rs117.hd.opengl.AWTContextWrapper;
 import rs117.hd.opengl.shader.TiledLightingShaderProgram;
 import rs117.hd.scene.SceneContext;
+import rs117.hd.utils.ObjectPool;
 
 import static org.lwjgl.opengl.GL11C.GL_BLEND;
 import static org.lwjgl.opengl.GL11C.GL_COLOR_BUFFER_BIT;
@@ -22,10 +22,9 @@ import static org.lwjgl.opengl.GL30C.glBindFramebuffer;
 import static org.lwjgl.opengl.GL30C.glBindVertexArray;
 import static org.lwjgl.opengl.GL30C.glFramebufferTextureLayer;
 import static org.lwjgl.opengl.GL32C.glFramebufferTexture;
-import static rs117.hd.HdPlugin.checkGLErrors;
 
 public class TiledLightingPass extends RenderJob {
-	private static final JobPool<TiledLightingPass> POOL = new JobPool<>(TiledLightingPass::new);
+	private static final ObjectPool<TiledLightingPass> POOL = new ObjectPool<>(TiledLightingPass::new);
 
 	private int[] tiledLightingResolution;
 	private int fboTiledLighting;

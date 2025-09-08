@@ -1,6 +1,5 @@
 package rs117.hd.utils;
 
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -12,35 +11,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.Getter;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
-import rs117.hd.opengl.renderjobs.RenderJob;
 
 @Slf4j
 public abstract class Job implements Runnable {
-	public final static class JobPool<T extends RenderJob> {
-		private final ArrayDeque<T> pool = new ArrayDeque<>();
-		private final CreateFunc<T> createFunc;
-
-		public interface CreateFunc<T> { T create(); }
-
-		public JobPool(CreateFunc<T> createFunc) {
-			this.createFunc = createFunc;
-		}
-
-		public void push(RenderJob job) {
-			synchronized (pool) {
-				pool.add((T) job);
-			}
-		}
-
-		public T pop() {
-			final T job;
-			synchronized (pool) {
-				job = pool.isEmpty() ? null : pool.pop();
-			}
-			return job != null ? job : createFunc.create();
-		}
-	}
-
 	public static boolean FORCE_JOBS_RUN_SYNCHRONOUSLY = false;
 
 	public static final int SUBMIT_SERIAL = 0;

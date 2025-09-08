@@ -1,7 +1,6 @@
 package rs117.hd.opengl.renderjobs;
 
 import java.util.List;
-import net.runelite.rlawt.AWTContext;
 import org.lwjgl.opengl.*;
 import rs117.hd.data.SceneDrawContext;
 import rs117.hd.opengl.AWTContextWrapper;
@@ -9,12 +8,13 @@ import rs117.hd.opengl.shader.ModelSortingComputeProgram;
 import rs117.hd.opengl.shader.ShaderProgram;
 import rs117.hd.opengl.uniforms.UBOCompute;
 import rs117.hd.scene.SceneContext;
+import rs117.hd.utils.ObjectPool;
 
 import static org.lwjgl.opengl.GL30C.glBindBufferBase;
 import static rs117.hd.HdPlugin.checkGLErrors;
 
 public class ModelSortingPass extends RenderJob {
-	private static final JobPool<ModelSortingPass> POOL = new JobPool<>(ModelSortingPass::new);
+	private static final ObjectPool<ModelSortingPass> POOL = new ObjectPool<>(ModelSortingPass::new);
 
 	private UBOCompute uboCompute;
 	private ShaderProgram modelPassthroughComputeProgram;

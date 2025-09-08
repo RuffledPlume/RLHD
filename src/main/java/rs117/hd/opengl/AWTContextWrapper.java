@@ -9,11 +9,11 @@ import rs117.hd.data.SceneDrawContext;
 import rs117.hd.opengl.renderjobs.DrawFence;
 import rs117.hd.opengl.renderjobs.RenderJob;
 import rs117.hd.scene.SceneContext;
-import rs117.hd.utils.Job;
+import rs117.hd.utils.ObjectPool;
 
 @Slf4j
 public class AWTContextWrapper {
-	private static final Job.JobPool<ChangeAWTOwnership> POOL = new Job.JobPool<>(ChangeAWTOwnership::new);
+	private static final ObjectPool<ChangeAWTOwnership> POOL = new ObjectPool<>(ChangeAWTOwnership::new);
 
 	public enum Owner { Client, None, RenderThread }
 

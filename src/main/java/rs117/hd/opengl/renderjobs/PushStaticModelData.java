@@ -6,13 +6,14 @@ import rs117.hd.data.StaticTileData;
 import rs117.hd.opengl.AWTContextWrapper;
 import rs117.hd.scene.SceneContext;
 import rs117.hd.scene.SceneCullingManager;
+import rs117.hd.utils.ObjectPool;
 import rs117.hd.utils.buffer.GpuIntBuffer;
 
 import static net.runelite.api.Perspective.*;
 import static rs117.hd.scene.SceneContext.SCENE_OFFSET;
 
 public class PushStaticModelData extends RenderJob {
-	private static final JobPool<PushStaticModelData> POOL = new JobPool<>(PushStaticModelData::new);
+	private static final ObjectPool<PushStaticModelData> POOL = new ObjectPool<>(PushStaticModelData::new);
 
 	private SceneCullingManager.CullingResults cullingResults;
 

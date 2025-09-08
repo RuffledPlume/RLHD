@@ -1,11 +1,11 @@
 package rs117.hd.opengl.renderjobs;
 
-import net.runelite.rlawt.AWTContext;
 import rs117.hd.data.SceneDrawContext;
 import rs117.hd.opengl.AWTContextWrapper;
 import rs117.hd.opengl.ModelDrawBuffer;
 import rs117.hd.opengl.shader.ShaderProgram;
 import rs117.hd.scene.SceneContext;
+import rs117.hd.utils.ObjectPool;
 
 import static org.lwjgl.opengl.GL11C.GL_BACK;
 import static org.lwjgl.opengl.GL11C.GL_BLEND;
@@ -16,7 +16,6 @@ import static org.lwjgl.opengl.GL11C.GL_DEPTH_TEST;
 import static org.lwjgl.opengl.GL11C.GL_ONE;
 import static org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA;
 import static org.lwjgl.opengl.GL11C.GL_SRC_ALPHA;
-import static org.lwjgl.opengl.GL11C.GL_TRIANGLES;
 import static org.lwjgl.opengl.GL11C.GL_ZERO;
 import static org.lwjgl.opengl.GL11C.glClear;
 import static org.lwjgl.opengl.GL11C.glClearColor;
@@ -24,7 +23,6 @@ import static org.lwjgl.opengl.GL11C.glClearDepth;
 import static org.lwjgl.opengl.GL11C.glCullFace;
 import static org.lwjgl.opengl.GL11C.glDepthMask;
 import static org.lwjgl.opengl.GL11C.glDisable;
-import static org.lwjgl.opengl.GL11C.glDrawArrays;
 import static org.lwjgl.opengl.GL11C.glEnable;
 import static org.lwjgl.opengl.GL11C.glViewport;
 import static org.lwjgl.opengl.GL13C.GL_MULTISAMPLE;
@@ -35,7 +33,7 @@ import static org.lwjgl.opengl.GL30C.glBindFramebuffer;
 import static org.lwjgl.opengl.GL30C.glBindVertexArray;
 
 public class RenderScenePass extends RenderJob {
-	private static final JobPool<RenderScenePass> POOL = new JobPool<>(RenderScenePass::new);
+	private static final ObjectPool<RenderScenePass> POOL = new ObjectPool<>(RenderScenePass::new);
 
 	private ShaderProgram sceneProgram;
 	private int fboScene;

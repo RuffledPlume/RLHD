@@ -7,6 +7,7 @@ import rs117.hd.overlays.FrameTimer;
 import rs117.hd.overlays.Timer;
 import rs117.hd.scene.SceneContext;
 import rs117.hd.utils.Job;
+import rs117.hd.utils.ObjectPool;
 
 public abstract class RenderJob extends Job {
 
@@ -16,15 +17,15 @@ public abstract class RenderJob extends Job {
 	private static AWTContextWrapper AWT_CONTEXT_WRAPPER;
 
 	private final String jobName = getClass().getSimpleName();
-	private final JobPool<?> jobPool;
+	private final ObjectPool<? extends RenderJob> jobPool;
 	private final Timer timer;
 
-	public RenderJob(JobPool<?> jobPool) {
+	public RenderJob(ObjectPool<? extends RenderJob>jobPool) {
 		this.jobPool = jobPool;
 		this.timer = null;
 	}
 
-	public RenderJob(JobPool<?> jobPool, Timer timer) {
+	public RenderJob(ObjectPool<? extends RenderJob> jobPool, Timer timer) {
 		this.jobPool = jobPool;
 		this.timer = timer;
 	}
@@ -35,7 +36,7 @@ public abstract class RenderJob extends Job {
 		try {
 			doRenderWork(AWT_CONTEXT_WRAPPER, DRAW_CONTEXT, SCENE_CONTEXT);
 		} finally {
-			jobPool.push(this);
+			jobPool.pushRaw(this);
 
 			if(AWT_CONTEXT_WRAPPER.isRenderThreadOwner()){
 				HdPlugin.checkGLErrors(jobName);

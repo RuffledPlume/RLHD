@@ -5,10 +5,10 @@ import rs117.hd.opengl.AWTContextWrapper;
 import rs117.hd.opengl.renderjobs.RenderJob;
 import rs117.hd.scene.SceneContext;
 import rs117.hd.scene.SceneCullingManager;
-import rs117.hd.utils.Job;
+import rs117.hd.utils.ObjectPool;
 
 public class WaitForCullingResults extends RenderJob {
-	private static final JobPool<WaitForCullingResults> POOL = new JobPool<>(WaitForCullingResults::new);
+	private static final ObjectPool<WaitForCullingResults> POOL = new ObjectPool<>(WaitForCullingResults::new);
 
 	private SceneCullingManager sceneCullingManager;
 

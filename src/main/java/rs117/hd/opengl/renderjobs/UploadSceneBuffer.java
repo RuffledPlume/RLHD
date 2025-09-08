@@ -4,6 +4,7 @@ import rs117.hd.data.ModelSortingBuffers;
 import rs117.hd.data.SceneDrawContext;
 import rs117.hd.opengl.AWTContextWrapper;
 import rs117.hd.scene.SceneContext;
+import rs117.hd.utils.ObjectPool;
 import rs117.hd.utils.buffer.GLBuffer;
 
 import static org.lwjgl.opengl.GL11C.GL_FLOAT;
@@ -19,7 +20,7 @@ import static rs117.hd.HdPlugin.UV_SIZE;
 import static rs117.hd.HdPlugin.VERTEX_SIZE;
 
 public class UploadSceneBuffer extends RenderJob{
-	private static final JobPool<UploadSceneBuffer> POOL = new JobPool<>(UploadSceneBuffer::new);
+	private static final ObjectPool<UploadSceneBuffer> POOL = new ObjectPool<>(UploadSceneBuffer::new);
 
 	private int vaoScene;
 

@@ -1,9 +1,9 @@
 package rs117.hd.opengl.renderjobs;
 
-import net.runelite.rlawt.AWTContext;
 import rs117.hd.data.SceneDrawContext;
 import rs117.hd.opengl.AWTContextWrapper;
 import rs117.hd.scene.SceneContext;
+import rs117.hd.utils.ObjectPool;
 
 import static org.lwjgl.opengl.GL11C.GL_COLOR_BUFFER_BIT;
 import static org.lwjgl.opengl.GL11C.GL_NEAREST;
@@ -13,7 +13,7 @@ import static org.lwjgl.opengl.GL30C.glBindFramebuffer;
 import static org.lwjgl.opengl.GL30C.glBlitFramebuffer;
 
 public class BlitSceneFBOToBackBuffer extends RenderJob {
-	private static final JobPool<BlitSceneFBOToBackBuffer> POOL = new JobPool<>(BlitSceneFBOToBackBuffer::new);
+	private static final ObjectPool<BlitSceneFBOToBackBuffer> POOL = new ObjectPool<>(BlitSceneFBOToBackBuffer::new);
 
 	private int fboScene;
 	private int fboSceneResolve;

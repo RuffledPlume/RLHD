@@ -1,12 +1,12 @@
 package rs117.hd.opengl.renderjobs;
 
-import net.runelite.rlawt.AWTContext;
 import rs117.hd.data.SceneDrawContext;
 import rs117.hd.opengl.AWTContextWrapper;
 import rs117.hd.scene.SceneContext;
+import rs117.hd.utils.ObjectPool;
 
 public class SwapBuffers extends RenderJob {
-	private static final JobPool<SwapBuffers> POOL = new JobPool<>(SwapBuffers::new);
+	private static final ObjectPool<SwapBuffers> POOL = new ObjectPool<>(SwapBuffers::new);
 
 	public SwapBuffers() {super(POOL);}
 

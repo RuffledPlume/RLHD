@@ -1,18 +1,14 @@
 package rs117.hd.opengl.renderjobs;
 
-import net.runelite.rlawt.AWTContext;
-import rs117.hd.config.UIScalingMode;
 import rs117.hd.data.SceneDrawContext;
 import rs117.hd.opengl.AWTContextWrapper;
 import rs117.hd.opengl.shader.ShaderProgram;
 import rs117.hd.opengl.uniforms.UBOUI;
-import rs117.hd.overlays.Timer;
 import rs117.hd.scene.SceneContext;
 import rs117.hd.utils.ColorUtils;
+import rs117.hd.utils.ObjectPool;
 
 import static org.lwjgl.opengl.GL11C.GL_BLEND;
-import static org.lwjgl.opengl.GL11C.GL_LINEAR;
-import static org.lwjgl.opengl.GL11C.GL_NEAREST;
 import static org.lwjgl.opengl.GL11C.GL_ONE;
 import static org.lwjgl.opengl.GL11C.GL_ONE_MINUS_SRC_ALPHA;
 import static org.lwjgl.opengl.GL11C.GL_SRC_ALPHA;
@@ -36,7 +32,7 @@ import static org.lwjgl.opengl.GL30C.glBindVertexArray;
 import static rs117.hd.HdPlugin.TEXTURE_UNIT_UI;
 
 public class RenderUIPass extends RenderJob {
-	private static final JobPool<RenderUIPass> POOL = new JobPool<>(RenderUIPass::new);
+	private static final ObjectPool<RenderUIPass> POOL = new ObjectPool<>(RenderUIPass::new);
 
 	private ShaderProgram uiProgram;
 	private UBOUI uboUI;

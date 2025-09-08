@@ -5,9 +5,10 @@ import rs117.hd.data.SceneDrawOrder;
 import rs117.hd.opengl.AWTContextWrapper;
 import rs117.hd.scene.SceneContext;
 import rs117.hd.scene.SceneCullingManager;
+import rs117.hd.utils.ObjectPool;
 
 public class BuildSceneDrawBuffer extends RenderJob {
-	private static final JobPool<BuildSceneDrawBuffer> POOL = new JobPool<>(BuildSceneDrawBuffer::new);
+	private static final ObjectPool<BuildSceneDrawBuffer> POOL = new ObjectPool<>(BuildSceneDrawBuffer::new);
 
 	private SceneCullingManager.CullingResults cullingResults;
 

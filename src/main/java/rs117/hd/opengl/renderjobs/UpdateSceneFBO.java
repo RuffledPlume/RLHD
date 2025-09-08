@@ -1,12 +1,12 @@
 package rs117.hd.opengl.renderjobs;
 
-import net.runelite.rlawt.AWTContext;
 import rs117.hd.data.SceneDrawContext;
 import rs117.hd.opengl.AWTContextWrapper;
 import rs117.hd.scene.SceneContext;
+import rs117.hd.utils.ObjectPool;
 
 public class UpdateSceneFBO extends RenderJob {
-	private static final JobPool<UpdateSceneFBO> POOL = new JobPool<>(UpdateSceneFBO::new);
+	private static final ObjectPool<UpdateSceneFBO> POOL = new ObjectPool<>(UpdateSceneFBO::new);
 
 	public UpdateSceneFBO() {super(POOL);}
 
