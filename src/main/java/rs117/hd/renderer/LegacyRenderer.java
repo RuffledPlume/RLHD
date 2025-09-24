@@ -1136,42 +1136,11 @@ public class LegacyRenderer implements Renderer {
 			// Draw with buffers bound to scene VAO
 			glBindVertexArray(vaoScene);
 
-			// When there are custom tiles, we need depth testing to draw them in the correct order, but the rest of the
-			// scene doesn't support depth testing, so we only write depths for custom tiles.
-			if (plugin.sceneContext.staticCustomTilesVertexCount > 0) {
-				// Draw gap filler tiles first, without depth testing
-				if (plugin.sceneContext.staticGapFillerTilesVertexCount > 0) {
-					glDisable(GL_DEPTH_TEST);
-					glDrawArrays(
-						GL_TRIANGLES,
-						plugin.sceneContext.staticGapFillerTilesOffset,
-						plugin.sceneContext.staticGapFillerTilesVertexCount
-					);
-				}
+			glDepthMask(true);
+			glEnable(GL_DEPTH_TEST);
+			glDepthFunc(GL_GEQUAL);
 
-				glEnable(GL_DEPTH_TEST);
-				glDepthFunc(GL_GREATER);
-
-				// Draw custom tiles, writing depth
-				glDepthMask(true);
-				glDrawArrays(
-					GL_TRIANGLES,
-					plugin.sceneContext.staticCustomTilesOffset,
-					plugin.sceneContext.staticCustomTilesVertexCount
-				);
-
-				// Draw the rest of the scene with depth testing, but not against itself
-				glDepthMask(false);
-				glDrawArrays(
-					GL_TRIANGLES,
-					plugin.sceneContext.staticVertexCount,
-					renderBufferOffset - plugin.sceneContext.staticVertexCount
-				);
-			} else {
-				// Draw everything without depth testing
-				glDisable(GL_DEPTH_TEST);
-				glDrawArrays(GL_TRIANGLES, 0, renderBufferOffset);
-			}
+			glDrawArrays(GL_TRIANGLES, 0, renderBufferOffset);
 
 			frameTimer.end(Timer.RENDER_SCENE);
 
