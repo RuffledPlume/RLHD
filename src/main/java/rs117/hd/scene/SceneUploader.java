@@ -88,6 +88,9 @@ public class SceneUploader {
 	private ModelOverrideManager modelOverrideManager;
 
 	@Inject
+	public ModelManager modelManager;
+
+	@Inject
 	public ProceduralGenerator proceduralGenerator;
 
 	@Inject
