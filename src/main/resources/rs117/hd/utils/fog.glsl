@@ -35,11 +35,12 @@ float fogFactorLinear(const float dist, const float start, const float end) {
     return 1.0 - clamp((dist - start) / (end - start), 0.0, 1.0);
 }
 
-float calculateFogAmount(vec3 position) {
-    if (fogDepth == 0)
-        return 0.f;
+float calculateFogAmount(vec3 position, vec3 positionWs, float distanceToCamera) {
+    if (fogDepth == 0.0)
+        return 0.0;
 
-    float drawDistance2 = drawDistance * TILE_SIZE;
+    #if 0
+     float drawDistance2 = drawDistance * TILE_SIZE;
 
     // the client draws one less tile to the north and east than it does to the south
     // and west, so subtract a tile's width from the north and east edges.
@@ -85,4 +86,24 @@ float calculateFogAmount(vec3 position) {
 
     // Combine distance fog with edge fog
     return max(distanceFogAmount, edgeFogAmount);
+
+    #else
+    const float fogExponent = 2.0;
+    const float fogHeight = 4.0 * TILE_SIZE;
+    float fogEnd = drawDistance * TILE_SIZE;
+    float fogStart = fogEnd - (fogDepth * TILE_SIZE);
+
+    float distanceFogHeightFalloff = min(1.0, smoothstep(
+        10.0,
+        0.0,
+        -positionWs.y / fogHeight
+    ));
+
+    float fogDistance = max(distanceToCamera - fogStart, 0.0);
+    float fogRange = max(fogEnd - fogStart, 0.0001);
+    float t = clamp(fogDistance / fogRange, 0.0, 1.0);
+    float distanceFog = 1.0 - exp(-t * fogExponent);
+
+    return max(0, distanceFog * distanceFogHeightFalloff);
+    #endif
 }

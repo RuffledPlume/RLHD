@@ -34,6 +34,7 @@ layout(triangle_strip, max_vertices = 3) out;
 #define USE_VANILLA_UV_PROJECTION
 #include <utils/uvs.glsl>
 #include <utils/color_utils.glsl>
+#include <utils/misc.glsl>
 
 in vec3 gPosition[3];
 in int gHsl[3];
@@ -49,6 +50,7 @@ flat out vec3 B;
 
 out FragmentData {
     vec3 position;
+    vec3 postitionWS;
     vec2 uv;
     vec3 normal;
     vec3 texBlend;
@@ -89,6 +91,7 @@ void main() {
         // Flat normals must be applied separately per vertex
         vec3 normal = gNormal[i].xyz;
         OUT.position = gPosition[i];
+        OUT.postitionWS = gPosition[i];
         OUT.uv = vUv[i].xy;
         #if FLAT_SHADING
             OUT.normal = N;

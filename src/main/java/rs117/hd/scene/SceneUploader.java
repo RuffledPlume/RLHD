@@ -133,7 +133,7 @@ public class SceneUploader {
 				for (int y = 0; y < EXTENDED_SCENE_SIZE; ++y) {
 					Tile tile = tiles[z][x][y];
 					if (tile != null)
-						upload(sceneContext, tile, x, y);
+						upload(sceneContext, tile, x, y, z);
 				}
 			}
 		}
@@ -328,7 +328,7 @@ public class SceneUploader {
 		}
 	}
 
-	private void uploadModel(SceneContext sceneContext, Tile tile, int uuid, Model model, int orientation) {
+	private void uploadModel(SceneContext sceneContext, Tile tile, int uuid, Model model, int orientation, int plane) {
 		// deduplicate hillskewed models
 		if (model.getUnskewedModel() != null)
 			model = model.getUnskewedModel();
@@ -355,7 +355,7 @@ public class SceneUploader {
 		if (modelOverride.hide) {
 			vertexOffset = -1;
 		} else {
-			modelPusher.pushModel(sceneContext, tile, uuid, model, modelOverride, orientation, false);
+			modelPusher.pushModel(sceneContext, tile, uuid, model, modelOverride, orientation, plane, false);
 			if (sceneContext.modelPusherResults[1] == 0)
 				uvOffset = -1;
 		}
@@ -366,10 +366,10 @@ public class SceneUploader {
 		++sceneContext.uniqueModels;
 	}
 
-	private void upload(SceneContext sceneContext, @Nonnull Tile tile, int tileExX, int tileExY) {
+	private void upload(SceneContext sceneContext, @Nonnull Tile tile, int tileExX, int tileExY, int plane) {
 		Tile bridge = tile.getBridge();
 		if (bridge != null)
-			upload(sceneContext, bridge, tileExX, tileExY);
+			upload(sceneContext, bridge, tileExX, tileExY, plane);
 
 		int[] worldPos = sceneContext.localToWorld(tile.getLocalLocation(), tile.getPlane());
 		var override = tileOverrideManager.getOverride(sceneContext, tile, worldPos);
@@ -455,7 +455,8 @@ public class SceneUploader {
 					tile,
 					ModelHash.packUuid(ModelHash.TYPE_WALL_OBJECT, wallObject.getId()),
 					(Model) renderable1,
-					HDUtils.convertWallObjectOrientation(wallObject.getOrientationA())
+					HDUtils.convertWallObjectOrientation(wallObject.getOrientationA()),
+					plane
 				);
 			}
 
@@ -466,7 +467,8 @@ public class SceneUploader {
 					tile,
 					ModelHash.packUuid(ModelHash.TYPE_WALL_OBJECT, wallObject.getId()),
 					(Model) renderable2,
-					HDUtils.convertWallObjectOrientation(wallObject.getOrientationB())
+					HDUtils.convertWallObjectOrientation(wallObject.getOrientationB()),
+					plane
 				);
 			}
 		}
@@ -480,7 +482,8 @@ public class SceneUploader {
 					tile,
 					ModelHash.packUuid(ModelHash.TYPE_GROUND_OBJECT, groundObject.getId()),
 					(Model) renderable,
-					HDUtils.getModelPreOrientation(groundObject.getConfig())
+					HDUtils.getModelPreOrientation(groundObject.getConfig()),
+					plane
 				);
 			}
 		}
@@ -495,7 +498,8 @@ public class SceneUploader {
 					tile,
 					ModelHash.packUuid(ModelHash.TYPE_DECORATIVE_OBJECT, decorativeObject.getId()),
 					(Model) renderable,
-					orientation
+					orientation,
+					plane
 				);
 			}
 
@@ -506,7 +510,8 @@ public class SceneUploader {
 					tile,
 					ModelHash.packUuid(ModelHash.TYPE_DECORATIVE_OBJECT, decorativeObject.getId()),
 					(Model) renderable2,
-					orientation
+					orientation,
+					plane
 				);
 			}
 		}
@@ -522,7 +527,8 @@ public class SceneUploader {
 					tile,
 					ModelHash.packUuid(ModelHash.TYPE_GAME_OBJECT, gameObject.getId()),
 					(Model) gameObject.getRenderable(),
-					HDUtils.getModelPreOrientation(gameObject.getConfig())
+					HDUtils.getModelPreOrientation(gameObject.getConfig()),
+					plane
 				);
 			}
 		}

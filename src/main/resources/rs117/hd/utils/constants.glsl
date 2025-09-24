@@ -5,6 +5,12 @@
 #define HALF_PI (.5*PI)
 #define TAU (2*PI)
 
+#define SCENE_SIZE 104
+#define TILE_SIZE 128
+#define HALF_TILE_SIZE 128 / 2
+#define EXTENDED_SCENE_SIZE 184
+#define SCENE_OFFSET (EXTENDED_SCENE_SIZE - SCENE_SIZE) / 2
+
 // Any changes here may need to be reflected in OpenCL's constants.cl
 // They are kept separate to avoid accidentally breaking OpenCL compatibility
 #define MATERIAL_INDEX_SHIFT 20

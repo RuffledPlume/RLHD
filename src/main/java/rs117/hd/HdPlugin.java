@@ -2179,7 +2179,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 					fogDepth = environmentManager.currentFogDepth;
 					break;
 			}
-			fogDepth *= min(getDrawDistance(), 90) / 10.f;
+			//fogDepth *= min(getDrawDistance(), 90) / 10.f;
 			uboGlobal.useFog.set(fogDepth > 0 ? 1 : 0);
 			uboGlobal.fogDepth.set(fogDepth);
 			uboGlobal.fogColor.set(fogColor);
@@ -2617,9 +2617,8 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 
 		if (computeMode == ComputeMode.OPENCL) {
 			clManager.uploadTileHeights(scene);
-		} else {
-			initTileHeightMap(scene);
 		}
+		initTileHeightMap(scene);
 
 		tileVisibilityCached = false;
 		lightManager.loadSceneLights(nextSceneContext, sceneContext);
@@ -3264,7 +3263,7 @@ public class HdPlugin extends Plugin implements DrawCallbacks {
 				int vertexOffset = dynamicOffsetVertices + sceneContext.getVertexOffset();
 				int uvOffset = dynamicOffsetUvs + sceneContext.getUvOffset();
 
-				modelPusher.pushModel(sceneContext, null, uuid, model, modelOverride, preOrientation, true);
+				modelPusher.pushModel(sceneContext, null, uuid, model, modelOverride, preOrientation, plane, true);
 
 				faceCount = sceneContext.modelPusherResults[0];
 				if (sceneContext.modelPusherResults[1] == 0)

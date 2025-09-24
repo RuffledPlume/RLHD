@@ -34,6 +34,7 @@
 uniform sampler2DArray textureArray;
 uniform sampler2D shadowMap;
 uniform usampler2DArray tiledLightingArray;
+uniform isampler3D tileHeightMap;
 
 // general HD settings
 
@@ -45,6 +46,7 @@ flat in vec3 B;
 
 in FragmentData {
     vec3 position;
+    vec3 postitionWS;
     vec2 uv;
     vec3 normal;
     vec3 texBlend;
@@ -74,7 +76,9 @@ vec2 worldUvs(float scale) {
 void main() {
     vec3 downDir = vec3(0, -1, 0);
     // View & light directions are from the fragment to the camera/light
-    vec3 viewDir = normalize(cameraPos - IN.position);
+    vec3 vecVec = cameraPos - IN.position;
+    vec3 viewDir = normalize(vecVec);
+    float distanceToCamera = length(vecVec);
 
     Material material1 = getMaterial(vMaterialData[0] >> MATERIAL_INDEX_SHIFT);
     Material material2 = getMaterial(vMaterialData[1] >> MATERIAL_INDEX_SHIFT);
@@ -91,6 +95,7 @@ void main() {
         waterDepth3 * IN.texBlend.z;
     int waterTypeIndex = isTerrain ? vTerrainData[0] >> 3 & 0x1F : 0;
     WaterType waterType = getWaterType(waterTypeIndex);
+    int plane = (vTerrainData[0] >> 1) & 3;
 
     // set initial texture map ids
     int colorMap1 = material1.colorMap;
@@ -102,6 +107,8 @@ void main() {
 
     bool isUnderwater = waterDepth != 0;
     bool isWater = waterTypeIndex > 0 && !isUnderwater;
+
+    int tileHeight = getTileHeightFromWorldXZ(tileHeightMap, 0, IN.postitionWS.x, IN.postitionWS.z);
 
     vec4 outputColor = vec4(1);
 
@@ -440,24 +447,54 @@ void main() {
         outputColor.rgb *= wireframeMask();
     #endif
 
-    // apply fog
     if (!isUnderwater) {
-        // ground fog
-        float distance = distance(IN.position, cameraPos);
-        float closeFadeDistance = 1500;
+        float closeFadeDistance = 1500.0;
         float groundFog = 1.0 - clamp((IN.position.y - groundFogStart) / (groundFogEnd - groundFogStart), 0.0, 1.0);
         groundFog = mix(0.0, groundFogOpacity, groundFog);
-        groundFog *= clamp(distance / closeFadeDistance, 0.0, 1.0);
+        groundFog *= clamp(distanceToCamera / closeFadeDistance, 0.0, 1.0);
 
-        // multiply the visibility of each fog
-        float fogAmount = calculateFogAmount(IN.position);
-        float combinedFog = 1 - (1 - fogAmount) * (1 - groundFog);
+        float stepSize = 5;
+        int maxSteps = int(distanceToCamera / stepSize);
 
-        if (isWater) {
-            outputColor.a = combinedFog + outputColor.a * (1 - combinedFog);
+        vec3 viewDir = normalize(cameraPos - IN.position);
+        vec3 marchPos = IN.position;
+
+        float accumulatedFog = 0.0;
+        float transmittance = 1.0;
+        vec3 fogLighting = vec3(0.0);
+
+        for (int i = 0; i < maxSteps; ++i) {
+            float currentDistanceToCamera = length(marchPos - cameraPos);
+            float fogDensity = calculateFogAmount(marchPos, marchPos, currentDistanceToCamera);
+            if (fogDensity <= 0.0) break;
+
+            float shadow = sampleShadowMap(marchPos, vec2(0), 1.0);     // 0 = lit, 1 = shadowed
+
+            // Darken fog color in shadow
+            float shadowDarkenAmount = 0.5; // tweak this
+            float fogDarkenFactor = mix(1.0, 1.0 - shadowDarkenAmount, shadow);
+            vec3 litFogColor = fogColor * fogDarkenFactor;
+
+            float localFog = fogDensity * transmittance;
+            fogLighting += litFogColor * localFog;
+            accumulatedFog += localFog;
+
+            transmittance *= exp(-fogDensity * stepSize);
+            if (transmittance < 0.01) break;
+
+            marchPos += viewDir * stepSize;
         }
 
-        outputColor.rgb = mix(outputColor.rgb, fogColor, combinedFog);
+        float distanceFog = clamp(accumulatedFog, 0.0, 1.0);
+        float combinedFog = 1.0 - (1.0 - distanceFog) * (1.0 - groundFog);
+
+        vec3 finalFogColor = fogLighting / max(accumulatedFog, 0.001);
+
+        if (isWater) {
+            outputColor.a = combinedFog + outputColor.a * (1.0 - combinedFog);
+        }
+
+        outputColor.rgb = mix(outputColor.rgb, finalFogColor, combinedFog);
     }
 
     outputColor.rgb = pow(outputColor.rgb, vec3(gammaCorrection));

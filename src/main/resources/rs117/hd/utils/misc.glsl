@@ -47,6 +47,17 @@ vec2 animationFrame(vec2 animationDuration) {
     return mod(vec2(elapsedTime), vec2(animationDuration)) / animationDuration;
 }
 
+int getTileHeight(isampler3D map, int plane, int x, int y) {
+    return texelFetch(map, ivec3(x + SCENE_OFFSET, y + SCENE_OFFSET, plane), 0).r << 3;
+}
+
+int getTileHeightFromWorldXZ(isampler3D map, int plane, float x, float z) {
+    return getTileHeight(map,
+        plane,
+        int(floor(x / TILE_SIZE)),
+        int(floor(z / TILE_SIZE)));
+}
+
 vec3 windowsHdrCorrection(vec3 c) {
     // SDR monitors *usually* apply a gamma 2.2 curve, instead of the piece-wise sRGB curve, leading to the following
     // technically incorrect operation for *most* SDR monitors, producing our *expected* final result (first line).

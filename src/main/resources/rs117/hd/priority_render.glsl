@@ -25,8 +25,7 @@
 #include <uniforms/compute.glsl>
 
 #include <utils/constants.glsl>
-
-uniform isampler3D tileHeightMap;
+#include <utils/misc.glsl>
 
 // Calculate adjusted priority for a face with a given priority, distance, and
 // model global min10 and face distance averages. This allows positioning faces
@@ -165,11 +164,6 @@ void insert_face(uint localId, const ModelInfo minfo, int adjPrio, int distance,
     }
 }
 
-int tile_height(int z, int x, int y) {
-    #define ESCENE_OFFSET 40 // (184-104)/2
-    return texelFetch(tileHeightMap, ivec3(x + ESCENE_OFFSET, y + ESCENE_OFFSET, z), 0).r << 3;
-}
-
 void hillskew_vertex(inout vec3 v, int hillskewMode, float modelPosY, float modelHeight, int plane) {
     // Skip hillskew if in tile-snapping mode and the vertex is too far from the base
     float heightFrac = abs(v.y - modelPosY) / modelHeight;
@@ -184,10 +178,10 @@ void hillskew_vertex(inout vec3 v, int hillskewMode, float modelPosY, float mode
     int sx = int(floor(fx / 128.0));
     int sz = int(floor(fz / 128.0));
 
-    float h00 = float(tile_height(plane, sx,     sz));
-    float h10 = float(tile_height(plane, sx + 1, sz));
-    float h01 = float(tile_height(plane, sx,     sz + 1));
-    float h11 = float(tile_height(plane, sx + 1, sz + 1));
+    float h00 = float(getTileHeight(tileHeightMap, plane, sx,     sz));
+    float h10 = float(getTileHeight(tileHeightMap, plane, sx + 1, sz));
+    float h01 = float(getTileHeight(tileHeightMap, plane, sx,     sz + 1));
+    float h11 = float(getTileHeight(tileHeightMap, plane, sx + 1, sz + 1));
 
     // Bilinear interpolation
     float hx0 = mix(h00, h10, px / 128.0);

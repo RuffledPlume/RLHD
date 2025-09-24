@@ -167,6 +167,7 @@ public class ModelPusher {
 		Model model,
 		ModelOverride modelOverride,
 		int preOrientation,
+		int plane,
 		boolean needsCaching
 	) {
 		boolean useCache = needsCaching;
@@ -305,7 +306,7 @@ public class ModelPusher {
 				frameTimer.begin(Timer.MODEL_PUSHING_NORMAL);
 
 			for (int face = 0; face < faceCount; face++) {
-				getNormalDataForFace(sceneContext, model, modelOverride, face);
+				getNormalDataForFace(sceneContext, model, modelOverride, face, plane);
 				sceneContext.stagingBufferNormals.put(sceneContext.modelFaceNormals);
 				if (cacheNormalData)
 					fullNormalData.put(sceneContext.modelFaceNormals);
@@ -394,38 +395,29 @@ public class ModelPusher {
 		sceneContext.modelPusherResults[1] = texturedFaceCount;
 	}
 
-	private void getNormalDataForFace(SceneContext sceneContext, Model model, @Nonnull ModelOverride modelOverride, int face) {
-		assert SceneUploader.packTerrainData(false, 0, WaterType.NONE, 0) == 0;
-		if (modelOverride.flatNormals || !plugin.configPreserveVanillaNormals && model.getFaceColors3()[face] == -1) {
-			Arrays.fill(sceneContext.modelFaceNormals, 0);
-			return;
-		}
-
+	private void getNormalDataForFace(SceneContext sceneContext, Model model, @Nonnull ModelOverride modelOverride, int face, int plane) {
 		final int[] xVertexNormals = model.getVertexNormalsX();
 		final int[] yVertexNormals = model.getVertexNormalsY();
 		final int[] zVertexNormals = model.getVertexNormalsZ();
-
-		if (xVertexNormals == null || yVertexNormals == null || zVertexNormals == null) {
-			Arrays.fill(sceneContext.modelFaceNormals, 0);
-			return;
-		}
 
 		final int triA = model.getFaceIndices1()[face];
 		final int triB = model.getFaceIndices2()[face];
 		final int triC = model.getFaceIndices3()[face];
 
-		float terrainData = 0;
-		sceneContext.modelFaceNormals[0] = xVertexNormals[triA];
-		sceneContext.modelFaceNormals[1] = yVertexNormals[triA];
-		sceneContext.modelFaceNormals[2] = zVertexNormals[triA];
-		sceneContext.modelFaceNormals[3] = terrainData;
-		sceneContext.modelFaceNormals[4] = xVertexNormals[triB];
-		sceneContext.modelFaceNormals[5] = yVertexNormals[triB];
-		sceneContext.modelFaceNormals[6] = zVertexNormals[triB];
-		sceneContext.modelFaceNormals[7] = terrainData;
-		sceneContext.modelFaceNormals[8] = xVertexNormals[triC];
-		sceneContext.modelFaceNormals[9] = yVertexNormals[triC];
-		sceneContext.modelFaceNormals[10] = zVertexNormals[triC];
+		boolean shouldWriteNormals = !(modelOverride.flatNormals || xVertexNormals == null || yVertexNormals == null || zVertexNormals == null || !plugin.configPreserveVanillaNormals && model.getFaceColors3()[face] == -1);
+
+		float terrainData = (float) SceneUploader.packTerrainData(false, 0, WaterType.NONE, plane);
+		sceneContext.modelFaceNormals[0]  = shouldWriteNormals ? xVertexNormals[triA] : 0;
+		sceneContext.modelFaceNormals[1]  = shouldWriteNormals ? yVertexNormals[triA] : 0;
+		sceneContext.modelFaceNormals[2]  = shouldWriteNormals ? zVertexNormals[triA] : 0;
+		sceneContext.modelFaceNormals[3]  = terrainData;
+		sceneContext.modelFaceNormals[4]  = shouldWriteNormals ? xVertexNormals[triB] : 0;
+		sceneContext.modelFaceNormals[5]  = shouldWriteNormals ? yVertexNormals[triB] : 0;
+		sceneContext.modelFaceNormals[6]  = shouldWriteNormals ? zVertexNormals[triB] : 0;
+		sceneContext.modelFaceNormals[7]  = terrainData;
+		sceneContext.modelFaceNormals[8]  = shouldWriteNormals ? xVertexNormals[triC] : 0;
+		sceneContext.modelFaceNormals[9]  = shouldWriteNormals ? yVertexNormals[triC] : 0;
+		sceneContext.modelFaceNormals[10] = shouldWriteNormals ? zVertexNormals[triC] : 0;
 		sceneContext.modelFaceNormals[11] = terrainData;
 	}
 

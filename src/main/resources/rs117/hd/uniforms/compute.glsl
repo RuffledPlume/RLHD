@@ -2,6 +2,8 @@
 
 #include MAX_CHARACTER_POSITION_COUNT
 
+layout(binding = 3) uniform isampler3D tileHeightMap;
+
 layout(std140) uniform UBOCompute {
     // Camera uniforms
     float cameraYaw;
