@@ -31,6 +31,7 @@ public abstract class UniformBuffer<GLBUFFER extends GLBuffer> {
 		FVec4(16, 16, 4),
 
 		Mat3(48, 16, 9),
+		Mat3x4(48, 16, 12),
 		Mat4(64, 16, 16);
 
 		private final int size;

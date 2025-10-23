@@ -349,6 +349,30 @@ public class Mat4
 	}
 
 	/**
+	 * Converts a 4x4 matrix into a 3x4 affine matrix (dropping the final row).
+	 * The returned array has 12 elements in column-major order:
+	 * [ R00, R10, R20, R01, R11, R21, R02, R12, R22, Tx, Ty, Tz ]
+	 *
+	 * @param mat4 4x4 column-major matrix
+	 * @return 3x4 column-major affine matrix (rotation + translation)
+	 */
+	public static float[] toMat3x4(float[] mat4) {
+		if (mat4 == null || mat4.length != 16)
+			throw new IllegalArgumentException("mat4 must be a 4x4 matrix (length 16)");
+
+		return new float[] {
+			// Column 0
+			mat4[0], mat4[1], mat4[2],
+			// Column 1
+			mat4[4], mat4[5], mat4[6],
+			// Column 2
+			mat4[8], mat4[9], mat4[10],
+			// Column 3 (translation)
+			mat4[12], mat4[13], mat4[14],
+		};
+	}
+
+	/**
 	 * Transforms the vector by the matrix, and does a perspective divide.
 	 *
 	 * @param out  where the result should be stored

@@ -17,7 +17,7 @@ public class UBOWorldViews extends UniformBuffer<GLBuffer> {
 	public static final int MAX_SIMULTANEOUS_WORLD_VIEWS = 128;
 
 	public static class WorldViewStruct extends StructProperty {
-		public final Property projection = addProperty(PropertyType.Mat4, "projection");
+		public final Property projection = addProperty(PropertyType.Mat3x4, "projection");
 		public final Property tint = addProperty(PropertyType.IVec4, "tint");
 	}
 
@@ -55,7 +55,11 @@ public class UBOWorldViews extends UniformBuffer<GLBuffer> {
 			var struct = uboStructs[index++];
 
 			var proj = worldView.getMainWorldProjection();
-			struct.projection.set(proj instanceof FloatProjection ? ((FloatProjection) proj).getProjection() : Mat4.identity());
+			float[] mat4 = proj instanceof FloatProjection
+				? ((FloatProjection) proj).getProjection()
+				: Mat4.identity();
+
+			struct.projection.set(Mat4.toMat3x4(mat4));
 
 			var scene = worldView.getScene();
 			if (scene == null) {

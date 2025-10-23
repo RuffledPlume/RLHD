@@ -35,7 +35,8 @@ layout(triangle_strip, max_vertices = 3) out;
 #include <utils/uvs.glsl>
 #include <utils/color_utils.glsl>
 
-in vec3 gPosition[3];
+in vec3 gWorldPos[3];
+in vec4 gClipPos[3];
 in vec3 gUv[3];
 in vec3 gNormal[3];
 in int gAlphaBiasHsl[3];
@@ -67,7 +68,7 @@ void main() {
         vTerrainData[i] = gTerrainData[i];
     }
 
-    computeUvs(vMaterialData[0], vec3[](gPosition[0], gPosition[1], gPosition[2]), vUv);
+    computeUvs(vMaterialData[0], vec3[](gWorldPos[0], gWorldPos[1], gWorldPos[2]), vUv);
 
     // Calculate tangent-space vectors
     mat2 triToUv = mat2(
@@ -78,8 +79,8 @@ void main() {
         triToUv = mat2(1);
     mat2 uvToTri = inverse(triToUv) * -1; // Flip UV direction, since OSRS UVs are oriented strangely
     mat2x3 triToWorld = mat2x3(
-        gPosition[1] - gPosition[0],
-        gPosition[2] - gPosition[0]
+        gWorldPos[1] - gWorldPos[0],
+        gWorldPos[2] - gWorldPos[0]
     );
     mat2x3 TB = triToWorld * uvToTri; // Preserve scale in order for displacement to interact properly with shadow mapping
     T = TB[0];
@@ -87,26 +88,17 @@ void main() {
     vec3 N = normalize(cross(triToWorld[0], triToWorld[1]));
 
     for (int i = 0; i < 3; i++) {
-        vec4 pos = vec4(gPosition[i], 1);
-        // Flat normals must be applied separately per vertex
-        vec3 normal = gNormal[i];
-
-        OUT.position = pos.xyz;
+        OUT.position = gWorldPos[i].xyz;
         OUT.uv = vUv[i].xy;
         #if FLAT_SHADING
             OUT.normal = N;
         #else
-            OUT.normal = length(normal) == 0 ? N : normalize(normal);
+            OUT.normal = length(gNormal[i]) == 0 ? N : normalize(gNormal[i]);
         #endif
         OUT.texBlend = vec3(0);
         OUT.texBlend[i] = 1;
 
-        pos = projectionMatrix * pos;
-        #if ZONE_RENDERER
-            int depthBias = (gAlphaBiasHsl[i] >> 16) & 0xff;
-            pos.z += depthBias / 128.0;
-        #endif
-        gl_Position = pos;
+        gl_Position = gClipPos[i];
         EmitVertex();
     }
 

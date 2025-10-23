@@ -35,7 +35,8 @@ layout (location = 3) in int vAlphaBiasHsl;
 layout (location = 4) in int vMaterialData;
 layout (location = 5) in int vTerrainData;
 
-out vec3 gPosition;
+out vec3 gWorldPos;
+out vec4 gClipPos;
 out vec3 gUv;
 out vec3 gNormal;
 out int gAlphaBiasHsl;
@@ -43,9 +44,16 @@ out int gMaterialData;
 out int gTerrainData;
 
 void main() {
-    gPosition = vec3(getWorldViewProjection(worldViewIndex) * vec4(sceneBase + vPosition, 1));
-    gUv = vUv;
+    gWorldPos = (getWorldViewProjection(worldViewIndex) * (sceneBase + vPosition)).xyz;
+    gClipPos = projectionMatrix * vec4(gWorldPos, 1);
+
+#if ZONE_RENDERER
+    int depthBias = (vAlphaBiasHsl >> 16) & 0xff;
+    gClipPos.z += depthBias / 128.0;
+#endif
+
     gNormal = vNormal;
+    gUv = vUv;
     gAlphaBiasHsl = vAlphaBiasHsl;
     gMaterialData = vMaterialData;
     gTerrainData = vTerrainData;

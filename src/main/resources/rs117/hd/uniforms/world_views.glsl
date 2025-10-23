@@ -6,7 +6,7 @@
     #include MAX_SIMULTANEOUS_WORLD_VIEWS
 
     struct WorldView {
-        mat4 projectionMatrix;
+        mat3x4 projectionMatrix;
         ivec4 tint;
     };
 
@@ -16,9 +16,9 @@
 
     #include WORLD_VIEW_GETTER
 
-    mat4 getWorldViewProjection(int worldViewIndex) {
+    mat3x4 getWorldViewProjection(int worldViewIndex) {
         if (worldViewIndex == -1)
-            return mat4(1);
+            return mat3x4(1);
         return getWorldView(worldViewIndex).projectionMatrix;
     }
 
@@ -28,6 +28,6 @@
         return getWorldView(worldViewIndex).tint;
     }
 #else
-    #define getWorldViewProjection(worldViewIndex) mat4(1)
+    #define getWorldViewProjection(worldViewIndex) mat3x4(1)
     #define getWorldViewTint(worldViewIndex) ivec4(0)
 #endif
