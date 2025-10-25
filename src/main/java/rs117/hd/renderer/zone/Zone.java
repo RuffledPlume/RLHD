@@ -680,7 +680,7 @@ class Zone {
 
 				Zone z = zones[closestZoneX + offset][closestZoneZ + offset];
 				assert z != null;
-				//assert z != this;
+				assert z != this;
 
 				AlphaModel m2 = modelCache.poll();
 				if (m2 == null)

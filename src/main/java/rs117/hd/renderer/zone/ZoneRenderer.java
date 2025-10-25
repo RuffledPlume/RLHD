@@ -945,7 +945,6 @@ public class ZoneRenderer implements Renderer {
 		if (!z.initialized)
 			return;
 
-
 		if(ctx.xOverride == -1) {
 			ctx.xOverride = zx;
 			ctx.zOverride = zz;
@@ -965,10 +964,10 @@ public class ZoneRenderer implements Renderer {
 		if (!hasAlpha)
 			return;
 
-		if (level == 0) {
-			z.alphaSort(zx - offset, zz - offset, sceneCamera);
-			z.multizoneLocs(ctx.sceneContext, zx - offset, zz - offset, sceneCamera, ctx.zones);
-		}
+		//if (level == 0) {
+		//	z.alphaSort(zx - offset, zz - offset, sceneCamera);
+		//	z.multizoneLocs(ctx.sceneContext, zx - offset, zz - offset, sceneCamera, ctx.zones);
+		//}
 
 		if (z.inSceneFrustum) {
 			z.renderAlpha(
