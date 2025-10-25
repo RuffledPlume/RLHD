@@ -237,11 +237,11 @@ class Zone {
 		convertForDraw(VERT_SIZE);
 
 		cmd.SetBaseOffset(zx << 10, 0, zz << 10);
-		cmd.BindVertexArray(glVao);
-		for(int i = 0; i < glDrawOffset.length; ++i) {
-			cmd.DrawArrays(GL_TRIANGLES, glDrawOffset[i], glDrawLength[i]);
+		if(lastBoundVAO != glVao) {
+			lastBoundVAO = glVao;
+			cmd.BindVertexArray(glVao);
 		}
-		//cmd.MultiDrawArrays(GL_TRIANGLES, glDrawOffset, glDrawLength);
+		cmd.MultiDrawArrays(GL_TRIANGLES, glDrawOffset, glDrawLength);
 	}
 
 	void renderOpaqueLevel(CommandBuffer cmd, int zx, int zz, int level) {
@@ -256,11 +256,11 @@ class Zone {
 		convertForDraw(VERT_SIZE);
 
 		cmd.SetBaseOffset(zx << 10, 0, zz << 10);
-		cmd.BindVertexArray(glVao);
-		for(int i = 0; i < glDrawOffset.length; ++i) {
-			cmd.DrawArrays(GL_TRIANGLES, glDrawOffset[i], glDrawLength[i]);
+		if(lastBoundVAO != glVao) {
+			lastBoundVAO = glVao;
+			cmd.BindVertexArray(glVao);
 		}
-		//cmd.MultiDrawArrays(GL_TRIANGLES, glDrawOffset, glDrawLength);
+		cmd.MultiDrawArrays(GL_TRIANGLES, glDrawOffset, glDrawLength);
 	}
 
 	private static void pushRange(int start, int end) {
@@ -468,6 +468,8 @@ class Zone {
 	private static int lastVao;
 	private static int lastzx, lastzz;
 
+	public static int lastBoundVAO;
+
 	private static final int[] numOfPriority = FacePrioritySorter.numOfPriority;
 	private static final int[][] orderedFaces = FacePrioritySorter.orderedFaces;
 
@@ -624,17 +626,20 @@ class Zone {
 			if (ZoneRenderer.alphaFaceCount > 0) {
 				int vertexCount = ZoneRenderer.alphaFaceCount * 3;
 				long byteOffset = 4L * (ZoneRenderer.eboAlphaStaging.position() - vertexCount);
-				cmd.BindVertexArray(lastVao);
+				if(lastBoundVAO != lastVao) {
+					lastBoundVAO = lastVao;
+					cmd.BindVertexArray(lastVao);
+				}
 				cmd.DrawElements(GL_TRIANGLES, vertexCount, byteOffset); // The EBO is bound by in ZoneRenderer
 				ZoneRenderer.alphaFaceCount = 0;
 			}
 		} else if (drawIdx != 0) {
 			convertForDraw(VAO.VERT_SIZE);
-			cmd.BindVertexArray(lastVao);
-			for(int i = 0; i < glDrawOffset.length; ++i) {
-				cmd.DrawArrays(GL_TRIANGLES, glDrawOffset[i], glDrawLength[i]);
+			if(lastBoundVAO != lastVao) {
+				lastBoundVAO = lastVao;
+				cmd.BindVertexArray(lastVao);
 			}
-			//cmd.MultiDrawArrays(GL_TRIANGLES, glDrawOffset, glDrawLength);
+			cmd.MultiDrawArrays(GL_TRIANGLES, glDrawOffset, glDrawLength);
 			drawIdx = 0;
 		}
 	}
@@ -675,7 +680,7 @@ class Zone {
 
 				Zone z = zones[closestZoneX + offset][closestZoneZ + offset];
 				assert z != null;
-				assert z != this;
+				//assert z != this;
 
 				AlphaModel m2 = modelCache.poll();
 				if (m2 == null)

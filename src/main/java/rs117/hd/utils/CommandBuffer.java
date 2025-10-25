@@ -82,7 +82,6 @@ public class CommandBuffer {
 		cmd[writeHead++] = writeAlpha ? 1 : 0;
 	}
 
-	/*
 	public void MultiDrawArrays(int mode, int[] offsets, int[] counts) {
 		assert offsets.length == counts.length;
 
@@ -94,7 +93,7 @@ public class CommandBuffer {
 			cmd[writeHead++] = offsets[i];
 			cmd[writeHead++] = counts[i];
 		}
-	}*/
+	}
 
 	public void DrawElements(int mode, int vertexCount, long offset) {
 		ensureCapacity(4);
