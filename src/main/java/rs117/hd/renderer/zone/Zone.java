@@ -238,7 +238,10 @@ class Zone {
 
 		cmd.SetBaseOffset(zx << 10, 0, zz << 10);
 		cmd.BindVertexArray(glVao);
-		cmd.MultiDrawArrays(GL_TRIANGLES, glDrawOffset, glDrawLength);
+		for(int i = 0; i < glDrawOffset.length; ++i) {
+			cmd.DrawArrays(GL_TRIANGLES, glDrawOffset[i], glDrawLength[i]);
+		}
+		//cmd.MultiDrawArrays(GL_TRIANGLES, glDrawOffset, glDrawLength);
 	}
 
 	void renderOpaqueLevel(CommandBuffer cmd, int zx, int zz, int level) {
@@ -254,7 +257,10 @@ class Zone {
 
 		cmd.SetBaseOffset(zx << 10, 0, zz << 10);
 		cmd.BindVertexArray(glVao);
-		cmd.MultiDrawArrays(GL_TRIANGLES, glDrawOffset, glDrawLength);
+		for(int i = 0; i < glDrawOffset.length; ++i) {
+			cmd.DrawArrays(GL_TRIANGLES, glDrawOffset[i], glDrawLength[i]);
+		}
+		//cmd.MultiDrawArrays(GL_TRIANGLES, glDrawOffset, glDrawLength);
 	}
 
 	private static void pushRange(int start, int end) {
@@ -625,7 +631,10 @@ class Zone {
 		} else if (drawIdx != 0) {
 			convertForDraw(VAO.VERT_SIZE);
 			cmd.BindVertexArray(lastVao);
-			cmd.MultiDrawArrays(GL_TRIANGLES, glDrawOffset, glDrawLength);
+			for(int i = 0; i < glDrawOffset.length; ++i) {
+				cmd.DrawArrays(GL_TRIANGLES, glDrawOffset[i], glDrawLength[i]);
+			}
+			//cmd.MultiDrawArrays(GL_TRIANGLES, glDrawOffset, glDrawLength);
 			drawIdx = 0;
 		}
 	}
