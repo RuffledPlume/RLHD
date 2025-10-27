@@ -905,12 +905,6 @@ public class ZoneRenderer implements Renderer {
 		if (!z.initialized || z.sizeO == 0)
 			return;
 
-		if(ctx.xOverride == -1) {
-			ctx.xOverride = zx;
-			ctx.zOverride = zz;
-		}
-		z = ctx.zones[ctx.xOverride][ctx.zOverride];
-
 		int offset = ctx.sceneContext.sceneOffset >> 3;
 		if (ctx != root || z.inSceneFrustum) {
 			sceneCmd.SetWorldViewIndex(uboWorldViews.getIndex(scene));
@@ -944,12 +938,6 @@ public class ZoneRenderer implements Renderer {
 		Zone z = ctx.zones[zx][zz];
 		if (!z.initialized)
 			return;
-
-		if(ctx.xOverride == -1) {
-			ctx.xOverride = zx;
-			ctx.zOverride = zz;
-		}
-		z = ctx.zones[ctx.xOverride][ctx.zOverride];
 
 		boolean hasAlpha = z.sizeA != 0 || !z.alphaModels.isEmpty();
 		boolean renderWater = z.inSceneFrustum && level == 0 && z.hasWater;

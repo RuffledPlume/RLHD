@@ -236,7 +236,7 @@ class Zone {
 
 		convertForDraw(VERT_SIZE);
 
-		cmd.SetBaseOffset(zx << 10, 0, zz << 10);
+		//cmd.SetBaseOffset(zx << 10, 0, zz << 10);
 		if(lastBoundVAO != glVao) {
 			lastBoundVAO = glVao;
 			cmd.BindVertexArray(glVao);
@@ -255,7 +255,7 @@ class Zone {
 
 		convertForDraw(VERT_SIZE);
 
-		cmd.SetBaseOffset(zx << 10, 0, zz << 10);
+		//cmd.SetBaseOffset(zx << 10, 0, zz << 10);
 		if(lastBoundVAO != glVao) {
 			lastBoundVAO = glVao;
 			cmd.BindVertexArray(glVao);
@@ -619,7 +619,7 @@ class Zone {
 		if (lastDrawMode == TEMP) {
 			cmd.SetBaseOffset(0, 0, 0);
 		} else {
-			cmd.SetBaseOffset(lastzx << 10, 0, lastzz << 10);
+			//cmd.SetBaseOffset(lastzx << 10, 0, lastzz << 10);
 		}
 
 		if (lastDrawMode == STATIC) {
