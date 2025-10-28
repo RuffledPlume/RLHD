@@ -53,6 +53,7 @@ class Zone {
 	boolean inSceneFrustum; // whether the zone is visible to the scene camera
 	boolean inShadowFrustum; // whether the zone casts shadows into the visible scene
 
+	int baseOffset;
 	int[] levelOffsets = new int[5]; // buffer pos in ints for the end of the level
 
 	int[][] rids;
@@ -121,7 +122,7 @@ class Zone {
 		}
 	}
 
-	private void setupVao(int vao, int buffer, int ebo) {
+	public static void setupVao(int vao, int buffer, int ebo) {
 		glBindVertexArray(vao);
 		glBindBuffer(GL_ARRAY_BUFFER, buffer);
 
@@ -192,8 +193,8 @@ class Zone {
 	}
 
 	void renderOpaque(CommandBuffer cmd, int zx, int zz, int minLevel, int currentLevel, int maxLevel, Set<Integer> hiddenRoofIds) {
-		drawIdx = 0;
-
+		lastVao = glVao;
+		lastDrawMode = TEMP;
 		for (int level = minLevel; level <= maxLevel; ++level) {
 			int[] rids = this.rids[level];
 			int[] roofStart = this.roofStart[level];
@@ -201,7 +202,7 @@ class Zone {
 
 			if (rids.length == 0 || hiddenRoofIds.isEmpty() || level <= currentLevel) {
 				// draw the whole level
-				int start = level == 0 ? 0 : this.levelOffsets[level - 1];
+				int start = level == 0 ? baseOffset : this.levelOffsets[level - 1];
 				int end = this.levelOffsets[level];
 				pushRange(start, end);
 				continue;
@@ -219,7 +220,7 @@ class Zone {
 			}
 
 			// push from the end of the last roof to the end of the level
-			int endpos = level == 0 ? 0 : this.levelOffsets[level - 1];
+			int endpos = level == 0 ? baseOffset : this.levelOffsets[level - 1];
 			for (int roofIdx = rids.length - 1; roofIdx >= 0; --roofIdx) {
 				int rid = rids[roofIdx];
 				if (rid > 0) {
@@ -231,30 +232,17 @@ class Zone {
 			pushRange(endpos, this.levelOffsets[level]);
 		}
 
-		if (drawIdx == 0)
-			return;
-
-		convertForDraw(VERT_SIZE);
-
-		cmd.SetBaseOffset(zx << 10, 0, zz << 10);
-		cmd.BindVertexArray(glVao);
-		cmd.MultiDrawArrays(GL_TRIANGLES, glDrawOffset, glDrawLength);
+		if(drawIdx >= NUM_DRAW_RANGES)
+			flush(cmd);
 	}
 
 	void renderOpaqueLevel(CommandBuffer cmd, int zx, int zz, int level) {
-		drawIdx = 0;
-
-		// draw the specific level
+		lastVao = glVao;
+		lastDrawMode = TEMP;
 		pushRange(this.levelOffsets[level - 1], this.levelOffsets[level]);
 
-		if (drawIdx == 0)
-			return;
-
-		convertForDraw(VERT_SIZE);
-
-		cmd.SetBaseOffset(zx << 10, 0, zz << 10);
-		cmd.BindVertexArray(glVao);
-		cmd.MultiDrawArrays(GL_TRIANGLES, glDrawOffset, glDrawLength);
+		if(drawIdx >= NUM_DRAW_RANGES)
+			flush(cmd);
 	}
 
 	private static void pushRange(int start, int end) {
@@ -607,7 +595,7 @@ class Zone {
 		cmd.DepthMask(true);
 	}
 
-	private void flush(CommandBuffer cmd) {
+	public void flush(CommandBuffer cmd) {
 		if (lastDrawMode == TEMP) {
 			cmd.SetBaseOffset(0, 0, 0);
 		} else {

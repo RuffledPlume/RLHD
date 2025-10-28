@@ -990,6 +990,13 @@ public class ZoneRenderer implements Renderer {
 		if (ctx == null)
 			return;
 
+		for (int x = 0; x < ctx.sizeX; ++x){
+			for (int z = 0; z < ctx.sizeZ; ++z) {
+				ctx.zones[x][z].flush(sceneCmd);
+				ctx.zones[x][z].flush(directionalCmd);
+			}
+		}
+
 		switch (pass) {
 			case DrawCallbacks.PASS_OPAQUE:
 				vaoO.addRange(scene);
@@ -999,6 +1006,7 @@ public class ZoneRenderer implements Renderer {
 				if (scene.getWorldViewId() == -1) {
 					sceneCmd.SetBaseOffset(0, 0, 0);
 					directionalCmd.SetBaseOffset(0, 0, 0);
+
 
 					// Draw opaque
 					vaoO.unmap();
@@ -1220,6 +1228,7 @@ public class ZoneRenderer implements Renderer {
 		if (ctx == null)
 			return;
 
+		/*
 		for (int x = 0; x < ctx.sizeX; ++x) {
 			for (int z = 0; z < ctx.sizeZ; ++z) {
 				Zone zone = ctx.zones[x][z];
@@ -1258,7 +1267,7 @@ public class ZoneRenderer implements Renderer {
 
 				log.trace("Rebuilt zone wv={} x={} z={}", wv.getId(), x, z);
 			}
-		}
+		}*/
 	}
 
 	@Override
@@ -1528,30 +1537,35 @@ public class ZoneRenderer implements Renderer {
 		CountDownLatch latch = new CountDownLatch(1);
 		clientThread.invoke(() ->
 		{
+			int sizeO = 0;
+			int sizeA = 0;
 			for (int x = 0; x < EXTENDED_SCENE_SIZE >> 3; ++x) {
 				for (int z = 0; z < EXTENDED_SCENE_SIZE >> 3; ++z) {
 					Zone zone = newZones[x][z];
+					sizeO += zone.sizeO * Zone.VERT_SIZE * 3;
+					sizeA += zone.sizeA * Zone.VERT_SIZE * 3;
+				}
+			}
+			int glVao = glGenVertexArrays();
+			VBO o = new VBO(sizeO);
+			o.initialize(GL_STATIC_DRAW);
+			o.map();
 
-					if (zone.initialized) {
-						continue;
-					}
+			int glVaoA = glGenVertexArrays();
+			VBO a = new VBO(sizeA);
+			a.initialize(GL_STATIC_DRAW);
+			a.map();
 
-					VBO o = null, a = null;
-					int sz = zone.sizeO * Zone.VERT_SIZE * 3;
-					if (sz > 0) {
-						o = new VBO(sz);
-						o.initialize(GL_STATIC_DRAW);
-						o.map();
-					}
+			Zone.setupVao(glVao, o.bufId, eboAlpha);
+			Zone.setupVao(glVaoA, a.bufId, eboAlpha);
 
-					sz = zone.sizeA * Zone.VERT_SIZE * 3;
-					if (sz > 0) {
-						a = new VBO(sz);
-						a.initialize(GL_STATIC_DRAW);
-						a.map();
-					}
-
-					zone.initialize(o, a, eboAlpha);
+			for (int x = 0; x < EXTENDED_SCENE_SIZE >> 3; ++x) {
+				for (int z = 0; z < EXTENDED_SCENE_SIZE >> 3; ++z) {
+					Zone zone = newZones[x][z];
+					zone.glVao = glVao;
+					zone.glVaoA = glVaoA;
+					zone.vboO = o;
+					zone.vboA = a;
 				}
 			}
 

@@ -46,7 +46,9 @@ class VBO {
 	}
 
 	void unmap() {
-		assert mapped;
+		//assert mapped;
+		if(!mapped)
+			return;
 		len = vb.position();
 		vb = null;
 

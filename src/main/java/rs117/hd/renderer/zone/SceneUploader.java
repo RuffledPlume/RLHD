@@ -115,6 +115,11 @@ class SceneUploader {
 		zone.roofStart = new int[4][roofIds.size()];
 		zone.roofEnd = new int[4][roofIds.size()];
 
+		if (zone.vboO != null) {
+			int pos = zone.vboO.vb.position();
+			zone.baseOffset = pos;
+		}
+
 		for (int z = 0; z <= 3; ++z) {
 			if (z == 0) {
 				uploadZoneLevel(ctx, zone, mzx, mzz, 0, false, roofIds, vb, ab);
