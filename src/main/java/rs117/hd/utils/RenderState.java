@@ -84,6 +84,14 @@ public final class RenderState {
 		protected void applyValue(Integer buf) { glDrawBuffer(buf); }
 	}
 
+	public static final class GLDrawBuffers extends GLState.PrimitiveArrayState<RenderState, Integer>  {
+		private GLDrawBuffers() {
+			super(() -> new Integer[32]);
+		}
+		@Override
+		protected void applyValues(Integer[] buffers) { glDrawBuffers((int[])buffers); }
+	}
+
 	public static final class GLBindVAO extends GLState.SingleState<RenderState, Integer> {
 		@Override
 		protected void applyValue(Integer vao) { glBindVertexArray(vao); }

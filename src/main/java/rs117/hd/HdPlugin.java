@@ -1092,9 +1092,9 @@ public class HdPlugin extends Plugin {
 		texTiledLighting = 0;
 	}
 
-	public void updateSceneFbo() {
+	public boolean updateSceneFbo() {
 		if (uiResolution == null)
-			return;
+			return false;
 
 		int[] viewport = {
 			client.getViewportXOffset(),
@@ -1105,7 +1105,7 @@ public class HdPlugin extends Plugin {
 
 		// Skip rendering when there's no viewport to render to, which happens while world hopping
 		if (viewport[2] == 0 || viewport[3] == 0)
-			return;
+			return false;
 
 		// DPI scaling and stretched mode also affects the game's viewport
 		divide(sceneViewportScale, vec(actualUiResolution), vec(uiResolution));
@@ -1120,7 +1120,7 @@ public class HdPlugin extends Plugin {
 
 		// Check if scene FBO needs to be recreated
 		if (Arrays.equals(sceneViewport, viewport))
-			return;
+			return false;
 
 		destroySceneFbo();
 		sceneViewport = viewport;
@@ -1200,6 +1200,8 @@ public class HdPlugin extends Plugin {
 		// Reset
 		glBindFramebuffer(GL_FRAMEBUFFER, awtContext.getFramebuffer(false));
 		glBindRenderbuffer(GL_RENDERBUFFER, 0);
+
+		return true;
 	}
 
 	private void destroySceneFbo() {

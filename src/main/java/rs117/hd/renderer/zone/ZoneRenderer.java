@@ -49,6 +49,7 @@ import rs117.hd.HdPluginConfig;
 import rs117.hd.config.ColorFilter;
 import rs117.hd.config.DynamicLights;
 import rs117.hd.config.ShadowMode;
+import rs117.hd.opengl.shader.OITResolveProgram;
 import rs117.hd.opengl.shader.SceneShaderProgram;
 import rs117.hd.opengl.shader.ShaderException;
 import rs117.hd.opengl.shader.ShaderIncludes;
@@ -99,6 +100,9 @@ public class ZoneRenderer implements Renderer {
 
 	private static int UNIFORM_BLOCK_COUNT = HdPlugin.UNIFORM_BLOCK_COUNT;
 	public static final int UNIFORM_BLOCK_WORLD_VIEWS = UNIFORM_BLOCK_COUNT++;
+
+	private static int TEXTURE_UNIT_COUNT = HdPlugin.TEXTURE_UNIT_COUNT;
+	public static int TEXTURE_UNIT_OIT_RESOLVE = GL_TEXTURE0 + TEXTURE_UNIT_COUNT++;
 
 	@Inject
 	private Client client;
@@ -153,6 +157,9 @@ public class ZoneRenderer implements Renderer {
 
 	@Inject
 	private SceneShaderProgram sceneProgram;
+
+	@Inject
+	private OITResolveProgram oitResolveProgram;
 
 	@Inject
 	private ShadowShaderProgram.Fast fastShadowProgram;
@@ -245,6 +252,8 @@ public class ZoneRenderer implements Renderer {
 			subs[i] = null;
 		}
 
+		destroyOITResolveFbo();
+
 		destroyBuffers();
 		uboWorldViews.destroy();
 
@@ -271,6 +280,7 @@ public class ZoneRenderer implements Renderer {
 	@Override
 	public void initializeShaders(ShaderIncludes includes) throws ShaderException, IOException {
 		sceneProgram.compile(includes);
+		oitResolveProgram.compile(includes);
 		fastShadowProgram.compile(includes);
 		detailedShadowProgram.compile(includes);
 	}
@@ -278,6 +288,7 @@ public class ZoneRenderer implements Renderer {
 	@Override
 	public void destroyShaders() {
 		sceneProgram.destroy();
+		oitResolveProgram.destroy();
 		fastShadowProgram.destroy();
 		detailedShadowProgram.destroy();
 	}
@@ -319,6 +330,49 @@ public class ZoneRenderer implements Renderer {
 		indirectDrawCmdsStaging = null;
 	}
 
+	//private int fboOITResolve;
+	private int texOITResolve;
+
+	private void destroyOITResolveFbo() {
+		//if (fboOITResolve != 0)
+		//	glDeleteFramebuffers(fboOITResolve);
+
+		if (texOITResolve != 0)
+			glDeleteTextures(texOITResolve);
+		texOITResolve = 0;
+	}
+
+	private void updateOITResolveFbo() {
+		destroyOITResolveFbo();
+
+		texOITResolve = glGenTextures();
+		glActiveTexture(TEXTURE_UNIT_OIT_RESOLVE);
+		glBindTexture(GL_TEXTURE_2D, texOITResolve);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+		glTexImage2D(
+			GL_TEXTURE_2D,
+			0,
+			GL_RGBA16F,
+			plugin.sceneResolution[0],
+			plugin.sceneResolution[1],
+			0,
+			GL_RGBA,
+			GL_FLOAT,
+			0
+		);
+
+		glBindFramebuffer(GL_FRAMEBUFFER, plugin.fboScene);
+		glFramebufferTexture(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, texOITResolve, 0);
+		checkGLErrors();
+
+		// Reset
+		glBindFramebuffer(GL_FRAMEBUFFER, plugin.awtContext.getFramebuffer(false));
+		glBindRenderbuffer(GL_RENDERBUFFER, 0);
+	}
+
 	@Override
 	public void preSceneDraw(
 		Scene scene,
@@ -345,7 +399,9 @@ public class ZoneRenderer implements Renderer {
 		float cameraX, float cameraY, float cameraZ, float cameraPitch, float cameraYaw
 	) {
 		scene.setDrawDistance(plugin.getDrawDistance());
-		plugin.updateSceneFbo();
+
+		if(plugin.updateSceneFbo())
+			updateOITResolveFbo();
 
 		if (root.sceneContext == null || plugin.sceneViewport == null)
 			return;
@@ -844,6 +900,13 @@ public class ZoneRenderer implements Renderer {
 		// Clear scene
 		frameTimer.begin(Timer.CLEAR_SCENE);
 
+		// Clear Accum Buffer
+		renderState.framebufferTextureLayer.set(GL_COLOR_ATTACHMENT0);
+		glClearColor(0, 0, 0, 0);
+		glClear(GL_COLOR_BUFFER_BIT);
+
+		// Clear Color Buffer
+		renderState.framebufferTextureLayer.set(GL_COLOR_ATTACHMENT1);
 		float[] fogColor = ColorUtils.linearToSrgb(environmentManager.currentFogColor);
 		float[] gammaCorrectedFogColor = pow(fogColor, plugin.getGammaCorrection());
 		glClearColor(
@@ -858,11 +921,12 @@ public class ZoneRenderer implements Renderer {
 
 		frameTimer.begin(Timer.RENDER_SCENE);
 
-		renderState.enable.set(GL_BLEND);
 		renderState.enable.set(GL_CULL_FACE);
 		renderState.enable.set(GL_DEPTH_TEST);
+
+		renderState.disable.set(GL_BLEND);
 		renderState.depthFunc.set(GL_GEQUAL);
-		renderState.blendFunc.set(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
+		renderState.blendFunc.set(GL_ONE, GL_ONE, GL_ONE, GL_ONE);
 
 		// Render the scene
 		sceneCmd.execute();
@@ -928,6 +992,8 @@ public class ZoneRenderer implements Renderer {
 		if (!z.initialized || z.sizeO == 0)
 			return;
 
+		sceneCmd.Disable(GL_BLEND);
+
 		if (ctx != root || z.inSceneFrustum)
 			z.renderOpaque(sceneCmd, minLevel, level, maxLevel, hideRoofIds);
 
@@ -954,6 +1020,8 @@ public class ZoneRenderer implements Renderer {
 		Zone z = ctx.zones[zx][zz];
 		if (!z.initialized)
 			return;
+
+		sceneCmd.Enable(GL_BLEND);
 
 		boolean renderWater = z.inSceneFrustum && level == 0 && z.hasWater;
 		if (renderWater)
@@ -1279,6 +1347,19 @@ public class ZoneRenderer implements Renderer {
 		}
 	}
 
+	public void resolveOIT() {
+		glBindFramebuffer(GL_FRAMEBUFFER, plugin.awtContext.getFramebuffer(false));
+		// Disable alpha writes, just in case the default FBO has an alpha channel
+		glColorMask(true, true, true, false);
+
+		glViewport(0, 0, plugin.sceneResolution[0], plugin.sceneResolution[1]);
+
+		oitResolveProgram.use();
+
+		glBindVertexArray(plugin.vaoTri);
+		glDrawArrays(GL_TRIANGLES, 0, 3);
+	}
+
 	@Override
 	public void draw(int overlayColor) {
 		final GameState gameState = client.getGameState();
@@ -1329,6 +1410,9 @@ public class ZoneRenderer implements Renderer {
 				GL_COLOR_BUFFER_BIT,
 				config.sceneScalingMode().glFilter
 			);
+
+			// Full Screen pass to resolve fboOIT to the default FBO
+			resolveOIT();
 		} else {
 			glBindFramebuffer(GL_FRAMEBUFFER, plugin.awtContext.getFramebuffer(false));
 			glClearColor(0, 0, 0, 1);

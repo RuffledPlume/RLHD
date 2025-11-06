@@ -496,5 +496,11 @@ void main() {
         outputColor.rgb = windowsHdrCorrection(outputColor.rgb);
     #endif
 
-    FragColor = outputColor;
+
+    // https://casual-effects.blogspot.com/2014/03/weighted-blended-order-independent.html
+    float weight = max(min(1.0, max(max(outputColor.r, outputColor.g), outputColor.b) * outputColor.a), outputColor.a);
+    weight *= clamp(0.03 / (1e-5 + pow(gl_FragCoord.z, 5.0)), 1e-2, 3e3);
+    outputColor.rgb *= outputColor.a * weight;
+
+    FragColor = vec4(outputColor.rgb, outputColor.a);
 }
