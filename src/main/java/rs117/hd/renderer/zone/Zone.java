@@ -21,37 +21,14 @@ import rs117.hd.utils.CommandBuffer;
 import static net.runelite.api.Perspective.*;
 import static org.lwjgl.opengl.GL33C.*;
 import static rs117.hd.HdPlugin.GL_CAPS;
-import static rs117.hd.HdPlugin.checkGLErrors;
 import static rs117.hd.renderer.zone.FacePrioritySorter.distanceFaceCount;
 import static rs117.hd.renderer.zone.FacePrioritySorter.distanceToFaces;
+import static rs117.hd.renderer.zone.SlicedVBO.VERT_SIZE;
 
 @Slf4j
 @RequiredArgsConstructor
 class Zone {
-	// Zone vertex format
-	// pos short vec3(x, y, z)
-	// uvw short vec3(u, v, w)
-	// normal short vec3(nx, ny, nz)
-	// alphaBiasHsl int
-	// materialData int
-	// terrainData int
-	static final int VERT_SIZE = 32;
-
-	// Metadata format
-	// worldViewIndex int int
-	// sceneOffset int vec2(x, y)
-	static final int METADATA_SIZE = 12;
-
 	static final int LEVEL_WATER_SURFACE = 4;
-
-	int glVao;
-	int bufLen;
-
-	int glVaoA;
-	int bufLenA;
-
-	int sizeO, sizeA;
-	VBO vboO, vboA, vboM;
 
 	boolean initialized; // whether the zone vao and vbos are ready
 	boolean cull; // whether the zone is queued for deletion
@@ -62,6 +39,8 @@ class Zone {
 	boolean inSceneFrustum; // whether the zone is visible to the scene camera
 	boolean inShadowFrustum; // whether the zone casts shadows into the visible scene
 
+	SlicedVBO.Slice zoneVBOSlice;
+
 	int[] levelOffsets = new int[5]; // buffer pos in ints for the end of the level
 
 	int[][] rids;
@@ -70,124 +49,10 @@ class Zone {
 
 	final List<AlphaModel> alphaModels = new ArrayList<>(0);
 
-	void initialize(VBO o, VBO a, int eboShared) {
-		assert glVao == 0;
-		assert glVaoA == 0;
-
-		if (o != null || a != null) {
-			vboM = new VBO(METADATA_SIZE);
-			vboM.initialize(GL_STATIC_DRAW);
-			metadataDirty = true;
-		}
-
-		if (o != null) {
-			vboO = o;
-			glVao = glGenVertexArrays();
-			setupVao(glVao, o.bufId, vboM.bufId, eboShared);
-		}
-
-		if (a != null) {
-			vboA = a;
-			glVaoA = glGenVertexArrays();
-			setupVao(glVaoA, a.bufId, vboM.bufId, eboShared);
-		}
-	}
-
 	void free() {
-		if (vboO != null) {
-			vboO.destroy();
-			vboO = null;
-		}
-
-		if (vboA != null) {
-			vboA.destroy();
-			vboA = null;
-		}
-
-		if (vboM != null) {
-			vboM.destroy();
-			vboM = null;
-		}
-
-		if (glVao != 0) {
-			glDeleteVertexArrays(glVao);
-			glVao = 0;
-		}
-
-		if (glVaoA != 0) {
-			glDeleteVertexArrays(glVaoA);
-			glVaoA = 0;
-		}
-
 		// don't add permanent alphamodels to the cache as permanent alphamodels are always allocated
 		// to avoid having to synchronize the cache
 		alphaModels.clear();
-	}
-
-	void unmap() {
-		if (vboO != null) {
-			vboO.unmap();
-		}
-		if (vboA != null) {
-			vboA.unmap();
-		}
-
-		if (vboO != null) {
-			this.bufLen = vboO.len / (VERT_SIZE / 4);
-		}
-
-		if (vboA != null) {
-			this.bufLenA = vboA.len / (VERT_SIZE / 4);
-		}
-	}
-
-	private void setupVao(int vao, int buffer, int metadata, int ebo) {
-		glBindVertexArray(vao);
-		glBindBuffer(GL_ARRAY_BUFFER, buffer);
-
-		// The element buffer is part of VAO state
-		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
-
-		// Position
-		glEnableVertexAttribArray(0);
-		glVertexAttribPointer(0, 3, GL_SHORT, false, VERT_SIZE, 0);
-
-		// UVs
-		glEnableVertexAttribArray(1);
-		glVertexAttribPointer(1, 3, GL_HALF_FLOAT, false, VERT_SIZE, 6);
-
-		// Normals
-		glEnableVertexAttribArray(2);
-		glVertexAttribPointer(2, 3, GL_SHORT, false, VERT_SIZE, 12);
-
-		// Alpha, bias & HSL
-		glEnableVertexAttribArray(3);
-		glVertexAttribIPointer(3, 1, GL_INT, VERT_SIZE, 20);
-
-		// Material data
-		glEnableVertexAttribArray(4);
-		glVertexAttribIPointer(4, 1, GL_INT, VERT_SIZE, 24);
-
-		// Terrain data
-		glEnableVertexAttribArray(5);
-		glVertexAttribIPointer(5, 1, GL_INT, VERT_SIZE, 28);
-
-		glBindBuffer(GL_ARRAY_BUFFER, metadata);
-
-		// WorldView index (not ID)
-		glEnableVertexAttribArray(6);
-		glVertexAttribDivisor(6, 1);
-		glVertexAttribIPointer(6, 1, GL_INT, METADATA_SIZE, 0);
-
-		// Scene offset
-		glEnableVertexAttribArray(7);
-		glVertexAttribDivisor(7, 1);
-		glVertexAttribIPointer(7, 2, GL_INT, METADATA_SIZE, 4);
-
-		checkGLErrors();
-
-		glBindVertexArray(0);
-		glBindBuffer(GL_ARRAY_BUFFER, 0);
 	}
 
 	void setMetadata(int worldViewIdx, ZoneSceneContext ctx, int mx, int mz) {
@@ -198,11 +63,7 @@ class Zone {
 		int baseX = (mx - (ctx.sceneOffset >> 3)) << 10;
 		int baseZ = (mz - (ctx.sceneOffset >> 3)) << 10;
 
-		vboM.map();
-		vboM.vb.put(worldViewIdx + 1);
-		vboM.vb.put(baseX);
-		vboM.vb.put(baseZ);
-		vboM.unmap();
+		// TODO: Shrug
 	}
 
 	void updateRoofs(Map<Integer, Integer> updates) {
@@ -282,7 +143,7 @@ class Zone {
 			return;
 
 		lastDrawMode = STATIC_UNSORTED;
-		lastVao = glVao;
+		lastVao = zoneVBOSlice.getVAO();
 		flush(cmd);
 	}
 
@@ -295,7 +156,7 @@ class Zone {
 			return;
 
 		lastDrawMode = STATIC_UNSORTED;
-		lastVao = glVao;
+		lastVao = zoneVBOSlice.getVAO();
 		flush(cmd);
 	}
 

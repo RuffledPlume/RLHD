@@ -178,6 +178,8 @@ public class ZoneRenderer implements Renderer {
 	private VAO.VAOList vaoPO;
 	private VAO.VAOList vaoPOShadow;
 
+	private final SlicedVBO sceneVbo = new SlicedVBO();
+
 	public static int indirectDrawCmds;
 	public static GpuIntBuffer indirectDrawCmdsStaging;
 
@@ -293,6 +295,8 @@ public class ZoneRenderer implements Renderer {
 		vaoA = new VAO.VAOList(eboAlpha);
 		vaoPO = new VAO.VAOList(eboAlpha);
 		vaoPOShadow = new VAO.VAOList(eboAlpha);
+
+		sceneVbo.initialise(eboAlpha);
 	}
 
 	private void destroyBuffers() {
@@ -301,6 +305,8 @@ public class ZoneRenderer implements Renderer {
 		vaoPO.free();
 		vaoPOShadow.free();
 		vaoO = vaoA = vaoPO = vaoPOShadow = null;
+
+		sceneVbo.free();
 
 		if (eboAlpha != 0)
 			glDeleteBuffers(eboAlpha);
@@ -925,7 +931,7 @@ public class ZoneRenderer implements Renderer {
 			return;
 
 		Zone z = ctx.zones[zx][zz];
-		if (!z.initialized || z.sizeO == 0)
+		if (!z.initialized || z.zoneVBOSlice == null)
 			return;
 
 		if (ctx != root || z.inSceneFrustum)
@@ -952,14 +958,14 @@ public class ZoneRenderer implements Renderer {
 			return;
 
 		Zone z = ctx.zones[zx][zz];
-		if (!z.initialized)
+		if (!z.initialized || z.zoneVBOSlice == null)
 			return;
 
 		boolean renderWater = z.inSceneFrustum && level == 0 && z.hasWater;
 		if (renderWater)
 			z.renderOpaqueLevel(sceneCmd, Zone.LEVEL_WATER_SURFACE);
 
-		boolean hasAlpha = z.sizeA != 0 || !z.alphaModels.isEmpty();
+		boolean hasAlpha = /*z.sizeA != 0 || */ !z.alphaModels.isEmpty();
 		if (!hasAlpha)
 			return;
 
@@ -1248,29 +1254,10 @@ public class ZoneRenderer implements Renderer {
 				zone.free();
 				zone = ctx.zones[x][z] = new Zone();
 
-				sceneUploader.estimateZoneSize(ctx.sceneContext, zone, x, z);
-
-				VBO o = null, a = null;
-				int sz = zone.sizeO * Zone.VERT_SIZE * 3;
-				if (sz > 0) {
-					o = new VBO(sz);
-					o.initialize(GL_STATIC_DRAW);
-					o.map();
-				}
-
-				sz = zone.sizeA * Zone.VERT_SIZE * 3;
-				if (sz > 0) {
-					a = new VBO(sz);
-					a.initialize(GL_STATIC_DRAW);
-					a.map();
-				}
-
-				zone.initialize(o, a, eboAlpha);
 				zone.setMetadata(uboWorldViews.getIndex(wv), ctx.sceneContext, x, z);
 
 				sceneUploader.uploadZone(ctx.sceneContext, zone, x, z);
 
-				zone.unmap();
 				zone.initialized = true;
 				zone.dirty = true;
 
@@ -1527,7 +1514,7 @@ public class ZoneRenderer implements Renderer {
 
 							if (old.dirty)
 								continue;
-							assert old.sizeO > 0 || old.sizeA > 0;
+							assert old.zoneVBOSlice != null;
 
 							assert old.cull;
 							old.cull = false;
@@ -1546,63 +1533,8 @@ public class ZoneRenderer implements Renderer {
 				if (newZones[x][z] == null)
 					newZones[x][z] = new Zone();
 
-		// Determine zone buffer requirements before uploading
-		Stopwatch sw = Stopwatch.createStarted();
-		int len = 0, lena = 0;
-		int reused = 0, newzones = 0;
-		for (int x = 0; x < NUM_ZONES; ++x) {
-			for (int z = 0; z < NUM_ZONES; ++z) {
-				Zone zone = newZones[x][z];
-				if (!zone.initialized) {
-					assert zone.glVao == 0;
-					assert zone.glVaoA == 0;
-					asyncSceneUploader.estimateZoneSize(nextSceneContext, zone, x, z);
-					len += zone.sizeO;
-					lena += zone.sizeA;
-					newzones++;
-				} else {
-					reused++;
-				}
-			}
-		}
-		log.debug(
-			"Scene size time {} reused {} new {} len opaque {} size opaque {} KiB len alpha {} size alpha {} KiB",
-			sw, reused, newzones,
-			len, ((long) len * Zone.VERT_SIZE * 3) / KiB,
-			lena, ((long) lena * Zone.VERT_SIZE * 3) / KiB
-		);
-
 		// allocate buffers for zones which require upload
 		CountDownLatch latch = new CountDownLatch(1);
-		clientThread.invoke(() -> {
-			for (int x = 0; x < EXTENDED_SCENE_SIZE >> 3; ++x) {
-				for (int z = 0; z < EXTENDED_SCENE_SIZE >> 3; ++z) {
-					Zone zone = newZones[x][z];
-					if (zone.initialized)
-						continue;
-
-					VBO o = null, a = null;
-					int sz = zone.sizeO * Zone.VERT_SIZE * 3;
-					if (sz > 0) {
-						o = new VBO(sz);
-						o.initialize(GL_STATIC_DRAW);
-						o.map();
-					}
-
-					sz = zone.sizeA * Zone.VERT_SIZE * 3;
-					if (sz > 0) {
-						a = new VBO(sz);
-						a.initialize(GL_STATIC_DRAW);
-						a.map();
-					}
-
-					zone.initialize(o, a, eboAlpha);
-					zone.setMetadata(uboWorldViews.getIndex(worldView), nextSceneContext, x, z);
-				}
-			}
-
-			latch.countDown();
-		});
 		try {
 			latch.await();
 		} catch (InterruptedException e) {
@@ -1610,7 +1542,7 @@ public class ZoneRenderer implements Renderer {
 		}
 
 		// Upload new zones
-		sw = Stopwatch.createStarted();
+		Stopwatch sw = Stopwatch.createStarted();
 		for (int x = 0; x < EXTENDED_SCENE_SIZE >> 3; ++x) {
 			for (int z = 0; z < EXTENDED_SCENE_SIZE >> 3; ++z) {
 				Zone zone = newZones[x][z];
@@ -1700,10 +1632,6 @@ public class ZoneRenderer implements Renderer {
 
 		final WorldViewContext ctx = new WorldViewContext(worldView, sceneContext);
 		subs[worldViewId] = ctx;
-
-		for (int x = 0; x < ctx.sizeX; ++x)
-			for (int z = 0; z < ctx.sizeZ; ++z)
-				asyncSceneUploader.estimateZoneSize(sceneContext, ctx.zones[x][z], x, z);
 
 		// allocate buffers for zones which require upload
 		CountDownLatch latch = new CountDownLatch(1);
