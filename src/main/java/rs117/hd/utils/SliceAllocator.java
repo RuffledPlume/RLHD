@@ -42,7 +42,9 @@ public class SliceAllocator<SLICE extends SliceAllocator.Slice> {
 
 	private final boolean validate;
 	private final Allocator<SLICE> allocator;
-	private int totalSize = 0;
+
+	@Getter
+	private int capacity;
 
 	public SliceAllocator(Allocator<SLICE> allocator, int initialSliceCount, int initialSliceSize, boolean validate) {
 		this.allocator = allocator;
@@ -56,7 +58,7 @@ public class SliceAllocator<SLICE extends SliceAllocator.Slice> {
 			freeSlices.add(slice);
 			offset += initialSliceSize;
 		}
-		this.totalSize = offset;
+		this.capacity = offset;
 	}
 
 	public SLICE allocate(int size) {
@@ -89,12 +91,11 @@ public class SliceAllocator<SLICE extends SliceAllocator.Slice> {
 			return allocated;
 		}
 
-		int newOffset = totalSize;
-		SLICE newSlice = allocator.createSlice(newOffset, size);
+		SLICE newSlice = allocator.createSlice(capacity, size);
 		newSlice.owner = this;
 		newSlice.allocate();
 
-		totalSize = newOffset + size;
+		capacity += size;
 		activeSlices.add(newSlice);
 		validateSlices();
 		return newSlice;

@@ -24,7 +24,6 @@
  */
 package rs117.hd.renderer.zone;
 
-import java.nio.IntBuffer;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
@@ -60,7 +59,7 @@ import static rs117.hd.utils.HDUtils.UNDERWATER_HSL;
 import static rs117.hd.utils.MathUtils.*;
 
 @Slf4j
-class SceneUploader {
+public class SceneUploader {
 	private static final int MAX_VERTEX_COUNT = 6500;
 	private static final int[] UP_NORMAL = { 0, -1, 0 };
 
@@ -1502,8 +1501,8 @@ class SceneUploader {
 		int y,
 		int z,
 		int modelOffset,
-		IntBuffer opaqueBuffer,
-		IntBuffer alphaBuffer
+		GpuIntBuffer opaqueBuffer,
+		GpuIntBuffer alphaBuffer
 	) {
 		final int triangleCount = model.getFaceCount();
 		final int vertexCount = model.getVerticesCount();
@@ -1699,21 +1698,22 @@ class SceneUploader {
 				bias == null ? 0 : bias[face] & 0xFF;
 			int packedAlphaBiasHsl = transparency << 24 | depthBias << 16;
 			boolean hasAlpha = material.hasTransparency || transparency != 0;
-			IntBuffer vb = hasAlpha ? alphaBuffer : opaqueBuffer;
+			GpuIntBuffer vb = hasAlpha ? alphaBuffer : opaqueBuffer;
+			vb.ensureCapacity(VAO.VERT_SIZE * 3);
 			GpuIntBuffer.putFloatVertex(
-				vb,
+				vb.getBuffer(),
 				vx1, vy1, vz1, packedAlphaBiasHsl | color1,
 				modelUvs[0], modelUvs[1], modelUvs[2], materialData,
 				modelNormals[0], modelNormals[1], modelNormals[2], 0, modelOffset
 			);
 			GpuIntBuffer.putFloatVertex(
-				vb,
+				vb.getBuffer(),
 				vx2, vy2, vz2, packedAlphaBiasHsl | color2,
 				modelUvs[4], modelUvs[5], modelUvs[6], materialData,
 				modelNormals[3], modelNormals[4], modelNormals[5], 0, modelOffset
 			);
 			GpuIntBuffer.putFloatVertex(
-				vb,
+				vb.getBuffer(),
 				vx3, vy3, vz3, packedAlphaBiasHsl | color3,
 				modelUvs[8], modelUvs[9], modelUvs[10], materialData,
 				modelNormals[6], modelNormals[7], modelNormals[8], 0, modelOffset

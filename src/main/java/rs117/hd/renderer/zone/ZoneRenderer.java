@@ -49,6 +49,7 @@ import rs117.hd.HdPluginConfig;
 import rs117.hd.config.ColorFilter;
 import rs117.hd.config.DynamicLights;
 import rs117.hd.config.ShadowMode;
+import rs117.hd.opengl.buffer.storage.SSBOInstanceData;
 import rs117.hd.opengl.buffer.storage.SSBOModelData;
 import rs117.hd.opengl.buffer.uniforms.UBOLights;
 import rs117.hd.opengl.buffer.uniforms.UBOWorldViews;
@@ -60,6 +61,8 @@ import rs117.hd.overlays.FrameTimer;
 import rs117.hd.overlays.Timer;
 import rs117.hd.renderer.Renderer;
 import rs117.hd.scene.AreaManager;
+import rs117.hd.scene.DynamicObjectManager;
+import rs117.hd.scene.DynamicObjectManager.GPUModelData;
 import rs117.hd.scene.EnvironmentManager;
 import rs117.hd.scene.FishingSpotReplacer;
 import rs117.hd.scene.LightManager;
@@ -89,6 +92,7 @@ import static rs117.hd.HdPlugin.COLOR_FILTER_FADE_DURATION;
 import static rs117.hd.HdPlugin.NEAR_PLANE;
 import static rs117.hd.HdPlugin.ORTHOGRAPHIC_ZOOM;
 import static rs117.hd.HdPlugin.checkGLErrors;
+import static rs117.hd.opengl.GLBinding.BINDING_SSAO_INSTANCE_DATA;
 import static rs117.hd.opengl.GLBinding.BINDING_SSAO_MODEL_DATA;
 import static rs117.hd.opengl.GLBinding.BINDING_UBO_DISPLACEMENT;
 import static rs117.hd.opengl.GLBinding.BINDING_UBO_WORLD_VIEW;
@@ -134,7 +138,10 @@ public class ZoneRenderer implements Renderer {
 	private ProceduralGenerator proceduralGenerator;
 
 	@Inject
-	private SSBOModelData modelData;
+	private SSBOModelData ssboModelData;
+
+	@Inject
+	private SSBOInstanceData ssboInstanceData;
 
 	@Inject
 	private SceneUploader sceneUploader;
@@ -166,6 +173,9 @@ public class ZoneRenderer implements Renderer {
 	@Inject
 	private UBOWorldViews uboWorldViews;
 
+	@Inject
+	private DynamicObjectManager dynamicObjectManager;
+
 	private final Camera sceneCamera = new Camera();
 	private final Camera directionalCamera = new Camera().setOrthographic(true);
 
@@ -176,10 +186,8 @@ public class ZoneRenderer implements Renderer {
 	private final CommandBuffer sceneCmd = new CommandBuffer(renderState);
 	private final CommandBuffer directionalCmd = new CommandBuffer(renderState);
 
-	private VAO.VAOList vaoO;
-	private VAO.VAOList vaoA;
-	private VAO.VAOList vaoPO;
-	private VAO.VAOList vaoPOShadow;
+	private final SlicedVBO opaqueVBO = new SlicedVBO();
+	private final SlicedVBO alphaVBO = new SlicedVBO();
 
 	public static int indirectDrawCmds;
 	public static GpuIntBuffer indirectDrawCmdsStaging;
@@ -235,9 +243,12 @@ public class ZoneRenderer implements Renderer {
 	public void initialize() {
 		initializeBuffers();
 
+		dynamicObjectManager.initialise(opaqueVBO, alphaVBO);
+
 		uboWorldViews.initialize(BINDING_UBO_WORLD_VIEW);
 		plugin.uboDisplacement.initialize(BINDING_UBO_DISPLACEMENT);
-		modelData.initialize(BINDING_SSAO_MODEL_DATA);
+		ssboModelData.initialize(BINDING_SSAO_MODEL_DATA);
+		ssboInstanceData.initialize(BINDING_SSAO_INSTANCE_DATA);
 	}
 
 	@Override
@@ -253,7 +264,8 @@ public class ZoneRenderer implements Renderer {
 		destroyBuffers();
 		uboWorldViews.destroy();
 		plugin.uboDisplacement.destroy();
-		modelData.destroy();
+		ssboModelData.destroy();
+		ssboInstanceData.destroy();
 
 		Zone.freeZones(nextZones);
 		nextZones = null;
@@ -273,7 +285,7 @@ public class ZoneRenderer implements Renderer {
 		includes
 			.define("MAX_SIMULTANEOUS_WORLD_VIEWS", UBOWorldViews.MAX_SIMULTANEOUS_WORLD_VIEWS)
 			.addInclude("WORLD_VIEW_GETTER", () -> plugin.generateGetter("WorldView", UBOWorldViews.MAX_SIMULTANEOUS_WORLD_VIEWS))
-			.addInclude("MODEL_DATA_GETTER", () -> modelData.generateGetter("ModelData", "MODEL_DATA_GETTER"))
+			.addInclude("MODEL_DATA_GETTER", () -> ssboModelData.generateGetter("ModelData", "MODEL_DATA_GETTER"))
 			.addUniformBuffer(uboWorldViews);
 	}
 
@@ -298,18 +310,13 @@ public class ZoneRenderer implements Renderer {
 		indirectDrawCmds = glGenBuffers();
 		indirectDrawCmdsStaging = new GpuIntBuffer();
 
-		vaoO = new VAO.VAOList(eboAlpha);
-		vaoA = new VAO.VAOList(eboAlpha);
-		vaoPO = new VAO.VAOList(eboAlpha);
-		vaoPOShadow = new VAO.VAOList(eboAlpha);
+		opaqueVBO.initialise(eboAlpha);
+		alphaVBO.initialise(eboAlpha);
 	}
 
 	private void destroyBuffers() {
-		vaoO.free();
-		vaoA.free();
-		vaoPO.free();
-		vaoPOShadow.free();
-		vaoO = vaoA = vaoPO = vaoPOShadow = null;
+		opaqueVBO.free();
+		alphaVBO.free();
 
 		if (eboAlpha != 0)
 			glDeleteBuffers(eboAlpha);
@@ -341,11 +348,6 @@ public class ZoneRenderer implements Renderer {
 
 		if (scene.getWorldViewId() == WorldView.TOPLEVEL) {
 			preSceneDrawTopLevel(scene, cameraX, cameraY, cameraZ, cameraPitch, cameraYaw);
-		} else {
-			Scene topLevel = client.getScene();
-			vaoO.addRange(topLevel);
-			vaoPO.addRange(topLevel);
-			vaoPOShadow.addRange(topLevel);
 		}
 	}
 
@@ -767,7 +769,7 @@ public class ZoneRenderer implements Renderer {
 
 		sceneFboValid = true;
 
-		vaoA.unmap();
+		//vaoA.unmap();
 
 		// Scene draw state to apply before all recorded commands
 		if (eboAlphaStaging.position() > 0) {
@@ -783,7 +785,9 @@ public class ZoneRenderer implements Renderer {
 		}
 
 		frameTimer.begin(Timer.CLICKBOX_CHECK);
-		modelData.upload();
+		ssboInstanceData.upload();
+
+		ssboModelData.upload();
 		frameTimer.end(Timer.CLICKBOX_CHECK);
 
 		directionalShadowPass();
@@ -1021,13 +1025,14 @@ public class ZoneRenderer implements Renderer {
 
 		switch (pass) {
 			case DrawCallbacks.PASS_OPAQUE:
-				vaoO.addRange(scene);
-				vaoPO.addRange(scene);
-				vaoPOShadow.addRange(scene);
+				//vaoO.addRange(scene);
+				//vaoPO.addRange(scene);
+				//vaoPOShadow.addRange(scene);
 
 				if (scene.getWorldViewId() == -1) {
 					directionalCmd.SetShader(fastShadowProgram);
 
+					/*
 					// Draw opaque
 					vaoO.unmap();
 					vaoO.drawAll(sceneCmd);
@@ -1051,7 +1056,7 @@ public class ZoneRenderer implements Renderer {
 					vaoPO.drawAll(sceneCmd);
 					sceneCmd.ColorMask(true, true, true, true);
 
-					vaoPO.resetAll();
+					vaoPO.resetAll();*/
 				}
 				break;
 			case DrawCallbacks.PASS_ALPHA:
@@ -1098,7 +1103,8 @@ public class ZoneRenderer implements Renderer {
 		if (modelOverride.hide)
 			return;
 
-		int modelDataOffset = modelData.addDynamicModelData(r, m, modelOverride, x, y, z);
+		SSBOInstanceData.ModelInstanceData data = SSBOInstanceData.INSTANCE_DATA_POOL.obtain();
+		data.set(r, m, modelOverride, x, y, z);
 		int preOrientation = HDUtils.getModelPreOrientation(HDUtils.getObjectConfig(tileObject));
 
 		int offset = ctx.sceneContext.sceneOffset >> 3;
@@ -1109,6 +1115,7 @@ public class ZoneRenderer implements Renderer {
 		int size = m.getFaceCount() * 3 * VAO.VERT_SIZE;
 		boolean hasAlpha = m.getFaceTransparencies() != null;
 		if (hasAlpha) {
+			/*
 			VAO o = vaoO.get(size, ctx.vboM);
 			VAO a = vaoA.get(size, ctx.vboM);
 			int start = a.vbo.vb.position();
@@ -1117,10 +1124,27 @@ public class ZoneRenderer implements Renderer {
 			if (end > start) {
 				// renderable modelheight is typically not set here because DynamicObject doesn't compute it on the returned model
 				zone.addTempAlphaModel(a.vao, start, end, tileObject.getPlane(), x & 1023, y, z & 1023);
-			}
+			}*/
 		} else {
+			GPUModelData gpuModelData = dynamicObjectManager.getOrUploadModel(r, m, modelOverride);
+
+			// TOOD: Riiiiiiiight, now I need to figure out how to draw it
+			if(gpuModelData.opaqueSlice != null) {
+				//sceneCmd.BindVertexArray(gpuModelData.opaqueSlice.getVAO());
+				//sceneCmd.DrawArrays(GL_TRIANGLES, gpuModelData.opaqueSlice.getOffset() * VAO.VERT_SIZE, gpuModelData.opaqueSlice.getSize() * VAO.VERT_SIZE);
+			}
+
+			// URRRRRRGH
+			//dynamicObjectManager.getOrUploadModel(m, modelOverride);
+
+
+
+			//ssboInstanceData.obtainInstance(model).instances.add(data);
+
+			// TODO: We need to push some data to the Instance UBO
+			/*
 			VAO o = vaoO.get(size, ctx.vboM);
-			sceneUploader.uploadTempModel(m, modelOverride, preOrientation, orient, x, y, z, modelDataOffset, o.vbo.vb, o.vbo.vb);
+			sceneUploader.uploadTempModel(m, modelOverride, preOrientation, orient, x, y, z, modelDataOffset, o.vbo.vb, o.vbo.vb);*/
 		}
 	}
 
@@ -1150,9 +1174,10 @@ public class ZoneRenderer implements Renderer {
 		if (modelOverride.hide)
 			return;
 
-		int modelDataOffset = modelData.addDynamicModelData(renderable, m, modelOverride, x, y, z);
-		int preOrientation = HDUtils.getModelPreOrientation(gameObject.getConfig());
+		//int modelDataOffset = modelData.addDynamicModelData(renderable, m, modelOverride, x, y, z);
+		//int preOrientation = HDUtils.getModelPreOrientation(gameObject.getConfig());
 
+		/*
 		int size = m.getFaceCount() * 3 * VAO.VERT_SIZE;
 		if (renderable instanceof Player || m.getFaceTransparencies() != null) {
 			int offset = ctx.sceneContext.sceneOffset >> 3;
@@ -1192,7 +1217,7 @@ public class ZoneRenderer implements Renderer {
 						end,
 						gameObject.getPlane(),
 						x & 1023,
-						y - renderable.getModelHeight() /* to render players over locs */,
+						y - renderable.getModelHeight() /* to render players over locs
 						z & 1023
 					);
 				}
@@ -1223,7 +1248,7 @@ public class ZoneRenderer implements Renderer {
 				o.vbo.vb,
 				o.vbo.vb
 			);
-		}
+		}*/
 	}
 
 	@Override
@@ -1280,7 +1305,7 @@ public class ZoneRenderer implements Renderer {
 					a.map();
 				}
 
-				zone.initialize(modelData, o, a, eboAlpha);
+				zone.initialize(ssboModelData, o, a, eboAlpha);
 				zone.setMetadata(uboWorldViews.getIndex(wv), ctx.sceneContext, x, z);
 
 				sceneUploader.uploadZone(ctx.sceneContext, zone, x, z);
@@ -1368,8 +1393,6 @@ public class ZoneRenderer implements Renderer {
 		}
 
 		glBindFramebuffer(GL_FRAMEBUFFER, plugin.awtContext.getFramebuffer(false));
-
-		modelData.freeDynamicModelData();
 
 		frameTimer.end(Timer.DRAW_FRAME);
 		frameTimer.end(Timer.RENDER_FRAME);
@@ -1615,7 +1638,7 @@ public class ZoneRenderer implements Renderer {
 						a.map();
 					}
 
-					zone.initialize(modelData, o, a, eboAlpha);
+					zone.initialize(ssboModelData, o, a, eboAlpha);
 					zone.setMetadata(uboWorldViews.getIndex(worldView), nextSceneContext, x, z);
 				}
 			}
@@ -1749,7 +1772,7 @@ public class ZoneRenderer implements Renderer {
 						a.map();
 					}
 
-					zone.initialize(modelData, o, a, eboAlpha);
+					zone.initialize(ssboModelData, o, a, eboAlpha);
 					zone.setMetadata(uboWorldViews.getIndex(worldView), ctx.sceneContext, x, z);
 				}
 			}
@@ -1863,7 +1886,7 @@ public class ZoneRenderer implements Renderer {
 			}
 		}
 
-		modelData.defrag();
+		ssboModelData.defrag();
 
 		checkGLErrors();
 	}

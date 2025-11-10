@@ -35,7 +35,8 @@ public enum GLBinding {
 	BINDING_UBO_WORLD_VIEW(GLBindingType.BUFFER),
 
 	// Storage Buffer bindings
-	BINDING_SSAO_MODEL_DATA(GLBindingType.STORAGE_BUFFER);
+	BINDING_SSAO_MODEL_DATA(GLBindingType.STORAGE_BUFFER),
+	BINDING_SSAO_INSTANCE_DATA(GLBindingType.STORAGE_BUFFER);
 
 	private static final int MAX_TEXTURE_UNITS;
 	private static final int MAX_IMAGE_UNITS;

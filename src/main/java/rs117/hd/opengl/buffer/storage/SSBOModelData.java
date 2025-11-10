@@ -32,45 +32,10 @@ public class SSBOModelData extends ShaderStructuredBuffer {
 	private final List<ModelData> modelDataProperties = new ArrayList<>();
 	private final SliceAllocator<Slice> allocator = new SliceAllocator<>(Slice::new, 1, 100, false);
 
-	// Dynamic Model Data
-	private final List<Slice> frameModelDataSlices = new ArrayList<>();
-	private int maxDynamicModelCount = 100;
-	private int frameDynamicModelCount;
-
 	public Slice obtainSlice(int size) {
 		Slice slice = allocator.allocate(size);
 		upload();
 		return slice;
-	}
-
-	public int addDynamicModelData(Renderable renderable, Model model, ModelOverride override, int x, int y, int z) {
-		ModelData dynamicModelData = null;
-		if(!frameModelDataSlices.isEmpty()) {
-			Slice currentSlice = frameModelDataSlices.get(frameModelDataSlices.size() - 1);
-			if(currentSlice.hasSpace()) {
-				dynamicModelData = currentSlice.add();
-			}
-		}
-
-		if(dynamicModelData == null) {
-			Slice newSlice = obtainSlice(maxDynamicModelCount);
-			frameModelDataSlices.add(newSlice);
-			dynamicModelData = newSlice.add();
-		}
-
-		frameDynamicModelCount++;
-		dynamicModelData.set(renderable, model, override, x, y, z);
-		return dynamicModelData.modelOffset;
-	}
-
-	public void freeDynamicModelData() {
-		for(var slice : frameModelDataSlices)
-			slice.free();
-		frameModelDataSlices.clear();
-
-		if(frameDynamicModelCount > maxDynamicModelCount)
-			maxDynamicModelCount = frameDynamicModelCount;
-		frameDynamicModelCount = 0;
 	}
 
 	public void defrag() { allocator.defrag(); }
