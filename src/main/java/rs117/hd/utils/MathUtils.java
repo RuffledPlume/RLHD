@@ -718,6 +718,29 @@ public class MathUtils {
 		return (float) Math.tan(rad);
 	}
 
+	public static float[] barycentric(float[] out, float[] v0, float[] v1, float[] v2, float[] p) {
+		float[] a = subtract(v1, v0);
+		float[] b = subtract(v2, v0);
+		float[] c = subtract(p, v0);
+
+		float d00 = dot(a, a);
+		float d01 = dot(a, b);
+		float d11 = dot(b, b);
+		float d20 = dot(c, a);
+		float d21 = dot(c, b);
+
+		float denominator = d00 * d11 - d01 * d01;
+		out[1] = (d11 * d20 - d01 * d21) / denominator; // V
+		out[2] = (d00 * d21 - d01 * d20) / denominator; // W
+		out[0] = 1.0f - out[1] - out[2];			 	// U
+
+		return out;
+	}
+
+	public static float[] barycentric(float[] v0, float[] v1, float[] v2, float[] p) {
+		return barycentric(new float[3], v0, v1, v2, p);
+	}
+
 	public static int float16(float value) {
 		if (value == 0)
 			return 0;
