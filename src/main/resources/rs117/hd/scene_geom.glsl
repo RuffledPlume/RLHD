@@ -44,9 +44,9 @@ in int gMaterialData[3];
 in int gTerrainData[3];
 in int gWorldViewId[3];
 
-flat out ivec3 vAlphaBiasHsl;
-flat out ivec3 vMaterialData;
-flat out ivec3 vTerrainData;
+flat out ivec3 fAlphaBiasHsl;
+flat out ivec3 fMaterialData;
+flat out ivec3 fTerrainData;
 flat out vec3 T;
 flat out vec3 B;
 

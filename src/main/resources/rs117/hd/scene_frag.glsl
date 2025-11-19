@@ -40,9 +40,9 @@ uniform usampler2DArray tiledLightingArray;
 
 // general HD settings
 
-flat in ivec3 vAlphaBiasHsl;
-flat in ivec3 vMaterialData;
-flat in ivec3 vTerrainData;
+flat in ivec3 fAlphaBiasHsl;
+flat in ivec3 fMaterialData;
+flat in ivec3 fTerrainData;
 flat in vec3 T;
 flat in vec3 B;
 
@@ -79,20 +79,20 @@ void main() {
     // View & light directions are from the fragment to the camera/light
     vec3 viewDir = normalize(cameraPos - IN.position);
 
-    Material material1 = getMaterial(vMaterialData[0] >> MATERIAL_INDEX_SHIFT & MATERIAL_INDEX_MASK);
-    Material material2 = getMaterial(vMaterialData[1] >> MATERIAL_INDEX_SHIFT & MATERIAL_INDEX_MASK);
-    Material material3 = getMaterial(vMaterialData[2] >> MATERIAL_INDEX_SHIFT & MATERIAL_INDEX_MASK);
+    Material material1 = getMaterial(fMaterialData[0] >> MATERIAL_INDEX_SHIFT & MATERIAL_INDEX_MASK);
+    Material material2 = getMaterial(fMaterialData[1] >> MATERIAL_INDEX_SHIFT & MATERIAL_INDEX_MASK);
+    Material material3 = getMaterial(fMaterialData[2] >> MATERIAL_INDEX_SHIFT & MATERIAL_INDEX_MASK);
 
     // Water data
-    bool isTerrain = (vTerrainData[0] & 1) != 0; // 1 = 0b1
-    int waterDepth1 = vTerrainData[0] >> 11 & 0xFFF;
-    int waterDepth2 = vTerrainData[1] >> 11 & 0xFFF;
-    int waterDepth3 = vTerrainData[2] >> 11 & 0xFFF;
+    bool isTerrain = (fTerrainData[0] & 1) != 0; // 1 = 0b1
+    int waterDepth1 = fTerrainData[0] >> 11 & 0xFFF;
+    int waterDepth2 = fTerrainData[1] >> 11 & 0xFFF;
+    int waterDepth3 = fTerrainData[2] >> 11 & 0xFFF;
     float waterDepth =
         waterDepth1 * IN.texBlend.x +
         waterDepth2 * IN.texBlend.y +
         waterDepth3 * IN.texBlend.z;
-    int waterTypeIndex = isTerrain ? vTerrainData[0] >> 3 & 0xFF : 0;
+    int waterTypeIndex = isTerrain ? fTerrainData[0] >> 3 & 0xFF : 0;
     WaterType waterType = getWaterType(waterTypeIndex);
 
     // set initial texture map ids
@@ -117,7 +117,7 @@ void main() {
         // Vanilla tree textures rely on UVs being clamped horizontally, which HD doesn't do at the texture level.
         // Instead we manually clamp vanilla textures with transparency here. Including the transparency check
         // allows texture wrapping to work correctly for the mirror shield.
-        if ((vMaterialData[0] >> MATERIAL_FLAG_VANILLA_UVS & 1) == 1 && getMaterialHasTransparency(material1))
+        if ((fMaterialData[0] >> MATERIAL_FLAG_VANILLA_UVS & 1) == 1 && getMaterialHasTransparency(material1))
             blendedUv.x = clamp(blendedUv.x, 0, .984375);
 
         vec2 uv1 = blendedUv;
@@ -176,9 +176,9 @@ void main() {
             fragPos += TBN * fragDelta;
         #endif
 
-        vec3 hsl1 = unpackRawHsl(vAlphaBiasHsl[0]);
-        vec3 hsl2 = unpackRawHsl(vAlphaBiasHsl[1]);
-        vec3 hsl3 = unpackRawHsl(vAlphaBiasHsl[2]);
+        vec3 hsl1 = unpackRawHsl(fAlphaBiasHsl[0]);
+        vec3 hsl2 = unpackRawHsl(fAlphaBiasHsl[1]);
+        vec3 hsl3 = unpackRawHsl(fAlphaBiasHsl[2]);
 
 /*
         { TODO: FIX ME :)
@@ -190,9 +190,9 @@ void main() {
         }*/
 
         // get vertex colors
-        vec4 baseColor1 = vec4(convertHsl(hsl1), 1 - float(vAlphaBiasHsl[0] >> 24 & 0xff) / 255.);
-        vec4 baseColor2 = vec4(convertHsl(hsl2), 1 - float(vAlphaBiasHsl[1] >> 24 & 0xff) / 255.);
-        vec4 baseColor3 = vec4(convertHsl(hsl3), 1 - float(vAlphaBiasHsl[2] >> 24 & 0xff) / 255.);
+        vec4 baseColor1 = vec4(convertHsl(hsl1), 1 - float(fAlphaBiasHsl[0] >> 24 & 0xff) / 255.);
+        vec4 baseColor2 = vec4(convertHsl(hsl2), 1 - float(fAlphaBiasHsl[1] >> 24 & 0xff) / 255.);
+        vec4 baseColor3 = vec4(convertHsl(hsl3), 1 - float(fAlphaBiasHsl[2] >> 24 & 0xff) / 255.);
 
         // Convert to linear RGB
         baseColor1.rgb = srgbToLinear(hslToSrgb(baseColor1.xyz));
@@ -217,9 +217,9 @@ void main() {
         texColor3.rgb *= material3.brightness;
 
         ivec3 isOverlay = ivec3(
-            vMaterialData[0] >> MATERIAL_FLAG_IS_OVERLAY & 1,
-            vMaterialData[1] >> MATERIAL_FLAG_IS_OVERLAY & 1,
-            vMaterialData[2] >> MATERIAL_FLAG_IS_OVERLAY & 1
+            fMaterialData[0] >> MATERIAL_FLAG_IS_OVERLAY & 1,
+            fMaterialData[1] >> MATERIAL_FLAG_IS_OVERLAY & 1,
+            fMaterialData[2] >> MATERIAL_FLAG_IS_OVERLAY & 1
         );
         int overlayCount = isOverlay[0] + isOverlay[1] + isOverlay[2];
         ivec3 isUnderlay = ivec3(1) - isOverlay;
@@ -287,7 +287,7 @@ void main() {
 
         // normals
         vec3 normals;
-        if ((vMaterialData[0] >> MATERIAL_FLAG_UPWARDS_NORMALS & 1) == 1) {
+        if ((fMaterialData[0] >> MATERIAL_FLAG_UPWARDS_NORMALS & 1) == 1) {
             normals = vec3(0, -1, 0);
         } else {
             vec3 n1 = sampleNormalMap(material1, uv1, TBN);
@@ -305,7 +305,7 @@ void main() {
         #endif
 
         float shadow = 0;
-        if ((vMaterialData[0] >> MATERIAL_FLAG_DISABLE_SHADOW_RECEIVING & 1) == 0)
+        if ((fMaterialData[0] >> MATERIAL_FLAG_DISABLE_SHADOW_RECEIVING & 1) == 0)
             shadow = sampleShadowMap(fragPos, vec2(0), lightDotNormals);
         shadow = max(shadow, selfShadowing);
         float inverseShadow = 1 - shadow;
