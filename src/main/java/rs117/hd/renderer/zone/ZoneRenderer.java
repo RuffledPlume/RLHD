@@ -1949,32 +1949,34 @@ public class ZoneRenderer implements Renderer {
 		if(zx < 0 || zx >= NUM_ZONES || zz < 0 || zz >= NUM_ZONES)
 			return REUSE_STATE_NONE;
 		Zone zone = zones[zx][zz];
+
 		if (!zone.initialized)
 			return REUSE_STATE_NONE;
 		if (zone.sizeO == 0 && zone.sizeA == 0)
 			return REUSE_STATE_NONE;
-		if(zone.dirty)
-			return REUSE_STATE_PARTIAL;
-		if(zone.hasWater)
-			return REUSE_STATE_PARTIAL;
 
 		for (int x = zx - 1; x <= zx + 1; ++x) {
 			if (x < 0 || x >= NUM_ZONES)
-				return REUSE_STATE_PARTIAL;
+				return REUSE_STATE_NONE;
 			for (int z = zz - 1; z <= zz + 1; ++z) {
 				if (z < 0 || z >= NUM_ZONES)
-					return REUSE_STATE_PARTIAL;
+					return REUSE_STATE_NONE;
 
 				if(x == zx && z == zz)
 					continue;
 
 				Zone neighbourZone = zones[zx][zz];
 				if (!neighbourZone.initialized)
-					return REUSE_STATE_PARTIAL;
+					return REUSE_STATE_NONE;
 				if (neighbourZone.sizeO == 0 && zone.sizeA == 0)
-					return REUSE_STATE_PARTIAL;
+					return REUSE_STATE_NONE;
 			}
 		}
+
+		if(zone.dirty)
+			return REUSE_STATE_PARTIAL;
+		if(zone.hasWater)
+			return REUSE_STATE_PARTIAL;
 
 		return REUSE_STATE_FULLY;
 	}
