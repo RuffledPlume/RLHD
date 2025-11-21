@@ -61,6 +61,7 @@ class Zone {
 	boolean initialized; // whether the zone vao and vbos are ready
 	boolean uploaded; // whether the zone has been uploaded or its deferred
 	boolean isRebuilding; // whether the zone is currently being rebuilt
+	boolean needsTerrainGen; // whether this zone needs terrain proc generation done
 	boolean cull; // whether the zone is queued for deletion
 	boolean dirty; // whether the zone has temporary modifications
 	boolean metadataDirty; // whether the zone needs metadata updating

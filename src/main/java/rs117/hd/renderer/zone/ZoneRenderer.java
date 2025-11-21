@@ -1444,7 +1444,10 @@ public class ZoneRenderer implements Renderer {
 				Zone newZone = new Zone();
 				ctx.newZones.add(newZone);
 
-				proceduralGenerator.generateTerrainDataForZone(ctx.sceneContext, x, z);
+				if(ctx.zones[x][z] != null && ctx.zones[x][z].needsTerrainGen) {
+					ctx.zones[x][z].needsTerrainGen = false;
+					proceduralGenerator.generateTerrainDataForZone(ctx.sceneContext, x, z);
+				}
 				uploader.estimateZoneSize(ctx.sceneContext, newZone, x, z);
 			}
 
@@ -1874,6 +1877,7 @@ public class ZoneRenderer implements Renderer {
 							nextSceneContext.totalNewZones++;
 						} else {
 							calculateDeferDelay(nextSceneContext, zone, x, z, nextPlayerPos);
+							zone.needsTerrainGen = true;
 							nextSceneContext.totalDeferred++;
 						}
 					} else {
@@ -1957,19 +1961,19 @@ public class ZoneRenderer implements Renderer {
 
 		for (int x = zx - 1; x <= zx + 1; ++x) {
 			if (x < 0 || x >= NUM_ZONES)
-				return REUSE_STATE_NONE;
+				return REUSE_STATE_PARTIAL;
 			for (int z = zz - 1; z <= zz + 1; ++z) {
 				if (z < 0 || z >= NUM_ZONES)
-					return REUSE_STATE_NONE;
+					return REUSE_STATE_PARTIAL;
 
 				if(x == zx && z == zz)
 					continue;
 
 				Zone neighbourZone = zones[zx][zz];
 				if (!neighbourZone.initialized)
-					return REUSE_STATE_NONE;
+					return REUSE_STATE_PARTIAL;
 				if (neighbourZone.sizeO == 0 && zone.sizeA == 0)
-					return REUSE_STATE_NONE;
+					return REUSE_STATE_PARTIAL;
 			}
 		}
 
