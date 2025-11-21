@@ -1806,7 +1806,6 @@ public class ZoneRenderer implements Renderer {
 							assert old.sizeO > 0 || old.sizeA > 0;
 							assert old.cull;
 
-
 							if (old.dirty || old.hasWater) {
 								if(nextPlayerPos == null)
 									continue;
