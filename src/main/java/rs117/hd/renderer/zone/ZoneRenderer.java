@@ -114,6 +114,10 @@ public class ZoneRenderer implements Renderer {
 	private static final int ZONE_DEFER_BLEND_RANGE = 250 * LOCAL_TILE_SIZE;
 	private static final float ZONE_DEFER_DELAY = 2.0f;
 
+	private static final int REUSE_STATE_NONE = -1;
+	private static final int REUSE_STATE_PARTIAL = 0;
+	private static final int REUSE_STATE_FULLY = 1;
+
 	@Inject
 	private Client client;
 
@@ -1778,46 +1782,48 @@ public class ZoneRenderer implements Renderer {
 
 						// Reused the old zone if it is also in the new scene, except for the edges, to work around
 						// tile blending, (edge) shadows, sharelight, etc.
-						if (canReuse(ctx.zones, ox, oz)) {
-							if (scene.isInstance()) {
-								// Convert from modified chunk coordinates to Jagex chunk coordinates
-								int jx = x - nextSceneContext.sceneOffset / 8;
-								int jz = z - nextSceneContext.sceneOffset / 8;
-								int jox = ox - nextSceneContext.sceneOffset / 8;
-								int joz = oz - nextSceneContext.sceneOffset / 8;
-								// Check Jagex chunk coordinates are within the Jagex scene
-								if (jx >= 0 && jx < SCENE_SIZE / 8 && jz >= 0 && jz < SCENE_SIZE / 8) {
-									if (jox >= 0 && jox < SCENE_SIZE / 8 && joz >= 0 && joz < SCENE_SIZE / 8) {
-										for (int level = 0; level < 4; ++level) {
-											int prevTemplate = prevTemplates[level][jox][joz];
-											int curTemplate = curTemplates[level][jx][jz];
-											if (prevTemplate != curTemplate) {
-												// Does this ever happen?
-												log.warn("Instance template reuse mismatch! prev={} cur={}", prevTemplate, curTemplate);
-												continue next;
-											}
+						int reuseState = canReuse(ctx.zones, ox, oz);
+						if (reuseState == REUSE_STATE_NONE)
+							continue;
+
+						if (scene.isInstance()) {
+							// Convert from modified chunk coordinates to Jagex chunk coordinates
+							int jx = x - nextSceneContext.sceneOffset / 8;
+							int jz = z - nextSceneContext.sceneOffset / 8;
+							int jox = ox - nextSceneContext.sceneOffset / 8;
+							int joz = oz - nextSceneContext.sceneOffset / 8;
+							// Check Jagex chunk coordinates are within the Jagex scene
+							if (jx >= 0 && jx < SCENE_SIZE / 8 && jz >= 0 && jz < SCENE_SIZE / 8) {
+								if (jox >= 0 && jox < SCENE_SIZE / 8 && joz >= 0 && joz < SCENE_SIZE / 8) {
+									for (int level = 0; level < 4; ++level) {
+										int prevTemplate = prevTemplates[level][jox][joz];
+										int curTemplate = curTemplates[level][jx][jz];
+										if (prevTemplate != curTemplate) {
+											// Does this ever happen?
+											log.warn("Instance template reuse mismatch! prev={} cur={}", prevTemplate, curTemplate);
+											continue next;
 										}
 									}
 								}
 							}
-
-							Zone old = ctx.zones[ox][oz];
-							assert old.initialized;
-							assert old.sizeO > 0 || old.sizeA > 0;
-							assert old.cull;
-
-							if (old.dirty || old.hasWater) {
-								if(nextPlayerPos == null)
-									continue;
-								calculateDeferDelay(nextSceneContext, old, x, z, nextPlayerPos);
-								old.invalidate = true;
-							}
-
-							old.cull = false;
-							old.metadataDirty = true;
-
-							nextZones[x][z] = old;
 						}
+
+						Zone old = ctx.zones[ox][oz];
+						assert old.initialized;
+						assert old.sizeO > 0 || old.sizeA > 0;
+						assert old.cull;
+
+						if (reuseState == REUSE_STATE_PARTIAL) {
+							if(nextPlayerPos == null)
+								continue;
+							calculateDeferDelay(nextSceneContext, old, x, z, nextPlayerPos);
+							old.invalidate = true;
+						}
+
+						old.cull = false;
+						old.metadataDirty = true;
+
+						nextZones[x][z] = old;
 					}
 				}
 			} else {
@@ -1941,23 +1947,28 @@ public class ZoneRenderer implements Renderer {
 		}
 	}
 
-	private static boolean canReuse(Zone[][] zones, int zx, int zz) {
-		// For tile blending, sharelight, and shadows to work correctly, the zones surrounding
-		// the zone must be valid.
+	private static int canReuse(Zone[][] zones, int zx, int zz) {
+		if (zx < 0 || zx >= NUM_ZONES || zz < 0 || zz >= NUM_ZONES)
+			return REUSE_STATE_NONE;
+
 		for (int x = zx - 1; x <= zx + 1; ++x) {
 			if (x < 0 || x >= NUM_ZONES)
-				return false;
+				continue;
 			for (int z = zz - 1; z <= zz + 1; ++z) {
 				if (z < 0 || z >= NUM_ZONES)
-					return false;
+					continue;
 				Zone zone = zones[x][z];
 				if (!zone.initialized)
-					return false;
+					return REUSE_STATE_NONE;
 				if (zone.sizeO == 0 && zone.sizeA == 0)
-					return false;
+					return REUSE_STATE_NONE;
+				if(zone.dirty)
+					return REUSE_STATE_PARTIAL;
+				if(zone.hasWater)
+					return REUSE_STATE_PARTIAL;
 			}
 		}
-		return true;
+		return REUSE_STATE_FULLY;
 	}
 
 	private void loadSubScene(WorldView worldView, Scene scene) {
