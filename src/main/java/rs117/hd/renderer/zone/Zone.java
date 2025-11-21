@@ -56,7 +56,11 @@ class Zone {
 	@Nullable
 	VBO vboO, vboA, vboM;
 
+
+	float defferDelay = -1.0f; // a artificial delay to wait before loading the zone
 	boolean initialized; // whether the zone vao and vbos are ready
+	boolean uploaded; // whether the zone has been uploaded or its deferred
+	boolean isRebuilding; // whether the zone is currently being rebuilt
 	boolean cull; // whether the zone is queued for deletion
 	boolean dirty; // whether the zone has temporary modifications
 	boolean metadataDirty; // whether the zone needs metadata updating

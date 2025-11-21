@@ -45,6 +45,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import javax.annotation.Nullable;
 import javax.inject.Inject;
 import javax.swing.SwingUtilities;
@@ -195,6 +197,16 @@ public class HdPlugin extends Plugin {
 		GL_RGBA8,
 		GL_RGBA // should be guaranteed
 	};
+
+	private static int THREAD_NO = 0;
+	public static final int THREAD_COUNT = max(1, Runtime.getRuntime().availableProcessors() - 1);
+	public static final ExecutorService THREAD_POOL = Executors.newFixedThreadPool(THREAD_COUNT,
+		(runnable) -> {
+			Thread newThread = new Thread(runnable);
+			newThread.setName("117 HD Thread " + THREAD_NO++);
+			newThread.setPriority(Thread.MAX_PRIORITY);
+			return newThread;
+		});
 
 	@Getter
 	private Gson gson;

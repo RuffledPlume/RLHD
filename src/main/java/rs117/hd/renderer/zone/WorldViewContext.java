@@ -1,12 +1,16 @@
 package rs117.hd.renderer.zone;
 
+import java.util.ArrayList;
+import java.util.List;
 import javax.annotation.Nullable;
+import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import rs117.hd.opengl.uniforms.UBOWorldViews;
 import rs117.hd.opengl.uniforms.UBOWorldViews.WorldViewStruct;
 
 import static org.lwjgl.opengl.GL33C.*;
 
+@Slf4j
 public class WorldViewContext {
 	final int worldViewId;
 	final int sizeX, sizeZ;
@@ -15,6 +19,8 @@ public class WorldViewContext {
 	ZoneSceneContext sceneContext;
 	Zone[][] zones;
 	VBO vboM;
+	List<Integer> rebuildZones = new ArrayList<>();
+	List<Zone> newZones = new ArrayList<>();
 	boolean isLoading = true;
 
 	WorldViewContext(@Nullable WorldView worldView, @Nullable ZoneSceneContext sceneContext, UBOWorldViews uboWorldViews) {
