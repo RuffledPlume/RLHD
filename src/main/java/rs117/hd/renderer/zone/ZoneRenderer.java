@@ -1780,8 +1780,6 @@ public class ZoneRenderer implements Renderer {
 						int ox = x + dx;
 						int oz = z + dy;
 
-						// Reused the old zone if it is also in the new scene, except for the edges, to work around
-						// tile blending, (edge) shadows, sharelight, etc.
 						int reuseState = canReuse(ctx.zones, ox, oz);
 						if (reuseState == REUSE_STATE_NONE)
 							continue;
@@ -1948,26 +1946,17 @@ public class ZoneRenderer implements Renderer {
 	}
 
 	private static int canReuse(Zone[][] zones, int zx, int zz) {
-		if (zx < 0 || zx >= NUM_ZONES || zz < 0 || zz >= NUM_ZONES)
+		if(zx < 0 || zx >= NUM_ZONES || zz < 0 || zz >= NUM_ZONES)
 			return REUSE_STATE_NONE;
-
-		for (int x = zx - 1; x <= zx + 1; ++x) {
-			if (x < 0 || x >= NUM_ZONES)
-				continue;
-			for (int z = zz - 1; z <= zz + 1; ++z) {
-				if (z < 0 || z >= NUM_ZONES)
-					continue;
-				Zone zone = zones[x][z];
-				if (!zone.initialized)
-					return REUSE_STATE_NONE;
-				if (zone.sizeO == 0 && zone.sizeA == 0)
-					return REUSE_STATE_NONE;
-				if(zone.dirty)
-					return REUSE_STATE_PARTIAL;
-				if(zone.hasWater)
-					return REUSE_STATE_PARTIAL;
-			}
-		}
+		Zone zone = zones[zx][zz];
+		if (!zone.initialized)
+			return REUSE_STATE_NONE;
+		if (zone.sizeO == 0 && zone.sizeA == 0)
+			return REUSE_STATE_NONE;
+		if(zone.dirty)
+			return REUSE_STATE_PARTIAL;
+		if(zone.hasWater)
+			return REUSE_STATE_PARTIAL;
 		return REUSE_STATE_FULLY;
 	}
 
