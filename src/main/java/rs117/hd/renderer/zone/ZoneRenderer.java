@@ -140,6 +140,9 @@ public class ZoneRenderer implements Renderer {
 	private ShadowShaderProgram.Detailed detailedShadowProgram;
 
 	@Inject
+	private ZoneStreamingManager zoneStreamingManager;
+
+	@Inject
 	public UBOWorldViews uboWorldViews;
 
 	private final Camera sceneCamera = new Camera();
@@ -186,11 +189,13 @@ public class ZoneRenderer implements Renderer {
 		uboWorldViews.initialize(UNIFORM_BLOCK_WORLD_VIEWS);
 		initializeBuffers();
 		sceneManager.initialize(this, uboWorldViews);
+		zoneStreamingManager.initialize();
 	}
 
 	@Override
 	public void destroy() {
 		sceneManager.shutdown();
+		zoneStreamingManager.shutdown();
 		destroyBuffers();
 		uboWorldViews.destroy();
 	}
@@ -265,12 +270,13 @@ public class ZoneRenderer implements Renderer {
 		float cameraX, float cameraY, float cameraZ, float cameraPitch, float cameraYaw,
 		int minLevel, int level, int maxLevel, Set<Integer> hideRoofIds
 	) {
-		processPendingClientCallbacks(false);
-
 		this.minLevel = minLevel;
 		this.level = level;
 		this.maxLevel = maxLevel;
 		this.hideRoofIds = hideRoofIds;
+
+		//zoneStreamingManager.resumeStreaming(); // TODO: This might be able to moved earlier?
+		processPendingClientCallbacks(false);
 
 		WorldViewContext ctx = sceneManager.context(scene);
 		if (ctx != null && ctx.uboWorldViewStruct != null)
@@ -1254,6 +1260,7 @@ public class ZoneRenderer implements Renderer {
 		checkGLErrors();
 
 		processPendingClientCallbacks(true);
+		//zoneStreamingManager.pauseStreaming();
 	}
 
 	@Subscribe

@@ -1134,8 +1134,8 @@ public class HdPlugin extends Plugin {
 		texTiledLighting = 0;
 	}
 
-	public CountDownLatch queueClientCallback(boolean highPriority, boolean endOfFrame, Runnable callback) {
-		CallbackPair pair = new CallbackPair(callback, endOfFrame);
+	public CountDownLatch queueClientCallback(boolean highPriority, Runnable callback) {
+		CallbackPair pair = new CallbackPair(callback, highPriority);
 
 		if(highPriority) {
 			highPriorityClientCallbacks.add(pair);
@@ -1155,9 +1155,9 @@ public class HdPlugin extends Plugin {
 	}
 
 	@SneakyThrows
-	public void queueClientCallbackBlock(boolean highPriority, boolean endOfFrame, Runnable callback) {
+	public void queueClientCallbackBlock(boolean highPriority, Runnable callback) {
 		assert !client.isClientThread();
-		queueClientCallback(highPriority, endOfFrame, callback).await();
+		queueClientCallback(highPriority, callback).await();
 	}
 
 	private static void flushClientCallbackQueue(ConcurrentLinkedQueue<CallbackPair> callbacks, boolean IsEndOfFrame, long timeoutNs) {
@@ -1191,7 +1191,7 @@ public class HdPlugin extends Plugin {
 			return;
 
 		flushClientCallbackQueue(highPriorityClientCallbacks, isEndOfFrame, -1);
-		flushClientCallbackQueue(clientCallbacks, isEndOfFrame, 1500000); // Timeout after 1.5 ms
+		flushClientCallbackQueue(clientCallbacks, isEndOfFrame, 100000); // Timeout after 1 ms
 	}
 
 	public void updateSceneFbo() {

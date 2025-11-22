@@ -26,6 +26,7 @@ package rs117.hd.scene;
 
 import java.util.Arrays;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Future;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
@@ -87,6 +88,8 @@ public class ProceduralGenerator {
 	@Inject
 	private WaterTypeManager waterTypeManager;
 
+	// TODO: Move this to be private & add a wait function in here
+	public Future<?> asyncProcGenTask;
 
 	public void generateSceneData(SceneContext sceneContext)
 	{
