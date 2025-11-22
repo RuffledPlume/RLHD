@@ -81,7 +81,7 @@ public class SceneManager {
 	@Inject
 	private FishingSpotReplacer fishingSpotReplacer;
 
-	@Inject
+	private ZoneRenderer zoneRenderer;
 	private UBOWorldViews uboWorldViews;
 
 	private final WorldViewContext root = new WorldViewContext(null, null, null);
@@ -160,7 +160,10 @@ public class SceneManager {
 		return root;
 	}
 
-	public void initialize() {
+	public void initialize(ZoneRenderer renderer, UBOWorldViews uboWorldViews) {
+		this.zoneRenderer = renderer;
+		this.uboWorldViews = uboWorldViews;
+
 		rootAsyncSceneUploader.init();
 		subSceneAsyncSceneUploader.init();
 		rebuildAsyncSceneUploader.init();
@@ -185,6 +188,9 @@ public class SceneManager {
 		if (nextSceneContext != null)
 			nextSceneContext.destroy();
 		nextSceneContext = null;
+
+		zoneRenderer = null;
+		uboWorldViews = null;
 	}
 
 	public void update(WorldView wv) {
