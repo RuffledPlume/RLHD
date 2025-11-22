@@ -44,13 +44,18 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import javax.annotation.Nullable;
 import javax.inject.Inject;
 import javax.swing.SwingUtilities;
 import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.api.events.*;
@@ -404,6 +409,14 @@ public class HdPlugin extends Plugin {
 	public boolean isInHouse;
 	public boolean justChangedArea;
 	public Scene skipScene;
+
+	@RequiredArgsConstructor
+	static class CallbackPair {
+		final CountDownLatch latch = new CountDownLatch(1);
+		final Runnable callback;
+	}
+
+	private static final BlockingQueue<CallbackPair> clientCallbacks = new ArrayBlockingQueue<>(100);
 
 	public final ConcurrentHashMap.KeySetView<String, ?> pendingConfigChanges = ConcurrentHashMap.newKeySet();
 
@@ -1116,6 +1129,30 @@ public class HdPlugin extends Plugin {
 		if (texTiledLighting != 0)
 			glDeleteTextures(texTiledLighting);
 		texTiledLighting = 0;
+	}
+
+	public CountDownLatch queueClientCallback(Runnable callback) {
+		CallbackPair pair = new CallbackPair(callback);
+		clientCallbacks.add(pair);
+		clientThread.invoke(HdPlugin::processPendingClientCallbacks);
+		return pair.latch;
+	}
+
+	@SneakyThrows
+	public void queueClientCallbackBlock(Runnable callback) {
+		queueClientCallback(callback).await();
+	}
+
+	public static void processPendingClientCallbacks() {
+		if (clientCallbacks.isEmpty())
+			return;
+
+		CallbackPair pair = clientCallbacks.poll();
+		while (pair != null) {
+			pair.callback.run();
+			pair.latch.countDown();
+			pair = clientCallbacks.poll();
+		}
 	}
 
 	public void updateSceneFbo() {

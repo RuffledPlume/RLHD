@@ -87,7 +87,6 @@ import rs117.hd.utils.ShadowCasterVolume;
 import rs117.hd.utils.buffer.GpuIntBuffer;
 
 import static net.runelite.api.Constants.*;
-import static net.runelite.api.Constants.SCENE_SIZE;
 import static net.runelite.api.Perspective.*;
 import static org.lwjgl.opengl.GL33C.*;
 import static org.lwjgl.opengl.GL40.GL_DRAW_INDIRECT_BUFFER;
@@ -95,8 +94,8 @@ import static rs117.hd.HdPlugin.APPLE;
 import static rs117.hd.HdPlugin.COLOR_FILTER_FADE_DURATION;
 import static rs117.hd.HdPlugin.NEAR_PLANE;
 import static rs117.hd.HdPlugin.ORTHOGRAPHIC_ZOOM;
-import static rs117.hd.HdPlugin.THREAD_POOL;
 import static rs117.hd.HdPlugin.checkGLErrors;
+import static rs117.hd.HdPlugin.processPendingClientCallbacks;
 import static rs117.hd.utils.Mat4.clipFrustumToDistance;
 import static rs117.hd.utils.MathUtils.*;
 
@@ -104,19 +103,8 @@ import static rs117.hd.utils.MathUtils.*;
 public class ZoneRenderer implements Renderer {
 	private static final int ALPHA_ZSORT_CLOSE = 2048;
 
-	public static final int NUM_ZONES = EXTENDED_SCENE_SIZE >> 3;
-	public static final int MAX_WORLDVIEWS = 4096;
-
 	private static int UNIFORM_BLOCK_COUNT = HdPlugin.UNIFORM_BLOCK_COUNT;
 	public static final int UNIFORM_BLOCK_WORLD_VIEWS = UNIFORM_BLOCK_COUNT++;
-
-	private static final int ZONE_DEFER_DIST_START = 50 * LOCAL_TILE_SIZE;
-	private static final int ZONE_DEFER_BLEND_RANGE = 250 * LOCAL_TILE_SIZE;
-	private static final float ZONE_DEFER_DELAY = 2.0f;
-
-	private static final int REUSE_STATE_NONE = -1;
-	private static final int REUSE_STATE_PARTIAL = 0;
-	private static final int REUSE_STATE_FULLY = 1;
 
 	@Inject
 	private Client client;
@@ -164,6 +152,9 @@ public class ZoneRenderer implements Renderer {
 	private NpcDisplacementCache npcDisplacementCache;
 
 	@Inject
+	private SceneManager sceneManager;
+
+	@Inject
 	private FrameTimer frameTimer;
 
 	@Inject
@@ -189,54 +180,6 @@ public class ZoneRenderer implements Renderer {
 	private final CommandBuffer sceneCmd = new CommandBuffer(renderState);
 	private final CommandBuffer directionalCmd = new CommandBuffer(renderState);
 
-	@RequiredArgsConstructor
-	static class CallbackPair {
-		final CountDownLatch latch = new CountDownLatch(1);
-		final Runnable callback;
-	}
-
-	private static final BlockingQueue<CallbackPair> clientCallbacks = new ArrayBlockingQueue<>(100);
-
-	class AsyncSceneUploaderGroup {
-		private final SceneUploader[] sceneUploaders = new SceneUploader[HdPlugin.THREAD_COUNT];
-		private int nextSceneUploaderIndex;
-
-		public int getUploaderCount() {
-			return sceneUploaders.length;
-		}
-
-		void init() {
-			for (int i = 0; i < sceneUploaders.length; i++) {
-				sceneUploaders[i] = plugin.getInjector().getInstance(SceneUploader.class);
-			}
-		}
-
-		int calculateWorkPerUploader(int workLoad) {
-			return (workLoad + sceneUploaders.length - 1) / sceneUploaders.length;
-		}
-
-		boolean isNextUploaderBusy() {
-			return sceneUploaders[nextSceneUploaderIndex].isBusy();
-		}
-
-		SceneUploader nextUploader() {
-			SceneUploader uploader = sceneUploaders[nextSceneUploaderIndex];
-			nextSceneUploaderIndex = (nextSceneUploaderIndex + 1) % sceneUploaders.length;
-			return uploader;
-		}
-
-		void completeAll() {
-			boolean isClientThread = client.isClientThread();
-			for (SceneUploader uploader : sceneUploaders) {
-				uploader.completeTask(isClientThread);
-			}
-		}
-	}
-
-	private final AsyncSceneUploaderGroup rootAsyncSceneUploader = new AsyncSceneUploaderGroup();
-	private final AsyncSceneUploaderGroup subSceneAsyncSceneUploader = new AsyncSceneUploaderGroup();
-	private final AsyncSceneUploaderGroup rebuildAsyncSceneUploader = new AsyncSceneUploaderGroup();
-
 	private VAO.VAOList vaoO;
 	private VAO.VAOList vaoA;
 	private VAO.VAOList vaoPO;
@@ -249,35 +192,9 @@ public class ZoneRenderer implements Renderer {
 	public static GpuIntBuffer eboAlphaStaging;
 	public static int alphaFaceCount;
 
-	WorldViewContext context(Scene scene) {
-		return context(scene.getWorldViewId());
-	}
-
-	WorldViewContext context(WorldView wv) {
-		return context(wv.getId());
-	}
-
-	WorldViewContext context(int worldViewId) {
-		if (worldViewId != -1)
-			return subs[worldViewId];
-		if (root.sceneContext == null)
-			return null;
-		return root;
-	}
 
 	private boolean sceneFboValid;
 	private boolean deferScenePass;
-
-	private final WorldViewContext root = new WorldViewContext(null, null, null);
-	private final WorldViewContext[] subs = new WorldViewContext[MAX_WORLDVIEWS];
-	private ZoneSceneContext nextSceneContext;
-	private Zone[][] nextZones;
-	private Map<Integer, Integer> nextRoofChanges;
-
-	@Nullable
-	public ZoneSceneContext getSceneContext() {
-		return root.sceneContext;
-	}
 
 	@Override
 	public boolean supportsGpu(GLCapabilities glCaps) {
@@ -294,10 +211,7 @@ public class ZoneRenderer implements Renderer {
 
 	@Override
 	public void initialize() {
-		rootAsyncSceneUploader.init();
-		subSceneAsyncSceneUploader.init();
-		rebuildAsyncSceneUploader.init();
-
+		sceneManager.initialize();
 		initializeBuffers();
 
 		uboWorldViews.initialize(UNIFORM_BLOCK_WORLD_VIEWS);
@@ -305,27 +219,10 @@ public class ZoneRenderer implements Renderer {
 
 	@Override
 	public void destroy() {
-		rootAsyncSceneUploader.completeAll();
-		subSceneAsyncSceneUploader.completeAll();
-		rebuildAsyncSceneUploader.completeAll();
-
-		root.free();
-
-		for (int i = 0; i < subs.length; i++) {
-			if (subs[i] != null)
-				subs[i].free();
-			subs[i] = null;
-		}
-
+		sceneManager.shutdown();
 		destroyBuffers();
-		uboWorldViews.destroy();
 
-		Zone.freeZones(nextZones);
-		nextZones = null;
-		nextRoofChanges = null;
-		if (nextSceneContext != null)
-			nextSceneContext.destroy();
-		nextSceneContext = null;
+		uboWorldViews.destroy();
 	}
 
 	@Override
@@ -339,30 +236,6 @@ public class ZoneRenderer implements Renderer {
 			.define("MAX_SIMULTANEOUS_WORLD_VIEWS", UBOWorldViews.MAX_SIMULTANEOUS_WORLD_VIEWS)
 			.addInclude("WORLD_VIEW_GETTER", () -> plugin.generateGetter("WorldView", UBOWorldViews.MAX_SIMULTANEOUS_WORLD_VIEWS))
 			.addUniformBuffer(uboWorldViews);
-	}
-
-	private CountDownLatch queueClientCallback(Runnable callback) {
-		CallbackPair pair = new CallbackPair(callback);
-		clientCallbacks.add(pair);
-		clientThread.invoke(ZoneRenderer::processPendingClientCallbacks);
-		return pair.latch;
-	}
-
-	@SneakyThrows
-	private void queueClientCallbackBlock(Runnable callback) {
-		queueClientCallback(callback).await();
-	}
-
-	public static void processPendingClientCallbacks() {
-		if (clientCallbacks.isEmpty())
-			return;
-
-		CallbackPair pair = clientCallbacks.poll();
-		while (pair != null) {
-			pair.callback.run();
-			pair.latch.countDown();
-			pair = clientCallbacks.poll();
-		}
 	}
 
 	@Override
@@ -429,7 +302,7 @@ public class ZoneRenderer implements Renderer {
 		this.maxLevel = maxLevel;
 		this.hideRoofIds = hideRoofIds;
 
-		WorldViewContext ctx = context(scene);
+		WorldViewContext ctx = sceneManager.context(scene);
 		if (ctx != null && ctx.uboWorldViewStruct != null)
 			ctx.uboWorldViewStruct.update();
 
@@ -450,15 +323,13 @@ public class ZoneRenderer implements Renderer {
 		scene.setDrawDistance(plugin.getDrawDistance());
 		plugin.updateSceneFbo();
 
-		if (root.sceneContext == null || plugin.sceneViewport == null)
+		if (sceneManager.getSceneContext() == null || plugin.sceneViewport == null)
 			return;
 
 		frameTimer.begin(Timer.DRAW_FRAME);
 		frameTimer.begin(Timer.DRAW_SCENE);
 
 		boolean updateUniforms = true;
-
-		updateAreaHiding();
 
 		if (!plugin.enableFreezeFrame) {
 			if (!plugin.redrawPreviousFrame) {
@@ -487,7 +358,7 @@ public class ZoneRenderer implements Renderer {
 				copyTo(plugin.cameraPosition, vec(cameraX, cameraY, cameraZ));
 				copyTo(plugin.cameraOrientation, vec(cameraYaw, cameraPitch));
 
-				if (root.sceneContext.scene == scene) {
+				if (sceneManager.getSceneContext().scene == scene) {
 					copyTo(plugin.cameraFocalPoint, ivec((int) client.getCameraFocalPointX(), (int) client.getCameraFocalPointZ()));
 					Arrays.fill(plugin.cameraShift, 0);
 				} else {
@@ -581,14 +452,14 @@ public class ZoneRenderer implements Renderer {
 					plugin.uboGlobal.lightProjectionMatrix.set(directionalCamera.getViewProjMatrix());
 				}
 
-				if (root.sceneContext.scene == scene) {
+				if (sceneManager.getSceneContext().scene == scene) {
 					try {
 						frameTimer.begin(Timer.UPDATE_ENVIRONMENT);
-						environmentManager.update(root.sceneContext);
+						environmentManager.update(sceneManager.getSceneContext());
 						frameTimer.end(Timer.UPDATE_ENVIRONMENT);
 
 						frameTimer.begin(Timer.UPDATE_LIGHTS);
-						lightManager.update(root.sceneContext, plugin.cameraShift, plugin.cameraFrustum);
+						lightManager.update(sceneManager.getSceneContext(), plugin.cameraShift, plugin.cameraFrustum);
 						frameTimer.end(Timer.UPDATE_LIGHTS);
 					} catch (Exception ex) {
 						log.error("Error while updating environment or lights:", ex);
@@ -601,20 +472,20 @@ public class ZoneRenderer implements Renderer {
 				plugin.uboGlobal.viewMatrix.set(plugin.viewMatrix);
 				plugin.uboGlobal.projectionMatrix.set(plugin.viewProjMatrix);
 				plugin.uboGlobal.invProjectionMatrix.set(plugin.invViewProjMatrix);
-				plugin.uboGlobal.pointLightsCount.set(root.sceneContext.numVisibleLights);
+				plugin.uboGlobal.pointLightsCount.set(sceneManager.getSceneContext().numVisibleLights);
 				plugin.uboGlobal.upload();
 			}
 		}
 
-		if (plugin.configDynamicLights != DynamicLights.NONE && root.sceneContext.scene == scene && updateUniforms) {
+		if (plugin.configDynamicLights != DynamicLights.NONE && sceneManager.getSceneContext().scene == scene && updateUniforms) {
 			// Update lights UBO
-			assert root.sceneContext.numVisibleLights <= UBOLights.MAX_LIGHTS;
+			assert sceneManager.getSceneContext().numVisibleLights <= UBOLights.MAX_LIGHTS;
 
 			frameTimer.begin(Timer.UPDATE_LIGHTS);
 			final float[] lightPosition = new float[4];
 			final float[] lightColor = new float[4];
-			for (int i = 0; i < root.sceneContext.numVisibleLights; i++) {
-				final Light light = root.sceneContext.lights.get(i);
+			for (int i = 0; i < sceneManager.getSceneContext().numVisibleLights; i++) {
+				final Light light = sceneManager.getSceneContext().lights.get(i);
 				final float lightRadiusSq = light.radius * light.radius;
 				lightPosition[0] = light.pos[0] + plugin.cameraShift[0];
 				lightPosition[1] = light.pos[1];
@@ -715,7 +586,7 @@ public class ZoneRenderer implements Renderer {
 		plugin.uboGlobal.fogColor.set(ColorUtils.linearToSrgb(environmentManager.currentFogColor));
 
 		plugin.uboGlobal.drawDistance.set((float) plugin.getDrawDistance());
-		plugin.uboGlobal.expandedMapLoadingChunks.set(root.sceneContext.expandedMapLoadingChunks);
+		plugin.uboGlobal.expandedMapLoadingChunks.set(sceneManager.getSceneContext().expandedMapLoadingChunks);
 		plugin.uboGlobal.colorBlindnessIntensity.set(config.colorBlindnessIntensity() / 100.f);
 
 		float[] waterColorHsv = ColorUtils.srgbToHsv(environmentManager.currentWaterColor);
@@ -764,7 +635,7 @@ public class ZoneRenderer implements Renderer {
 			0);
 
 		// Lights & lightning
-		plugin.uboGlobal.pointLightsCount.set(root.sceneContext.numVisibleLights);
+		plugin.uboGlobal.pointLightsCount.set(sceneManager.getSceneContext().numVisibleLights);
 		plugin.uboGlobal.lightningBrightness.set(environmentManager.getLightningBrightness());
 
 		plugin.uboGlobal.saturation.set(config.saturation() / 100f);
@@ -795,54 +666,7 @@ public class ZoneRenderer implements Renderer {
 		checkGLErrors();
 	}
 
-	private void updateAreaHiding() {
-		Player localPlayer = client.getLocalPlayer();
-		var lp = localPlayer.getLocalLocation();
-		if (root.sceneContext.enableAreaHiding) {
-			var base = root.sceneContext.sceneBase;
-			assert base != null;
-			int[] worldPos = {
-				base[0] + lp.getSceneX(),
-				base[1] + lp.getSceneY(),
-				base[2] + client.getTopLevelWorldView().getPlane()
-			};
 
-			// We need to check all areas contained in the scene in the order they appear in the list,
-			// in order to ensure lower floors can take precedence over higher floors which include tiny
-			// portions of the floor beneath around stairs and ladders
-			Area newArea = null;
-			for (var area : root.sceneContext.possibleAreas) {
-				if (area.containsPoint(false, worldPos)) {
-					newArea = area;
-					break;
-				}
-			}
-
-			// Force a scene reload if the player is no longer in the same area
-			if (newArea != root.sceneContext.currentArea) {
-				if (plugin.justChangedArea) {
-					// Disable area hiding if it somehow gets stuck in a loop switching areas
-					root.sceneContext.enableAreaHiding = false;
-					log.error(
-						"Disabling area hiding after moving from {} to {} at {}",
-						root.sceneContext.currentArea,
-						newArea,
-						worldPos
-					);
-					newArea = null;
-				} else {
-					plugin.justChangedArea = true;
-					// This should happen very rarely, so we invalidate all zones for simplicity
-					root.invalidate();
-				}
-				root.sceneContext.currentArea = newArea;
-			} else {
-				plugin.justChangedArea = false;
-			}
-		} else {
-			plugin.justChangedArea = false;
-		}
-	}
 
 	@Override
 	public void postSceneDraw(Scene scene) {
@@ -853,7 +677,7 @@ public class ZoneRenderer implements Renderer {
 	}
 
 	private void postDrawTopLevel() {
-		if (root.sceneContext == null || plugin.sceneViewport == null)
+		if (sceneManager.getSceneContext() == null || plugin.sceneViewport == null)
 			return;
 
 		sceneFboValid = true;
@@ -980,16 +804,16 @@ public class ZoneRenderer implements Renderer {
 
 	@Override
 	public boolean zoneInFrustum(int zx, int zz, int maxY, int minY) {
-		if (root.sceneContext == null)
+		if (sceneManager.getSceneContext() == null)
 			return false;
 
 		if (plugin.enableDetailedTimers) frameTimer.begin(Timer.VISIBILITY_CHECK);
-		int minX = zx * CHUNK_SIZE - root.sceneContext.sceneOffset;
-		int minZ = zz * CHUNK_SIZE - root.sceneContext.sceneOffset;
-		if (root.sceneContext.currentArea != null) {
-			var base = root.sceneContext.sceneBase;
+		int minX = zx * CHUNK_SIZE - sceneManager.getRoot().sceneContext.sceneOffset;
+		int minZ = zz * CHUNK_SIZE - sceneManager.getRoot().sceneContext.sceneOffset;
+		if (sceneManager.getRoot().sceneContext.currentArea != null) {
+			var base = sceneManager.getRoot().sceneContext.sceneBase;
 			assert base != null;
-			boolean inArea = root.sceneContext.currentArea.intersects(
+			boolean inArea = sceneManager.getRoot().sceneContext.currentArea.intersects(
 				true, base[0] + minX, base[1] + minZ, base[0] + minX + 7, base[1] + minZ + 7);
 			if (!inArea) {
 				if (plugin.enableDetailedTimers) frameTimer.end(Timer.VISIBILITY_CHECK);
@@ -1001,7 +825,7 @@ public class ZoneRenderer implements Renderer {
 		minZ *= LOCAL_TILE_SIZE;
 		int maxX = minX + CHUNK_SIZE * LOCAL_TILE_SIZE;
 		int maxZ = minZ + CHUNK_SIZE * LOCAL_TILE_SIZE;
-		Zone zone = root.zones[zx][zz];
+		Zone zone = sceneManager.getRoot().zones[zx][zz];
 		if (zone.hasWater) {
 			maxY += ProceduralGenerator.MAX_DEPTH;
 			minY -= ProceduralGenerator.MAX_DEPTH;
@@ -1039,7 +863,7 @@ public class ZoneRenderer implements Renderer {
 	public void drawZoneOpaque(Projection entityProjection, Scene scene, int zx, int zz) {
 		processPendingClientCallbacks();
 
-		WorldViewContext ctx = context(scene);
+		WorldViewContext ctx = sceneManager.context(scene);
 		if (ctx == null)
 			return;
 
@@ -1047,10 +871,10 @@ public class ZoneRenderer implements Renderer {
 		if (!z.initialized || z.sizeO == 0)
 			return;
 
-		if (ctx != root || z.inSceneFrustum)
+		if (!sceneManager.isRoot(ctx) || z.inSceneFrustum)
 			z.renderOpaque(sceneCmd, minLevel, level, maxLevel, hideRoofIds);
 
-		if (ctx != root || z.inShadowFrustum) {
+		if (!sceneManager.isRoot(ctx) || z.inShadowFrustum) {
 			directionalCmd.SetShader(fastShadowProgram);
 			z.renderOpaque(
 				directionalCmd,
@@ -1068,7 +892,7 @@ public class ZoneRenderer implements Renderer {
 	public void drawZoneAlpha(Projection entityProjection, Scene scene, int level, int zx, int zz) {
 		processPendingClientCallbacks();
 
-		WorldViewContext ctx = context(scene);
+		WorldViewContext ctx = sceneManager.context(scene);
 		if (ctx == null)
 			return;
 
@@ -1095,7 +919,7 @@ public class ZoneRenderer implements Renderer {
 			z.multizoneLocs(ctx.sceneContext, zx - offset, zz - offset, sceneCamera, ctx.zones);
 		}
 
-		if (ctx != root || z.inSceneFrustum) {
+		if (!sceneManager.isRoot(ctx) || z.inSceneFrustum) {
 			z.renderAlpha(
 				sceneCmd,
 				zx - offset,
@@ -1110,7 +934,7 @@ public class ZoneRenderer implements Renderer {
 			);
 		}
 
-		if (ctx != root || z.inShadowFrustum) {
+		if (!sceneManager.isRoot(ctx) || z.inShadowFrustum) {
 			directionalCmd.SetShader(plugin.configShadowMode == ShadowMode.DETAILED ? detailedShadowProgram : fastShadowProgram);
 			z.renderAlpha(
 				directionalCmd,
@@ -1133,7 +957,7 @@ public class ZoneRenderer implements Renderer {
 	public void drawPass(Projection projection, Scene scene, int pass) {
 		processPendingClientCallbacks();
 
-		WorldViewContext ctx = context(scene);
+		WorldViewContext ctx = sceneManager.context(scene);
 		if (ctx == null)
 			return;
 
@@ -1196,12 +1020,12 @@ public class ZoneRenderer implements Renderer {
 	) {
 		processPendingClientCallbacks();
 
-		WorldViewContext ctx = context(scene);
+		WorldViewContext ctx = sceneManager.context(scene);
 		if (ctx == null || !renderCallbackManager.drawObject(scene, tileObject))
 			return;
 
 		// Cull based on detail draw distance
-		if (ctx == root) {
+		if (sceneManager.isRoot(ctx)) {
 			float modelDist = distance(sceneCamera.getPosition(), new float[] { x, y, z });
 			float detailDrawDistanceTiles = config.detailDrawDistance() * LOCAL_TILE_SIZE;
 			if (modelDist > detailDrawDistanceTiles) {
@@ -1236,7 +1060,7 @@ public class ZoneRenderer implements Renderer {
 		if(!zone.uploaded)
 			return;
 
-		if (ctx == root) {
+		if (sceneManager.isRoot(ctx)) {
 			// Additional Culling checks to help reduce dynamic object perf impact when off screen
 			if (!zone.inSceneFrustum && zone.inShadowFrustum && !modelOverride.castShadows) {
 				return;
@@ -1279,11 +1103,11 @@ public class ZoneRenderer implements Renderer {
 	public void drawTemp(Projection worldProjection, Scene scene, GameObject gameObject, Model m, int orientation, int x, int y, int z) {
 		processPendingClientCallbacks();
 
-		WorldViewContext ctx = context(scene);
+		WorldViewContext ctx = sceneManager.context(scene);
 		if (ctx == null || !renderCallbackManager.drawObject(scene, gameObject))
 			return;
 
-		int[] worldPos = root.sceneContext.localToWorld(gameObject.getLocalLocation(), gameObject.getPlane());
+		int[] worldPos = ctx.sceneContext.localToWorld(gameObject.getLocalLocation(), gameObject.getPlane());
 		// Hide everything outside the current area if area hiding is enabled
 		if (ctx.sceneContext.currentArea != null && scene.getWorldViewId() == -1) {
 			var base = ctx.sceneContext.sceneBase;
@@ -1312,7 +1136,7 @@ public class ZoneRenderer implements Renderer {
 			int zz = (gameObject.getY() >> 10) + offset;
 			Zone zone = ctx.zones[zx][zz];
 
-			if (ctx != root || zone.inSceneFrustum) {
+			if (!sceneManager.isRoot(ctx) || zone.inSceneFrustum) {
 				// opaque player faces have their own vao and are drawn in a separate pass from normal opaque faces
 				// because they are not depth tested. transparent player faces don't need their own vao because normal
 				// transparent faces are already not depth tested
@@ -1379,13 +1203,7 @@ public class ZoneRenderer implements Renderer {
 
 	@Override
 	public void invalidateZone(Scene scene, int zx, int zz) {
-		WorldViewContext ctx = context(scene);
-		if(ctx == null) return;
-		Zone z = ctx.zones[zx][zz];
-		if (!z.invalidate) {
-			z.invalidate = true;
-			log.debug("Zone invalidated: wx={} x={} z={}", scene.getWorldViewId(), zx, zz);
-		}
+		sceneManager.invalidateZone(scene, zx, zz);
 	}
 
 	@Subscribe
@@ -1394,132 +1212,7 @@ public class ZoneRenderer implements Renderer {
 		if (wv == null || !plugin.isActive())
 			return;
 
-		rebuild(wv);
-		for (WorldEntity we : wv.worldEntities())
-			rebuild(we.getWorldView());
-	}
-
-	private void rebuild(WorldView wv) {
-		assert client.isClientThread();
-		WorldViewContext ctx = context(wv);
-		if (ctx == null || ctx.isLoading)
-			return;
-
-		if(!ctx.rebuildZones.isEmpty() || rebuildAsyncSceneUploader.isNextUploaderBusy())
-			return;
-
-		for (int x = 0; x < ctx.sizeX; ++x) {
-			for (int z = 0; z < ctx.sizeZ; ++z) {
-				if (!ctx.zones[x][z].invalidate && ctx.zones[x][z].uploaded)
-					continue;
-
-				if(ctx.zones[x][z].defferDelay > 0) {
-					ctx.zones[x][z].defferDelay -= plugin.deltaTime;
-					if(ctx.zones[x][z].defferDelay > 0) {
-						continue;
-					}
-					ctx.zones[x][z].defferDelay = -1.0f;
-				}
-
-				if(ctx.zones[x][z].uploaded)
-					ctx.zones[x][z].isRebuilding = true;
-
-				ctx.rebuildZones.add(x * ctx.sizeZ + z);
-			}
-		}
-
-		if(ctx.rebuildZones.isEmpty())
-			return;
-
-		ctx.newZones.clear();
-
-		final SceneUploader uploader = rebuildAsyncSceneUploader.nextUploader();
-		uploader.queueTask(() -> {
-			uploader.setScene(ctx.sceneContext.scene);
-			for (int i = 0; i < ctx.rebuildZones.size(); i++) {
-				int zoneIdx = ctx.rebuildZones.get(i);
-				int x = zoneIdx / NUM_ZONES;
-				int z = zoneIdx % NUM_ZONES;
-
-				Zone newZone = new Zone();
-				ctx.newZones.add(newZone);
-
-				if(ctx.zones[x][z] != null && ctx.zones[x][z].needsTerrainGen) {
-					ctx.zones[x][z].needsTerrainGen = false;
-					proceduralGenerator.generateTerrainDataForZone(ctx.sceneContext, x, z);
-				}
-				uploader.estimateZoneSize(ctx.sceneContext, newZone, x, z);
-			}
-
-			// Initialise buffers for new zone
-			queueClientCallbackBlock(() -> {
-				for (int i = 0; i < ctx.rebuildZones.size(); i++) {
-					int zoneIdx = ctx.rebuildZones.get(i);
-					int x = zoneIdx / NUM_ZONES;
-					int z = zoneIdx % NUM_ZONES;
-
-					Zone newZone = ctx.newZones.get(i);
-
-					VBO o = null, a = null;
-					int sz = newZone.sizeO * Zone.VERT_SIZE * 3;
-					if (sz > 0) {
-						o = new VBO(sz);
-						o.initialize(GL_STATIC_DRAW);
-						o.map();
-					}
-
-					sz = newZone.sizeA * Zone.VERT_SIZE * 3;
-					if (sz > 0) {
-						a = new VBO(sz);
-						a.initialize(GL_STATIC_DRAW);
-						a.map();
-					}
-
-					newZone.initialize(o, a, eboAlpha);
-					newZone.setMetadata(ctx, x, z);
-				}
-			});
-
-			for(int i = 0; i < ctx.newZones.size(); i++) {
-				int zoneIdx = ctx.rebuildZones.get(i);
-				int x = zoneIdx / NUM_ZONES;
-				int z = zoneIdx % NUM_ZONES;
-
-				Zone newZone = ctx.newZones.get(i);
-
-				uploader.uploadZone(ctx.sceneContext, newZone, x, z);
-			}
-
-			CountDownLatch latch = new CountDownLatch(1);
-			clientThread.invoke(() -> {
-				for(int i = 0; i < ctx.newZones.size(); i++) {
-					int zoneIdx = ctx.rebuildZones.get(i);
-					int x = zoneIdx / NUM_ZONES;
-					int z = zoneIdx % NUM_ZONES;
-
-					Zone newZone = ctx.newZones.get(i);
-
-					newZone.unmap();
-					newZone.initialized = true;
-
-					if(ctx.zones[x][z] != null) {
-						newZone.dirty = ctx.zones[x][z].isRebuilding;
-						ctx.zones[x][z].free();
-					}
-					ctx.zones[x][z] = newZone;
-					log.trace("Rebuilt zone wv={} x={} z={}", wv.getId(), x, z);
-				}
-				latch.countDown();
-			});
-			try {
-				latch.await();
-			} catch (InterruptedException e) {
-				throw new RuntimeException(e);
-			}
-			ctx.rebuildZones.clear();
-			ctx.newZones.clear();
-			uploader.clear();
-		});
+		sceneManager.update(wv);
 	}
 
 	@Override
@@ -1625,24 +1318,21 @@ public class ZoneRenderer implements Renderer {
 
 	@Override
 	public void reloadScene() {
-		if (client.getGameState().getState() < GameState.LOGGED_IN.getState() || root.sceneContext == null)
+		if (client.getGameState().getState() < GameState.LOGGED_IN.getState() || sceneManager.getSceneContext() == null)
 			return;
 
-		root.invalidate();
-		for (var sub : subs)
-			if (sub != null)
-				sub.invalidate();
+		sceneManager.reloadScene();
 	}
 
 	@Override
 	public boolean isLoadingScene() {
-		return nextSceneContext != null;
+		return sceneManager.isLoadingScene();
 	}
 
 	@Override
 	public void loadScene(WorldView worldView, Scene scene) {
 		try {
-			loadSceneInternal(worldView, scene);
+			sceneManager.loadScene(worldView, scene);
 		} catch (OutOfMemoryError oom) {
 			log.error(
 				"Ran out of memory while generating scene data (32-bit: {}, low memory mode: {})",
@@ -1656,563 +1346,13 @@ public class ZoneRenderer implements Renderer {
 		}
 	}
 
-	private void calculateDeferDelay(ZoneSceneContext ctx, Zone zone, int x, int z, int[] playerPos) {
-		int baseX = (x - (ctx.sceneOffset >> 3)) << 10;
-		int baseZ = (z - (ctx.sceneOffset >> 3)) << 10;
-		float dist = distance(vec(baseX, baseZ), vec(playerPos[0], playerPos[1]));
-
-		float frac = clamp(((dist - ZONE_DEFER_DIST_START) / (float)ZONE_DEFER_BLEND_RANGE), 0.0f, 1.0f);
-		zone.defferDelay = 1.0f + frac * ZONE_DEFER_DELAY;
-	}
-
-	private boolean shouldDeferZone(ZoneSceneContext ctx, Zone zone, int x, int z, int[] playerPos) {
-		if(root.sceneContext == null || ctx.sceneBase == null || playerPos == null) {
-			return false; // First load, no point deferring
-		}
-
-		int baseX = (x - (ctx.sceneOffset >> 3)) << 10;
-		int baseZ = (z - (ctx.sceneOffset >> 3)) << 10;
-		return distance(vec(baseX, baseZ), vec(playerPos[0], playerPos[1])) > ZONE_DEFER_DIST_START;
-	}
-
-	private void loadSceneInternal(WorldView worldView, Scene scene) {
-		if (scene.getWorldViewId() > -1) {
-			loadSubScene(worldView, scene);
-			return;
-		}
-
-		assert scene.getWorldViewId() == -1;
-		if (nextZones != null)
-			throw new RuntimeException("Double zone load!"); // does this happen?
-
-		rootAsyncSceneUploader.completeAll();
-		rebuildAsyncSceneUploader.completeAll();
-
-		if (nextSceneContext != null)
-			nextSceneContext.destroy();
-		nextSceneContext = null;
-
-		nextSceneContext = new ZoneSceneContext(
-			client,
-			worldView,
-			scene,
-			plugin.getExpandedMapLoadingChunks(),
-			root.sceneContext
-		);
-		nextSceneContext.enableAreaHiding = nextSceneContext.sceneBase != null && config.hideUnrelatedAreas();
-
-		Stopwatch sw = Stopwatch.createStarted();
-		environmentManager.loadSceneEnvironments(nextSceneContext);
-		log.debug("Loaded scene environments in {}", sw);
-
-		LocalPoint lp = client.getLocalPlayer().getLocalLocation();
-		final int[] nextPlayerPos;
-		if(nextSceneContext.sceneBase != null) {
-			nextPlayerPos = new int[] {
-				((lp.getX()) + nextSceneContext.sceneBase[0]) + (NUM_ZONES * LOCAL_TILE_SIZE) ,
-				((lp.getY()) + nextSceneContext.sceneBase[1]) + (NUM_ZONES * LOCAL_TILE_SIZE)
-			};
-		} else {
-			nextPlayerPos = null;
-		}
-
-
-		Future<?> procGenTask = THREAD_POOL.submit(() -> proceduralGenerator.generateSceneData(nextSceneContext));
-
-		sw.reset().start();
-
-		if (nextSceneContext.enableAreaHiding) {
-			assert nextSceneContext.sceneBase != null;
-			int centerOffset = SCENE_SIZE / 2 & ~7;
-			int centerX = nextSceneContext.sceneBase[0] + centerOffset;
-			int centerY = nextSceneContext.sceneBase[1] + centerOffset;
-
-			nextSceneContext.possibleAreas = Arrays
-				.stream(areaManager.areasWithAreaHiding)
-				.filter(area -> nextSceneContext.sceneBounds.intersects(area.aabbs))
-				.toArray(Area[]::new);
-
-			if (log.isDebugEnabled() && nextSceneContext.possibleAreas.length > 0) {
-				log.debug(
-					"Area hiding areas: {}",
-					Arrays.stream(nextSceneContext.possibleAreas)
-						.distinct()
-						.map(Area::toString)
-						.collect(Collectors.joining(", "))
-				);
-			}
-
-			// If area hiding can be decided based on the central chunk, apply it early
-			AABB centerChunk = new AABB(centerX, centerY, centerX + 7, centerY + 7);
-			for (Area possibleArea : nextSceneContext.possibleAreas) {
-				if (!possibleArea.intersects(centerChunk))
-					continue;
-
-				if (nextSceneContext.currentArea != null) {
-					// Multiple possible areas, so let's defer this until swapScene
-					nextSceneContext.currentArea = null;
-					break;
-				}
-				nextSceneContext.currentArea = possibleArea;
-			}
-		}
-		log.debug("area hiding time: {}", sw);
-
-		sw.reset().start();
-		WorldViewContext ctx = root;
-		Scene prev = client.getTopLevelWorldView().getScene();
-
-		int dx = scene.getBaseX() - prev.getBaseX() >> 3;
-		int dy = scene.getBaseY() - prev.getBaseY() >> 3;
-
-		// Initially mark every zone as being no longer in use
-		for (int x = 0; x < NUM_ZONES; ++x)
-			for (int z = 0; z < NUM_ZONES; ++z)
-				ctx.zones[x][z].cull = true;
-
-		nextZones = new Zone[NUM_ZONES][NUM_ZONES];
-		if (ctx.sceneContext != null && ctx.sceneContext.currentArea == nextSceneContext.currentArea) {
-			// Find zones which overlap, and reuse them
-			if (prev.isInstance() == scene.isInstance() && prev.getRoofRemovalMode() == scene.getRoofRemovalMode()) {
-				int[][][] prevTemplates = prev.getInstanceTemplateChunks();
-				int[][][] curTemplates = scene.getInstanceTemplateChunks();
-
-				for (int x = 0; x < NUM_ZONES; ++x) {
-					next:
-					for (int z = 0; z < NUM_ZONES; ++z) {
-						int ox = x + dx;
-						int oz = z + dy;
-
-						int reuseState = canReuse(ctx.zones, ox, oz);
-						if (reuseState == REUSE_STATE_NONE)
-							continue;
-
-						if (scene.isInstance()) {
-							// Convert from modified chunk coordinates to Jagex chunk coordinates
-							int jx = x - nextSceneContext.sceneOffset / 8;
-							int jz = z - nextSceneContext.sceneOffset / 8;
-							int jox = ox - nextSceneContext.sceneOffset / 8;
-							int joz = oz - nextSceneContext.sceneOffset / 8;
-							// Check Jagex chunk coordinates are within the Jagex scene
-							if (jx >= 0 && jx < SCENE_SIZE / 8 && jz >= 0 && jz < SCENE_SIZE / 8) {
-								if (jox >= 0 && jox < SCENE_SIZE / 8 && joz >= 0 && joz < SCENE_SIZE / 8) {
-									for (int level = 0; level < 4; ++level) {
-										int prevTemplate = prevTemplates[level][jox][joz];
-										int curTemplate = curTemplates[level][jx][jz];
-										if (prevTemplate != curTemplate) {
-											// Does this ever happen?
-											log.warn("Instance template reuse mismatch! prev={} cur={}", prevTemplate, curTemplate);
-											continue next;
-										}
-									}
-								}
-							}
-						}
-
-						Zone old = ctx.zones[ox][oz];
-						assert old.initialized;
-						assert old.sizeO > 0 || old.sizeA > 0;
-						assert old.cull;
-
-						if (reuseState == REUSE_STATE_PARTIAL) {
-							if(nextPlayerPos == null)
-								continue;
-							calculateDeferDelay(nextSceneContext, old, x, z, nextPlayerPos);
-							old.invalidate = true;
-						}
-
-						old.cull = false;
-						old.metadataDirty = true;
-
-						nextZones[x][z] = old;
-					}
-				}
-			} else {
-				log.debug("Couldn't reuse anything! \nprev.isInstance()={} cur.isInstance={}\nprev.roofRemovalMode={} cur.roofRemovalMode={}",
-					prev.isInstance(), scene.isInstance(),
-					prev.getRoofRemovalMode(), scene.getRoofRemovalMode());
-			}
-		}
-		log.debug("zone reuse time: {}", sw);
-
-		nextRoofChanges = new HashMap<>();
-		final int[][][] prids = prev.getRoofs();
-		final int[][][] nrids = scene.getRoofs();
-
-		int totalZones = NUM_ZONES * NUM_ZONES;
-		int chunk = rootAsyncSceneUploader.calculateWorkPerUploader(totalZones);
-		for (int i = 0; i < rootAsyncSceneUploader.getUploaderCount(); i++) {
-			int start = i * chunk;
-			int end = Math.min(start + chunk, totalZones);
-
-			if (start >= end)
-				break;
-
-			final SceneUploader uploader = rootAsyncSceneUploader.nextUploader();
-			uploader.queueTask(() -> {
-				uploader.setScene(scene);
-
-				// Ensure proc gen has finished before we start uploading
-				try {
-					procGenTask.get();
-				} catch (InterruptedException | ExecutionException e) {
-					throw new RuntimeException(e);
-				}
-
-				for (int idx = start; idx < end; idx++) {
-					int x = idx / NUM_ZONES;
-					int z = idx % NUM_ZONES;
-
-					Zone zone = nextZones[x][z];
-
-					if(zone == null)
-						zone = nextZones[x][z] = new Zone();
-
-					if (!zone.initialized || zone.defferDelay >= 0) {
-						if(!shouldDeferZone(nextSceneContext, zone, x, z, nextPlayerPos)) {
-							proceduralGenerator.generateTerrainDataForZone(nextSceneContext, x, z);
-							uploader.estimateZoneSize(nextSceneContext, zone, x, z);
-							nextSceneContext.totalOpaque += zone.sizeO;
-							nextSceneContext.totalAlpha += zone.sizeA;
-							nextSceneContext.totalNewZones++;
-						} else {
-							calculateDeferDelay(nextSceneContext, zone, x, z, nextPlayerPos);
-							zone.needsTerrainGen = true;
-							nextSceneContext.totalDeferred++;
-						}
-					} else {
-						nextSceneContext.totalReused++;
-					}
-				}
-
-				// allocate buffers for zones which require upload
-				queueClientCallbackBlock(() -> {
-					for (int idx = start; idx < end; idx++) {
-						int x = idx / NUM_ZONES;
-						int z = idx % NUM_ZONES;
-
-						Zone zone = nextZones[x][z];
-						if (zone.initialized || zone.defferDelay >= 0)
-							continue;
-
-						VBO o = null, a = null;
-						int sz = zone.sizeO * Zone.VERT_SIZE * 3;
-						if (sz > 0) {
-							o = new VBO(sz);
-							o.initialize(GL_STATIC_DRAW);
-							o.map();
-						}
-
-						sz = zone.sizeA * Zone.VERT_SIZE * 3;
-						if (sz > 0) {
-							a = new VBO(sz);
-							a.initialize(GL_STATIC_DRAW);
-							a.map();
-						}
-
-						zone.initialize(o, a, eboAlpha);
-					}
-				});
-
-				// Upload new zones
-				for (int idx = start; idx < end; idx++) {
-					int x = idx / NUM_ZONES;
-					int z = idx % NUM_ZONES;
-
-					Zone zone = nextZones[x][z];
-					if (!zone.initialized && zone.defferDelay < 0) {
-						uploader.uploadZone(nextSceneContext, zone, x, z);
-					}
-
-					// Calculate roof ids for the zone
-					for (int level = 0; level < 4; ++level) {
-						int ox = x + (dx << 3);
-						int oz = z + (dy << 3);
-
-						// old zone still in scene?
-						if (ox >= 0 && oz >= 0 && ox < EXTENDED_SCENE_SIZE && oz < EXTENDED_SCENE_SIZE) {
-							int prid = prids[level][ox][oz];
-							int nrid = nrids[level][x][z];
-							if (prid > 0 && nrid > 0 && prid != nrid) {
-								Integer old = nextRoofChanges.putIfAbsent(prid, nrid);
-								if (old == null) {
-									log.trace("Roof change: {} -> {}", prid, nrid);
-								} else if (old != nrid) {
-									log.debug("Roof change mismatch: {} -> {} vs {}", prid, nrid, old);
-								}
-							}
-						}
-					}
-				}
-				uploader.clear();
-			});
-		}
-	}
-
-	private static int canReuse(Zone[][] zones, int zx, int zz) {
-		if(zx < 0 || zx >= NUM_ZONES || zz < 0 || zz >= NUM_ZONES)
-			return REUSE_STATE_NONE;
-		Zone zone = zones[zx][zz];
-
-		if (!zone.initialized)
-			return REUSE_STATE_NONE;
-		if (zone.sizeO == 0 && zone.sizeA == 0)
-			return REUSE_STATE_NONE;
-
-		for (int x = zx - 1; x <= zx + 1; ++x) {
-			if (x < 0 || x >= NUM_ZONES)
-				return REUSE_STATE_PARTIAL;
-			for (int z = zz - 1; z <= zz + 1; ++z) {
-				if (z < 0 || z >= NUM_ZONES)
-					return REUSE_STATE_PARTIAL;
-
-				if(x == zx && z == zz)
-					continue;
-
-				Zone neighbourZone = zones[zx][zz];
-				if (!neighbourZone.initialized)
-					return REUSE_STATE_PARTIAL;
-				if (neighbourZone.sizeO == 0 && zone.sizeA == 0)
-					return REUSE_STATE_PARTIAL;
-			}
-		}
-
-		if(zone.dirty)
-			return REUSE_STATE_PARTIAL;
-		if(zone.hasWater)
-			return REUSE_STATE_PARTIAL;
-
-		return REUSE_STATE_FULLY;
-	}
-
-	private void loadSubScene(WorldView worldView, Scene scene) {
-		int worldViewId = worldView.getId();
-		assert worldViewId != -1;
-
-		log.debug("Loading world view {}", worldViewId);
-
-		WorldViewContext prevCtx = subs[worldViewId];
-		if (prevCtx != null) {
-			log.error("Reload of an already loaded sub scene?");
-			prevCtx.free();
-		}
-		assert prevCtx == null;
-
-		var sceneContext = new ZoneSceneContext(client, worldView, scene, plugin.getExpandedMapLoadingChunks(), null);
-		proceduralGenerator.generateSceneData(sceneContext);
-
-		final WorldViewContext ctx = new WorldViewContext(worldView, sceneContext, uboWorldViews);
-		subs[worldViewId] = ctx;
-
-		int totalZones = ctx.sizeX * ctx.sizeZ;
-		int chunk = subSceneAsyncSceneUploader.calculateWorkPerUploader(totalZones);
-		for (int i = 0; i < subSceneAsyncSceneUploader.getUploaderCount(); i++) {
-			int start = i * chunk;
-			int end = Math.min(start + chunk, totalZones);
-
-			if (start >= end)
-				break;
-
-			final SceneUploader uploader = subSceneAsyncSceneUploader.nextUploader();
-			uploader.queueTask(() -> {
-				uploader.setScene(scene);
-				for (int idx = start; idx < end; idx++) {
-					int x = idx % ctx.sizeX;
-					int z = idx / ctx.sizeX;
-
-					proceduralGenerator.generateTerrainDataForZone(sceneContext, x, z);
-					uploader.estimateZoneSize(sceneContext, ctx.zones[x][z], x, z);
-				}
-
-				// allocate buffers for zones which require upload
-				queueClientCallbackBlock(() -> {
-					ctx.initMetadata();
-
-					for (int idx = start; idx < end; idx++) {
-						int x = idx % ctx.sizeX;
-						int z = idx / ctx.sizeX;
-
-						Zone zone = ctx.zones[x][z];
-						VBO o = null, a = null;
-						int sz = zone.sizeO * Zone.VERT_SIZE * 3;
-						if (sz > 0) {
-							o = new VBO(sz);
-							o.initialize(GL_STATIC_DRAW);
-							o.map();
-						}
-
-						sz = zone.sizeA * Zone.VERT_SIZE * 3;
-						if (sz > 0) {
-							a = new VBO(sz);
-							a.initialize(GL_STATIC_DRAW);
-							a.map();
-						}
-
-						zone.initialize(o, a, eboAlpha);
-						zone.setMetadata(ctx, x, z);
-					}
-				});
-
-				// Upload new zones
-				for (int idx = start; idx < end; idx++) {
-					int x = idx % ctx.sizeX;
-					int z = idx / ctx.sizeX;
-
-					uploader.uploadZone(sceneContext, ctx.zones[x][z], x, z);
-				}
-				uploader.clear();
-			});
-		}
-	}
-
 	@Override
 	public void despawnWorldView(WorldView worldView) {
-		int worldViewId = worldView.getId();
-		if (worldViewId > -1) {
-			log.debug("WorldView despawn: {}", worldViewId);
-			if (subs[worldViewId] == null) {
-				log.debug("Attempted to despawn unloaded worldview: {}", worldView);
-			} else {
-				subs[worldViewId].free();
-				subs[worldViewId] = null;
-			}
-		}
+		sceneManager.despawnWorldView(worldView);
 	}
 
 	@Override
 	public void swapScene(Scene scene) {
-		if (!plugin.isActive() || plugin.skipScene == scene) {
-			plugin.redrawPreviousFrame = true;
-			return;
-		}
-
-		if (scene.getWorldViewId() > -1) {
-			swapSubScene(scene);
-			return;
-		}
-
-		// If the scene wasn't loaded by a call to loadScene, load it synchronously instead
-		// TODO: Low memory mode
-		if (nextSceneContext == null) {
-//			loadSceneInternal(scene);
-//			if (nextSceneContext == null)
-				return; // Return early if scene loading failed
-		}
-		Stopwatch sw = Stopwatch.createStarted();
-
-		lightManager.loadSceneLights(nextSceneContext, root.sceneContext);
-		fishingSpotReplacer.despawnRuneLiteObjects();
-		npcDisplacementCache.clear();
-
-		boolean isFirst = root.sceneContext == null;
-		if (!isFirst)
-			root.sceneContext.destroy(); // Destroy the old context before replacing it
-
-		log.debug("preSwapScene time: {}", sw);
-		sw.reset().start();
-
-		rootAsyncSceneUploader.completeAll();
-
-		log.debug(
-			"upload time {} reused {} deferred {} new {} len opaque {} size opaque {} KiB len alpha {} size alpha {} KiB",
-			sw, nextSceneContext.totalReused, nextSceneContext.totalNewZones, nextSceneContext.totalDeferred,
-			nextSceneContext.totalOpaque, ((long) nextSceneContext.totalOpaque * Zone.VERT_SIZE * 3) / KiB,
-			nextSceneContext.totalAlpha, ((long) nextSceneContext.totalAlpha * Zone.VERT_SIZE * 3) / KiB
-		);
-		sw.reset().start();
-
-		sceneUploader.setScene(scene);
-
-		root.sceneContext = nextSceneContext;
-		nextSceneContext = null;
-
-		updateAreaHiding();
-
-		if (root.sceneContext.intersects(areaManager.getArea("PLAYER_OWNED_HOUSE"))) {
-			plugin.isInHouse = true;
-			plugin.isInChambersOfXeric = false;
-		} else {
-			plugin.isInHouse = false;
-			plugin.isInChambersOfXeric = root.sceneContext.intersects(areaManager.getArea("CHAMBERS_OF_XERIC"));
-		}
-
-		WorldViewContext ctx = root;
-		for (int x = 0; x < ctx.sizeX; ++x) {
-			for (int z = 0; z < ctx.sizeZ; ++z) {
-				Zone zone = ctx.zones[x][z];
-
-				if (zone.cull) {
-					zone.free();
-				} else {
-					// reused zone
-					zone.updateRoofs(nextRoofChanges);
-				}
-			}
-		}
-		nextRoofChanges = null;
-
-		ctx.zones = nextZones;
-		nextZones = null;
-
-		// setup vaos
-		for (int x = 0; x < ctx.zones.length; ++x) {
-			for (int z = 0; z < ctx.zones[0].length; ++z) {
-				Zone zone = ctx.zones[x][z];
-
-				if (!zone.initialized && zone.uploaded) {
-					zone.unmap();
-					zone.initialized = true;
-				}
-
-				zone.setMetadata(ctx, x, z);
-			}
-		}
-
-		root.isLoading = false;
-
-		if (isFirst) {
-			// Load all pre-existing sub scenes on the first scene load
-			for (WorldEntity subEntity : client.getTopLevelWorldView().worldEntities()) {
-				WorldView sub = subEntity.getWorldView();
-				Scene subScene = sub.getScene();
-				log.debug(
-					"Loading worldview: id={}, sizeX={}, sizeZ={}",
-					sub.getId(),
-					sub.getSizeX(),
-					sub.getSizeY()
-				);
-				loadSubScene(sub, subScene);
-				swapSubScene(subScene);
-			}
-		}
-
-		log.debug("swapScene time: {}", sw);
-
-		checkGLErrors();
-	}
-
-	private void swapSubScene(Scene scene) {
-		WorldViewContext ctx = context(scene);
-		if (ctx == null)
-			return;
-
-		Stopwatch sw = Stopwatch.createStarted();
-		subSceneAsyncSceneUploader.completeAll();
-
-		// setup vaos
-		for (int x = 0; x < ctx.sizeX; ++x) {
-			for (int z = 0; z < ctx.sizeZ; ++z) {
-				Zone zone = ctx.zones[x][z];
-
-				if (!zone.initialized) {
-					zone.unmap();
-					zone.initialized = true;
-				}
-
-				zone.setMetadata(ctx, x, z);
-			}
-		}
-		ctx.isLoading = false;
-		log.debug("swapSubScene time {} WorldView ready: {}", sw, scene.getWorldViewId());
+		sceneManager.swapScene(scene);
 	}
 }
