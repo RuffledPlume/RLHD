@@ -112,6 +112,10 @@ public class ZoneStreamingManager {
 		return newItem.handle;
 	}
 
+	public int getZoneStreamingCount() {
+		return workQueue.size();
+	}
+
 	public void resumeStreaming() {
 		if(!paused) return;
 		log.debug("---- resumeStreaming ----");

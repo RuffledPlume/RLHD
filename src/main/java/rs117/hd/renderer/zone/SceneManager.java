@@ -289,6 +289,9 @@ public class SceneManager {
 	}
 
 	private boolean shouldDeferZone(ZoneSceneContext ctx, Zone zone, int x, int z, int[] playerPos) {
+		if(true)
+			return true;
+
 		if(root.sceneContext == null || ctx.sceneBase == null || playerPos == null) {
 			return false; // First load, no point deferring
 		}
@@ -318,6 +321,7 @@ public class SceneManager {
 		if (nextZones != null)
 			throw new RuntimeException("Double zone load!"); // does this happen?
 
+		Stopwatch sw = Stopwatch.createStarted();
 		if (nextSceneContext != null)
 			nextSceneContext.destroy();
 		nextSceneContext = null;
@@ -336,9 +340,7 @@ public class SceneManager {
 		);
 		nextSceneContext.enableAreaHiding = nextSceneContext.sceneBase != null && config.hideUnrelatedAreas();
 
-		Stopwatch sw = Stopwatch.createStarted();
 		environmentManager.loadSceneEnvironments(nextSceneContext);
-		log.debug("Loaded scene environments in {}", sw);
 
 		LocalPoint lp = client.getLocalPlayer().getLocalLocation();
 		final int[] nextPlayerPos;
@@ -352,8 +354,6 @@ public class SceneManager {
 		}
 
 		proceduralGenerator.asyncProcGenTask = THREAD_POOL.submit(() -> proceduralGenerator.generateSceneData(nextSceneContext));
-
-		sw.reset().start();
 
 		if (nextSceneContext.enableAreaHiding) {
 			assert nextSceneContext.sceneBase != null;
@@ -390,9 +390,7 @@ public class SceneManager {
 				nextSceneContext.currentArea = possibleArea;
 			}
 		}
-		log.debug("area hiding time: {}", sw);
 
-		sw.reset().start();
 		WorldViewContext ctx = root;
 		Scene prev = client.getTopLevelWorldView().getScene();
 
@@ -520,6 +518,9 @@ public class SceneManager {
 		}
 
 		lightManager.loadSceneLights(nextSceneContext, root.sceneContext);
+		root.completeStreaming();
+
+		log.debug("loadScene time: {}", sw);
 	}
 
 	public void swapScene(Scene scene) {
@@ -537,6 +538,7 @@ public class SceneManager {
 			return; // Return early if scene loading failed
 
 		Stopwatch sw = Stopwatch.createStarted();
+
 		lightManager.setupImposterTracking(nextSceneContext);
 		fishingSpotReplacer.despawnRuneLiteObjects();
 
@@ -545,8 +547,6 @@ public class SceneManager {
 		boolean isFirst = root.sceneContext == null;
 		if (!isFirst)
 			root.sceneContext.destroy(); // Destroy the old context before replacing it
-
-		root.completeStreaming();
 
 		int totalOpaque = 0;
 		int totalAlpha = 0;
