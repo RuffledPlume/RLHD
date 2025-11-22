@@ -605,7 +605,7 @@ class SceneUploader {
 		} else if (r instanceof DynamicObject) {
 			try {
 				m = ((DynamicObject) r).getModelZbuf();
-			} catch (Exception ignored) {}
+			} catch (Throwable ignored) {}
 		}
 		if (m == null)
 			return;
@@ -652,7 +652,7 @@ class SceneUploader {
 		} else if (r instanceof DynamicObject) {
 			try {
 				model = ((DynamicObject) r).getModelZbuf();
-			} catch (Exception ignored) {}
+			} catch (Throwable ignored) {}
 		}
 		if (model == null)
 			return;
