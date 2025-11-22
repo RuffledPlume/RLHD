@@ -9,6 +9,7 @@ import rs117.hd.opengl.uniforms.UBOWorldViews;
 import rs117.hd.opengl.uniforms.UBOWorldViews.WorldViewStruct;
 
 import static org.lwjgl.opengl.GL33C.*;
+import static rs117.hd.renderer.zone.SceneManager.NUM_ZONES;
 
 @Slf4j
 public class WorldViewContext {
@@ -26,8 +27,8 @@ public class WorldViewContext {
 	WorldViewContext(@Nullable WorldView worldView, @Nullable ZoneSceneContext sceneContext, UBOWorldViews uboWorldViews) {
 		this.worldViewId = worldView == null ? -1 : worldView.getId();
 		this.sceneContext = sceneContext;
-		this.sizeX = worldView == null ? ZoneRenderer.NUM_ZONES : worldView.getSizeX() >> 3;
-		this.sizeZ = worldView == null ? ZoneRenderer.NUM_ZONES : worldView.getSizeY() >> 3;
+		this.sizeX = worldView == null ? NUM_ZONES : worldView.getSizeX() >> 3;
+		this.sizeZ = worldView == null ? NUM_ZONES : worldView.getSizeY() >> 3;
 		if (worldView != null)
 			uboWorldViewStruct = uboWorldViews.acquire(worldView);
 		zones = new Zone[sizeX][sizeZ];

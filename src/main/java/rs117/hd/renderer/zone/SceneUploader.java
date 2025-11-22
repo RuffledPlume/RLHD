@@ -54,6 +54,7 @@ import rs117.hd.utils.buffer.GpuIntBuffer;
 import static net.runelite.api.Constants.*;
 import static net.runelite.api.Perspective.*;
 import static rs117.hd.HdPlugin.THREAD_POOL;
+import static rs117.hd.HdPlugin.processPendingClientCallbacks;
 import static rs117.hd.scene.tile_overrides.TileOverride.NONE;
 import static rs117.hd.scene.tile_overrides.TileOverride.OVERLAY_FLAG;
 import static rs117.hd.utils.HDUtils.HIDDEN_HSL;
@@ -127,7 +128,7 @@ class SceneUploader {
 		if (asyncTask != null) {
 			if (isClientThread) {
 				while (!asyncTask.isDone()) {
-					ZoneRenderer.processPendingClientCallbacks();
+					processPendingClientCallbacks(false);
 				}
 			}
 			asyncTask.get();
@@ -625,7 +626,7 @@ class SceneUploader {
 		if (r instanceof Model) {
 			m = (Model) r;
 		} else if (r instanceof DynamicObject) {
-			m = ((DynamicObject) r).getModelZbuf();
+			//m = ((DynamicObject) r).getModelZbuf();
 		}
 		if (m == null)
 			return;
@@ -670,7 +671,7 @@ class SceneUploader {
 		if (r instanceof Model) {
 			model = (Model) r;
 		} else if (r instanceof DynamicObject) {
-			model = ((DynamicObject) r).getModelZbuf();
+			//model = ((DynamicObject) r).getModelZbuf();
 		}
 		if (model == null)
 			return;
