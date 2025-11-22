@@ -131,6 +131,10 @@ public class SceneManager {
 	private final AsyncSceneUploaderGroup subSceneAsyncSceneUploader = new AsyncSceneUploaderGroup();
 	private final AsyncSceneUploaderGroup rebuildAsyncSceneUploader = new AsyncSceneUploaderGroup();
 
+	public boolean isTopLevelValid() {
+		return root != null && root.sceneContext != null;
+	}
+
 	@Nullable
 	public ZoneSceneContext getSceneContext() {
 		return root.sceneContext;

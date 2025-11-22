@@ -24,26 +24,13 @@
  */
 package rs117.hd.renderer.zone;
 
-import com.google.common.base.Stopwatch;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.Future;
-import java.util.stream.Collectors;
-import javax.annotation.Nullable;
 import javax.inject.Inject;
-import lombok.RequiredArgsConstructor;
-import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
-import net.runelite.api.coords.*;
 import net.runelite.api.events.*;
 import net.runelite.api.hooks.*;
 import net.runelite.client.callback.ClientThread;
@@ -65,14 +52,10 @@ import rs117.hd.opengl.uniforms.UBOWorldViews;
 import rs117.hd.overlays.FrameTimer;
 import rs117.hd.overlays.Timer;
 import rs117.hd.renderer.Renderer;
-import rs117.hd.scene.AreaManager;
 import rs117.hd.scene.EnvironmentManager;
-import rs117.hd.scene.FishingSpotReplacer;
 import rs117.hd.scene.LightManager;
 import rs117.hd.scene.ModelOverrideManager;
 import rs117.hd.scene.ProceduralGenerator;
-import rs117.hd.scene.areas.AABB;
-import rs117.hd.scene.areas.Area;
 import rs117.hd.scene.lights.Light;
 import rs117.hd.scene.model_overrides.ModelOverride;
 import rs117.hd.utils.Camera;
@@ -312,8 +295,10 @@ public class ZoneRenderer implements Renderer {
 		scene.setDrawDistance(plugin.getDrawDistance());
 		plugin.updateSceneFbo();
 
-		if (sceneManager.getSceneContext() == null || plugin.sceneViewport == null)
+		if (!sceneManager.isTopLevelValid() || plugin.sceneViewport == null)
 			return;
+
+		WorldViewContext ctx = sceneManager.context(scene);
 
 		frameTimer.begin(Timer.DRAW_FRAME);
 		frameTimer.begin(Timer.DRAW_SCENE);
@@ -347,7 +332,7 @@ public class ZoneRenderer implements Renderer {
 				copyTo(plugin.cameraPosition, vec(cameraX, cameraY, cameraZ));
 				copyTo(plugin.cameraOrientation, vec(cameraYaw, cameraPitch));
 
-				if (sceneManager.getSceneContext().scene == scene) {
+				if (ctx.sceneContext.scene == scene) {
 					copyTo(plugin.cameraFocalPoint, ivec((int) client.getCameraFocalPointX(), (int) client.getCameraFocalPointZ()));
 					Arrays.fill(plugin.cameraShift, 0);
 				} else {
@@ -441,14 +426,14 @@ public class ZoneRenderer implements Renderer {
 					plugin.uboGlobal.lightProjectionMatrix.set(directionalCamera.getViewProjMatrix());
 				}
 
-				if (sceneManager.getSceneContext().scene == scene) {
+				if (ctx.sceneContext.scene == scene) {
 					try {
 						frameTimer.begin(Timer.UPDATE_ENVIRONMENT);
-						environmentManager.update(sceneManager.getSceneContext());
+						environmentManager.update(ctx.sceneContext);
 						frameTimer.end(Timer.UPDATE_ENVIRONMENT);
 
 						frameTimer.begin(Timer.UPDATE_LIGHTS);
-						lightManager.update(sceneManager.getSceneContext(), plugin.cameraShift, plugin.cameraFrustum);
+						lightManager.update(ctx.sceneContext, plugin.cameraShift, plugin.cameraFrustum);
 						frameTimer.end(Timer.UPDATE_LIGHTS);
 					} catch (Exception ex) {
 						log.error("Error while updating environment or lights:", ex);
@@ -461,20 +446,20 @@ public class ZoneRenderer implements Renderer {
 				plugin.uboGlobal.viewMatrix.set(plugin.viewMatrix);
 				plugin.uboGlobal.projectionMatrix.set(plugin.viewProjMatrix);
 				plugin.uboGlobal.invProjectionMatrix.set(plugin.invViewProjMatrix);
-				plugin.uboGlobal.pointLightsCount.set(sceneManager.getSceneContext().numVisibleLights);
+				plugin.uboGlobal.pointLightsCount.set(ctx.sceneContext.numVisibleLights);
 				plugin.uboGlobal.upload();
 			}
 		}
 
-		if (plugin.configDynamicLights != DynamicLights.NONE && sceneManager.getSceneContext().scene == scene && updateUniforms) {
+		if (plugin.configDynamicLights != DynamicLights.NONE && ctx.sceneContext.scene == scene) {
 			// Update lights UBO
-			assert sceneManager.getSceneContext().numVisibleLights <= UBOLights.MAX_LIGHTS;
+			assert ctx.sceneContext.numVisibleLights <= UBOLights.MAX_LIGHTS;
 
 			frameTimer.begin(Timer.UPDATE_LIGHTS);
 			final float[] lightPosition = new float[4];
 			final float[] lightColor = new float[4];
-			for (int i = 0; i < sceneManager.getSceneContext().numVisibleLights; i++) {
-				final Light light = sceneManager.getSceneContext().lights.get(i);
+			for (int i = 0; i < ctx.sceneContext.numVisibleLights; i++) {
+				final Light light = ctx.sceneContext.lights.get(i);
 				final float lightRadiusSq = light.radius * light.radius;
 				lightPosition[0] = light.pos[0] + plugin.cameraShift[0];
 				lightPosition[1] = light.pos[1];
@@ -575,7 +560,7 @@ public class ZoneRenderer implements Renderer {
 		plugin.uboGlobal.fogColor.set(ColorUtils.linearToSrgb(environmentManager.currentFogColor));
 
 		plugin.uboGlobal.drawDistance.set((float) plugin.getDrawDistance());
-		plugin.uboGlobal.expandedMapLoadingChunks.set(sceneManager.getSceneContext().expandedMapLoadingChunks);
+		plugin.uboGlobal.expandedMapLoadingChunks.set(ctx.sceneContext.expandedMapLoadingChunks);
 		plugin.uboGlobal.colorBlindnessIntensity.set(config.colorBlindnessIntensity() / 100.f);
 
 		float[] waterColorHsv = ColorUtils.srgbToHsv(environmentManager.currentWaterColor);
@@ -624,7 +609,7 @@ public class ZoneRenderer implements Renderer {
 			0);
 
 		// Lights & lightning
-		plugin.uboGlobal.pointLightsCount.set(sceneManager.getSceneContext().numVisibleLights);
+		plugin.uboGlobal.pointLightsCount.set(ctx.sceneContext.numVisibleLights);
 		plugin.uboGlobal.lightningBrightness.set(environmentManager.getLightningBrightness());
 
 		plugin.uboGlobal.saturation.set(config.saturation() / 100f);
@@ -664,7 +649,7 @@ public class ZoneRenderer implements Renderer {
 	}
 
 	private void postDrawTopLevel() {
-		if (sceneManager.getSceneContext() == null || plugin.sceneViewport == null)
+		if (!sceneManager.isTopLevelValid() || plugin.sceneViewport == null)
 			return;
 
 		sceneFboValid = true;
@@ -791,16 +776,17 @@ public class ZoneRenderer implements Renderer {
 
 	@Override
 	public boolean zoneInFrustum(int zx, int zz, int maxY, int minY) {
-		if (sceneManager.getSceneContext() == null)
+		if (!sceneManager.isTopLevelValid())
 			return false;
 
+		WorldViewContext ctx = sceneManager.getRoot();
 		if (plugin.enableDetailedTimers) frameTimer.begin(Timer.VISIBILITY_CHECK);
-		int minX = zx * CHUNK_SIZE - sceneManager.getRoot().sceneContext.sceneOffset;
-		int minZ = zz * CHUNK_SIZE - sceneManager.getRoot().sceneContext.sceneOffset;
-		if (sceneManager.getRoot().sceneContext.currentArea != null) {
-			var base = sceneManager.getRoot().sceneContext.sceneBase;
+		int minX = zx * CHUNK_SIZE - ctx.sceneContext.sceneOffset;
+		int minZ = zz * CHUNK_SIZE - ctx.sceneContext.sceneOffset;
+		if (ctx.sceneContext.currentArea != null) {
+			var base = ctx.sceneContext.sceneBase;
 			assert base != null;
-			boolean inArea = sceneManager.getRoot().sceneContext.currentArea.intersects(
+			boolean inArea = ctx.sceneContext.currentArea.intersects(
 				true, base[0] + minX, base[1] + minZ, base[0] + minX + 7, base[1] + minZ + 7);
 			if (!inArea) {
 				if (plugin.enableDetailedTimers) frameTimer.end(Timer.VISIBILITY_CHECK);
@@ -812,7 +798,7 @@ public class ZoneRenderer implements Renderer {
 		minZ *= LOCAL_TILE_SIZE;
 		int maxX = minX + CHUNK_SIZE * LOCAL_TILE_SIZE;
 		int maxZ = minZ + CHUNK_SIZE * LOCAL_TILE_SIZE;
-		Zone zone = sceneManager.getRoot().zones[zx][zz];
+		Zone zone = ctx.zones[zx][zz];
 		if (zone.hasWater) {
 			maxY += ProceduralGenerator.MAX_DEPTH;
 			minY -= ProceduralGenerator.MAX_DEPTH;
@@ -1309,7 +1295,7 @@ public class ZoneRenderer implements Renderer {
 
 	@Override
 	public void reloadScene() {
-		if (client.getGameState().getState() < GameState.LOGGED_IN.getState() || sceneManager.getSceneContext() == null)
+		if (client.getGameState().getState() < GameState.LOGGED_IN.getState() || !sceneManager.isTopLevelValid())
 			return;
 
 		sceneManager.reloadScene();
@@ -1343,7 +1329,5 @@ public class ZoneRenderer implements Renderer {
 	}
 
 	@Override
-	public void swapScene(Scene scene) {
-		sceneManager.swapScene(scene);
-	}
+	public void swapScene(Scene scene) { sceneManager.swapScene(scene); }
 }
