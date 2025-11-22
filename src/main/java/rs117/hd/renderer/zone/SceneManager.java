@@ -4,7 +4,6 @@ import com.google.common.base.Stopwatch;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
 import java.util.stream.Collectors;
@@ -198,6 +197,8 @@ public class SceneManager {
 
 	private void updateAreaHiding() {
 		Player localPlayer = client.getLocalPlayer();
+		if(!isTopLevelValid() || localPlayer == null)
+			return;
 		var lp = localPlayer.getLocalLocation();
 		if (root.sceneContext.enableAreaHiding) {
 			var base = root.sceneContext.sceneBase;
@@ -259,14 +260,6 @@ public class SceneManager {
 				if (!ctx.zones[x][z].invalidate && ctx.zones[x][z].uploaded)
 					continue;
 
-				if(ctx.zones[x][z].defferDelay > 0) {
-					ctx.zones[x][z].defferDelay -= plugin.deltaTime;
-					if(ctx.zones[x][z].defferDelay > 0) {
-						continue;
-					}
-					ctx.zones[x][z].defferDelay = -1.0f;
-				}
-
 				if(ctx.zones[x][z].uploaded)
 					ctx.zones[x][z].isRebuilding = true;
 
@@ -290,15 +283,11 @@ public class SceneManager {
 				Zone newZone = new Zone();
 				ctx.newZones.add(newZone);
 
-				if(ctx.zones[x][z] != null && ctx.zones[x][z].needsTerrainGen) {
-					ctx.zones[x][z].needsTerrainGen = false;
-					proceduralGenerator.generateTerrainDataForZone(ctx.sceneContext, x, z);
-				}
 				uploader.estimateZoneSize(ctx.sceneContext, newZone, x, z);
 			}
 
 			// Initialise buffers for new zone
-			plugin.queueClientCallbackBlock(() -> {
+			plugin.queueClientCallbackBlock(false, false, () -> {
 				for (int i = 0; i < ctx.rebuildZones.size(); i++) {
 					int zoneIdx = ctx.rebuildZones.get(i);
 					int x = zoneIdx / NUM_ZONES;
@@ -327,24 +316,15 @@ public class SceneManager {
 			});
 
 			for(int i = 0; i < ctx.newZones.size(); i++) {
-				int zoneIdx = ctx.rebuildZones.get(i);
-				int x = zoneIdx / NUM_ZONES;
-				int z = zoneIdx % NUM_ZONES;
+				final int zoneIdx = ctx.rebuildZones.get(i);
+				final int x = zoneIdx / NUM_ZONES;
+				final int z = zoneIdx % NUM_ZONES;
 
-				Zone newZone = ctx.newZones.get(i);
+				final Zone newZone = ctx.newZones.get(i);
 
 				uploader.uploadZone(ctx.sceneContext, newZone, x, z);
-			}
 
-			CountDownLatch latch = new CountDownLatch(1);
-			clientThread.invoke(() -> {
-				for(int i = 0; i < ctx.newZones.size(); i++) {
-					int zoneIdx = ctx.rebuildZones.get(i);
-					int x = zoneIdx / NUM_ZONES;
-					int z = zoneIdx % NUM_ZONES;
-
-					Zone newZone = ctx.newZones.get(i);
-
+				plugin.queueClientCallback(false, true, () -> {
 					newZone.unmap();
 					newZone.initialized = true;
 
@@ -354,14 +334,9 @@ public class SceneManager {
 					}
 					ctx.zones[x][z] = newZone;
 					log.trace("Rebuilt zone wv={} x={} z={}", wv.getId(), x, z);
-				}
-				latch.countDown();
-			});
-			try {
-				latch.await();
-			} catch (InterruptedException e) {
-				throw new RuntimeException(e);
+				});
 			}
+
 			ctx.rebuildZones.clear();
 			ctx.newZones.clear();
 			uploader.clear();
@@ -424,15 +399,6 @@ public class SceneManager {
 			return REUSE_STATE_PARTIAL;
 
 		return REUSE_STATE_FULLY;
-	}
-
-	private void calculateDeferDelay(ZoneSceneContext ctx, Zone zone, int x, int z, int[] playerPos) {
-		int baseX = (x - (ctx.sceneOffset >> 3)) << 10;
-		int baseZ = (z - (ctx.sceneOffset >> 3)) << 10;
-		float dist = distance(vec(baseX, baseZ), vec(playerPos[0], playerPos[1]));
-
-		float frac = clamp(((dist - ZONE_DEFER_DIST_START) / (float)ZONE_DEFER_BLEND_RANGE), 0.0f, 1.0f);
-		zone.defferDelay = 1.0f + frac * ZONE_DEFER_DELAY;
 	}
 
 	private boolean shouldDeferZone(ZoneSceneContext ctx, Zone zone, int x, int z, int[] playerPos) {
@@ -597,7 +563,6 @@ public class SceneManager {
 						if (reuseState == REUSE_STATE_PARTIAL) {
 							if(nextPlayerPos == null)
 								continue;
-							calculateDeferDelay(nextSceneContext, old, x, z, nextPlayerPos);
 							old.invalidate = true;
 						}
 
@@ -648,16 +613,16 @@ public class SceneManager {
 					if(zone == null)
 						zone = nextZones[x][z] = new Zone();
 
-					if (!zone.initialized || zone.defferDelay >= 0) {
+					proceduralGenerator.generateTerrainDataForZone(nextSceneContext, x, z);
+
+					if (!zone.initialized || zone.invalidate) {
 						if(!shouldDeferZone(nextSceneContext, zone, x, z, nextPlayerPos)) {
-							proceduralGenerator.generateTerrainDataForZone(nextSceneContext, x, z);
 							uploader.estimateZoneSize(nextSceneContext, zone, x, z);
 							nextSceneContext.totalOpaque += zone.sizeO;
 							nextSceneContext.totalAlpha += zone.sizeA;
 							nextSceneContext.totalNewZones++;
 						} else {
-							calculateDeferDelay(nextSceneContext, zone, x, z, nextPlayerPos);
-							zone.needsTerrainGen = true;
+							zone.invalidate = true;
 							nextSceneContext.totalDeferred++;
 						}
 					} else {
@@ -666,13 +631,13 @@ public class SceneManager {
 				}
 
 				// allocate buffers for zones which require upload
-				plugin.queueClientCallbackBlock(() -> {
+				plugin.queueClientCallbackBlock(true, false, () -> {
 					for (int idx = start; idx < end; idx++) {
 						int x = idx / NUM_ZONES;
 						int z = idx % NUM_ZONES;
 
 						Zone zone = nextZones[x][z];
-						if (zone.initialized || zone.defferDelay >= 0)
+						if (zone.initialized || zone.invalidate)
 							continue;
 
 						VBO o = null, a = null;
@@ -700,7 +665,7 @@ public class SceneManager {
 					int z = idx % NUM_ZONES;
 
 					Zone zone = nextZones[x][z];
-					if (!zone.initialized && zone.defferDelay < 0) {
+					if (!zone.initialized && !zone.invalidate) {
 						uploader.uploadZone(nextSceneContext, zone, x, z);
 					}
 
@@ -878,7 +843,7 @@ public class SceneManager {
 				}
 
 				// allocate buffers for zones which require upload
-				plugin.queueClientCallbackBlock(() -> {
+				plugin.queueClientCallbackBlock(true, false, () -> {
 					ctx.initMetadata();
 
 					for (int idx = start; idx < end; idx++) {

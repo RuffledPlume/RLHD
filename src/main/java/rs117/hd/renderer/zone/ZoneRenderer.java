@@ -267,7 +267,7 @@ public class ZoneRenderer implements Renderer {
 		float cameraX, float cameraY, float cameraZ, float cameraPitch, float cameraYaw,
 		int minLevel, int level, int maxLevel, Set<Integer> hideRoofIds
 	) {
-		processPendingClientCallbacks();
+		processPendingClientCallbacks(false);
 
 		this.minLevel = minLevel;
 		this.level = level;
@@ -642,7 +642,7 @@ public class ZoneRenderer implements Renderer {
 
 	@Override
 	public void postSceneDraw(Scene scene) {
-		processPendingClientCallbacks();
+		processPendingClientCallbacks(false);
 
 		if (scene.getWorldViewId() == WorldView.TOPLEVEL)
 			postDrawTopLevel();
@@ -834,7 +834,7 @@ public class ZoneRenderer implements Renderer {
 
 	@Override
 	public void drawZoneOpaque(Projection entityProjection, Scene scene, int zx, int zz) {
-		processPendingClientCallbacks();
+		processPendingClientCallbacks(false);
 
 		WorldViewContext ctx = sceneManager.context(scene);
 		if (ctx == null)
@@ -863,7 +863,7 @@ public class ZoneRenderer implements Renderer {
 
 	@Override
 	public void drawZoneAlpha(Projection entityProjection, Scene scene, int level, int zx, int zz) {
-		processPendingClientCallbacks();
+		processPendingClientCallbacks(false);
 
 		WorldViewContext ctx = sceneManager.context(scene);
 		if (ctx == null)
@@ -928,7 +928,7 @@ public class ZoneRenderer implements Renderer {
 
 	@Override
 	public void drawPass(Projection projection, Scene scene, int pass) {
-		processPendingClientCallbacks();
+		processPendingClientCallbacks(false);
 
 		WorldViewContext ctx = sceneManager.context(scene);
 		if (ctx == null)
@@ -991,7 +991,7 @@ public class ZoneRenderer implements Renderer {
 		int y,
 		int z
 	) {
-		processPendingClientCallbacks();
+		processPendingClientCallbacks(false);
 
 		WorldViewContext ctx = sceneManager.context(scene);
 		if (ctx == null || !renderCallbackManager.drawObject(scene, tileObject))
@@ -1074,7 +1074,7 @@ public class ZoneRenderer implements Renderer {
 
 	@Override
 	public void drawTemp(Projection worldProjection, Scene scene, GameObject gameObject, Model m, int orientation, int x, int y, int z) {
-		processPendingClientCallbacks();
+		processPendingClientCallbacks(false);
 
 		WorldViewContext ctx = sceneManager.context(scene);
 		if (ctx == null || !renderCallbackManager.drawObject(scene, gameObject))
@@ -1176,8 +1176,6 @@ public class ZoneRenderer implements Renderer {
 
 	@Override
 	public void draw(int overlayColor) {
-		processPendingClientCallbacks();
-
 		final GameState gameState = client.getGameState();
 		if (gameState == GameState.STARTING) {
 			frameTimer.end(Timer.DRAW_FRAME);
@@ -1256,6 +1254,8 @@ public class ZoneRenderer implements Renderer {
 		frameTimer.endFrameAndReset();
 //		frameModelInfoMap.clear();
 		checkGLErrors();
+
+		processPendingClientCallbacks(true);
 	}
 
 	@Subscribe

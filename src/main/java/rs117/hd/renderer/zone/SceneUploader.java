@@ -128,7 +128,7 @@ class SceneUploader {
 		if (asyncTask != null) {
 			if (isClientThread) {
 				while (!asyncTask.isDone()) {
-					processPendingClientCallbacks();
+					processPendingClientCallbacks(false);
 				}
 			}
 			asyncTask.get();
@@ -626,7 +626,7 @@ class SceneUploader {
 		if (r instanceof Model) {
 			m = (Model) r;
 		} else if (r instanceof DynamicObject) {
-			m = ((DynamicObject) r).getModelZbuf();
+			//m = ((DynamicObject) r).getModelZbuf();
 		}
 		if (m == null)
 			return;
@@ -671,7 +671,7 @@ class SceneUploader {
 		if (r instanceof Model) {
 			model = (Model) r;
 		} else if (r instanceof DynamicObject) {
-			model = ((DynamicObject) r).getModelZbuf();
+			//model = ((DynamicObject) r).getModelZbuf();
 		}
 		if (model == null)
 			return;
