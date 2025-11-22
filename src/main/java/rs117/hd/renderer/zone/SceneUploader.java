@@ -29,7 +29,6 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.Future;
 import javax.inject.Inject;
-import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.client.callback.RenderCallbackManager;
@@ -53,8 +52,6 @@ import rs117.hd.utils.buffer.GpuIntBuffer;
 
 import static net.runelite.api.Constants.*;
 import static net.runelite.api.Perspective.*;
-import static rs117.hd.HdPlugin.THREAD_POOL;
-import static rs117.hd.HdPlugin.processPendingClientCallbacks;
 import static rs117.hd.scene.tile_overrides.TileOverride.NONE;
 import static rs117.hd.scene.tile_overrides.TileOverride.OVERLAY_FLAG;
 import static rs117.hd.utils.HDUtils.HIDDEN_HSL;
@@ -115,35 +112,6 @@ class SceneUploader {
 	private final int[] modelLocalXI = new int[MAX_VERTEX_COUNT];
 	private final int[] modelLocalYI = new int[MAX_VERTEX_COUNT];
 	private final int[] modelLocalZI = new int[MAX_VERTEX_COUNT];
-
-	void queueTask(Runnable runnable) {
-		completeTask(-1, client.isClientThread());
-		asyncTask = THREAD_POOL.submit(runnable);
-	}
-
-	boolean isBusy() { return asyncTask != null && !asyncTask.isDone(); }
-
-	@SneakyThrows
-	void completeTask(long timeout, boolean isClientThread) {
-		if (asyncTask != null) {
-			if (isClientThread) {
-				while (!asyncTask.isDone()) {
-					processPendingClientCallbacks(false);
-				}
-			}
-			if(timeout > 0) {
-				long start = System.currentTimeMillis();
-				while (!asyncTask.isDone()) {
-					Thread.yield();
-					if (System.currentTimeMillis() - start > timeout) {
-						return;
-					}
-				}
-			}
-			asyncTask.get();
-		}
-		asyncTask = null;
-	}
 
 	void setScene(Scene scene) {
 		if(scene == currentScene) {
@@ -635,7 +603,9 @@ class SceneUploader {
 		if (r instanceof Model) {
 			m = (Model) r;
 		} else if (r instanceof DynamicObject) {
-			//m = ((DynamicObject) r).getModelZbuf();
+			try {
+				m = ((DynamicObject) r).getModelZbuf();
+			} catch (Exception ignored) {}
 		}
 		if (m == null)
 			return;
@@ -680,7 +650,9 @@ class SceneUploader {
 		if (r instanceof Model) {
 			model = (Model) r;
 		} else if (r instanceof DynamicObject) {
-			//model = ((DynamicObject) r).getModelZbuf();
+			try {
+				model = ((DynamicObject) r).getModelZbuf();
+			} catch (Exception ignored) {}
 		}
 		if (model == null)
 			return;

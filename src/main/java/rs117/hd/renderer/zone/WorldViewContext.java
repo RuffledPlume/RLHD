@@ -3,6 +3,7 @@ package rs117.hd.renderer.zone;
 import java.util.ArrayList;
 import java.util.List;
 import javax.annotation.Nullable;
+import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import rs117.hd.opengl.uniforms.UBOWorldViews;
@@ -20,8 +21,7 @@ public class WorldViewContext {
 	ZoneSceneContext sceneContext;
 	Zone[][] zones;
 	VBO vboM;
-	List<Integer> rebuildZones = new ArrayList<>();
-	List<Zone> newZones = new ArrayList<>();
+	List<ZoneStreamingManager.WorkHandle> streamingZones = new ArrayList<>();
 	boolean isLoading = true;
 
 	WorldViewContext(@Nullable WorldView worldView, @Nullable ZoneSceneContext sceneContext, UBOWorldViews uboWorldViews) {
@@ -46,6 +46,30 @@ public class WorldViewContext {
 		vboM.map();
 		vboM.vb.put(uboWorldViewStruct.worldViewIdx + 1);
 		vboM.unmap();
+	}
+
+	void cancelStreaming() {
+		for(ZoneStreamingManager.WorkHandle handle : streamingZones)
+			handle.cancel();
+		streamingZones.clear();
+	}
+
+	void clearCompleteStreaming() {
+		for(ZoneStreamingManager.WorkHandle handle : streamingZones) {
+			if(handle.isComplete()) {
+				handle.release();
+				streamingZones.remove(handle);
+			}
+		}
+	}
+
+	@SneakyThrows
+	void completeStreaming() {
+		for(ZoneStreamingManager.WorkHandle handle : streamingZones) {
+			handle.complete();
+			handle.release();
+		}
+		streamingZones.clear();
 	}
 
 	void free() {
