@@ -598,8 +598,6 @@ public class LightManager {
 
 	public void loadSceneLights(SceneContext sceneContext, @Nullable SceneContext oldSceneContext)
 	{
-		assert client.isClientThread();
-
 		if (oldSceneContext == null) {
 			sceneContext.lights.clear();
 			sceneContext.trackedTileObjects.clear();
@@ -660,6 +658,12 @@ public class LightManager {
 
 		// Set the plane to an unreachable plane, forcing the first `toggleTemporaryVisibility` call to not fade
 		currentPlane = -1;
+	}
+
+	public void setupImposterTracking(@Nonnull SceneContext sceneContext) {
+		for(TileObjectImpostorTracker tracker : sceneContext.trackedTileObjects.values()) {
+			trackImpostorChanges(sceneContext, tracker);
+		}
 	}
 
 	private void removeLightIf(Predicate<Light> predicate) {
@@ -785,7 +789,8 @@ public class LightManager {
 				sceneContext.trackedVarps.put(tracker.impostorVarp, tracker);
 		}
 
-		trackImpostorChanges(sceneContext, tracker);
+		if(client.isClientThread())
+			trackImpostorChanges(sceneContext, tracker);
 	}
 
 	private void handleObjectDespawn(TileObject tileObject) {

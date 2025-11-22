@@ -140,7 +140,7 @@ public class ZoneRenderer implements Renderer {
 	private ShadowShaderProgram.Detailed detailedShadowProgram;
 
 	@Inject
-	private UBOWorldViews uboWorldViews;
+	public UBOWorldViews uboWorldViews;
 
 	private final Camera sceneCamera = new Camera();
 	private final Camera directionalCamera = new Camera().setOrthographic(true);
@@ -183,17 +183,15 @@ public class ZoneRenderer implements Renderer {
 
 	@Override
 	public void initialize() {
-		sceneManager.initialize();
-		initializeBuffers();
-
 		uboWorldViews.initialize(UNIFORM_BLOCK_WORLD_VIEWS);
+		initializeBuffers();
+		sceneManager.initialize(this, uboWorldViews);
 	}
 
 	@Override
 	public void destroy() {
 		sceneManager.shutdown();
 		destroyBuffers();
-
 		uboWorldViews.destroy();
 	}
 

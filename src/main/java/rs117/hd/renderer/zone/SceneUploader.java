@@ -117,18 +117,27 @@ class SceneUploader {
 	private final int[] modelLocalZI = new int[MAX_VERTEX_COUNT];
 
 	void queueTask(Runnable runnable) {
-		completeTask(client.isClientThread());
+		completeTask(-1, client.isClientThread());
 		asyncTask = THREAD_POOL.submit(runnable);
 	}
 
 	boolean isBusy() { return asyncTask != null && !asyncTask.isDone(); }
 
 	@SneakyThrows
-	void completeTask(boolean isClientThread) {
+	void completeTask(long timeout, boolean isClientThread) {
 		if (asyncTask != null) {
 			if (isClientThread) {
 				while (!asyncTask.isDone()) {
 					processPendingClientCallbacks(false);
+				}
+			}
+			if(timeout > 0) {
+				long start = System.currentTimeMillis();
+				while (!asyncTask.isDone()) {
+					Thread.yield();
+					if (System.currentTimeMillis() - start > timeout) {
+						return;
+					}
 				}
 			}
 			asyncTask.get();
