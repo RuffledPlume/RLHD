@@ -45,16 +45,12 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentLinkedQueue;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import javax.annotation.Nullable;
 import javax.inject.Inject;
 import javax.swing.SwingUtilities;
 import lombok.Getter;
-import lombok.RequiredArgsConstructor;
-import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.api.events.*;
@@ -202,15 +198,8 @@ public class HdPlugin extends Plugin {
 		GL_RGBA // should be guaranteed
 	};
 
-	private static int THREAD_NO = 0;
-	public static final int THREAD_COUNT = max(1, Runtime.getRuntime().availableProcessors() - 1);
-	public static final ExecutorService THREAD_POOL = Executors.newFixedThreadPool(THREAD_COUNT,
-		(runnable) -> {
-			Thread newThread = new Thread(runnable);
-			newThread.setName("117 HD Thread " + THREAD_NO++);
-			newThread.setPriority(Thread.MAX_PRIORITY);
-			return newThread;
-		});
+	public static final int PROCESSOR_COUNT = Runtime.getRuntime().availableProcessors();
+	public static final ExecutorService THREAD_POOL = Executors.newCachedThreadPool();
 
 	@Getter
 	private Gson gson;
@@ -408,18 +397,6 @@ public class HdPlugin extends Plugin {
 	public boolean isInHouse;
 	public boolean justChangedArea;
 	public Scene skipScene;
-
-	@RequiredArgsConstructor
-	static class CallbackPair {
-		final CountDownLatch latch = new CountDownLatch(1); // Replace with semaphore?
-		final Runnable callback;
-		final boolean endOfFrame;
-	}
-
-	private static final ConcurrentLinkedQueue<CallbackPair> clientCallbacks = new ConcurrentLinkedQueue<>();
-	private static final ConcurrentLinkedQueue<CallbackPair> highPriorityClientCallbacks = new ConcurrentLinkedQueue<>();
-	private static long clientCallbackElapsed = 0;
-	private static boolean clientInvokeScheduled;
 
 	public final ConcurrentHashMap.KeySetView<String, ?> pendingConfigChanges = ConcurrentHashMap.newKeySet();
 
@@ -1134,66 +1111,6 @@ public class HdPlugin extends Plugin {
 		texTiledLighting = 0;
 	}
 
-	public CountDownLatch queueClientCallback(boolean highPriority, Runnable callback) {
-		CallbackPair pair = new CallbackPair(callback, highPriority);
-
-		if(highPriority) {
-			highPriorityClientCallbacks.add(pair);
-		} else {
-			clientCallbacks.add(pair);
-		}
-
-		if(!clientInvokeScheduled) {
-			clientInvokeScheduled = true;
-			clientThread.invoke(() -> {
-				clientInvokeScheduled = false;
-				processPendingClientCallbacks(true);
-			});
-		}
-
-		return pair.latch;
-	}
-
-	@SneakyThrows
-	public void queueClientCallbackBlock(boolean highPriority, Runnable callback) {
-		assert !client.isClientThread();
-		queueClientCallback(highPriority, callback).await();
-	}
-
-	private static void flushClientCallbackQueue(ConcurrentLinkedQueue<CallbackPair> callbacks, boolean IsEndOfFrame, long timeoutNs) {
-		long start = System.nanoTime();
-		int processCount = callbacks.size();
-		int processed = 0;
-		while(true) {
-			if(processed >= processCount || (timeoutNs > 0 && clientCallbackElapsed >= timeoutNs)) {
-				return;
-			}
-
-			CallbackPair pair = callbacks.poll();
-			if(pair == null) {
-				return;
-			}
-
-			processed++;
-			if(pair.endOfFrame && !IsEndOfFrame) {
-				callbacks.add(pair); // Add it back onto the end
-				continue;
-			}
-
-			pair.callback.run();
-			pair.latch.countDown();
-			clientCallbackElapsed += System.nanoTime() - start;
-		}
-	}
-
-	public static void processPendingClientCallbacks(boolean isEndOfFrame) {
-		if (clientCallbacks.isEmpty() && highPriorityClientCallbacks.isEmpty())
-			return;
-
-		flushClientCallbackQueue(highPriorityClientCallbacks, isEndOfFrame, -1);
-		flushClientCallbackQueue(clientCallbacks, isEndOfFrame, 100000); // Timeout after 1 ms
-	}
-
 	public void updateSceneFbo() {
 		if (uiResolution == null)
 			return;
@@ -1896,8 +1813,6 @@ public class HdPlugin extends Plugin {
 		// Upload the UI which we began copying during the previous frame
 		if (configAsyncUICopy)
 			asyncUICopy.complete();
-
-		clientCallbackElapsed = 0;
 
 		if (client.getScene() == null)
 			return;

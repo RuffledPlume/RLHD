@@ -8,10 +8,12 @@ import lombok.Getter;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
+import net.runelite.client.callback.ClientThread;
 import rs117.hd.HdPlugin;
 import rs117.hd.scene.ProceduralGenerator;
 
 import static org.lwjgl.opengl.GL15.GL_STATIC_DRAW;
+import static rs117.hd.HdPlugin.PROCESSOR_COUNT;
 import static rs117.hd.renderer.zone.ZoneRenderer.eboAlpha;
 
 @Singleton
@@ -20,6 +22,7 @@ public class ZoneStreamingManager {
 	private static final WorkItem EMPTY = new WorkItem();
 	private static final LinkedBlockingDeque<WorkItem> WORK_ITEM_POOL = new LinkedBlockingDeque<>();
 	private static final LinkedBlockingDeque<WorkHandle> WORK_HANDLE_POOL = new LinkedBlockingDeque<>();
+	private static final LinkedBlockingDeque<ClientCallbackItem> CLIENT_CALLBACK_POOL = new LinkedBlockingDeque<>();
 
 	static class WorkItem {
 		public WorldViewContext viewContext;
@@ -28,6 +31,12 @@ public class ZoneStreamingManager {
 		public Zone zone;
 		public boolean highPriority;
 		public WorkHandle handle;
+	}
+
+	static class ClientCallbackItem {
+		final Semaphore seme = new Semaphore(0);
+		Runnable callback;
+		boolean processNextFrame;
 	}
 
 	public class WorkHandle {
@@ -40,7 +49,7 @@ public class ZoneStreamingManager {
 			if(isComplete) return;
 			if(client.isClientThread()) {
 				while(semaphore.tryAcquire()) {
-					HdPlugin.processPendingClientCallbacks(true);
+					processPendingClientCallbacks(false);
 				}
 			} else {
 				semaphore.acquire();
@@ -64,22 +73,30 @@ public class ZoneStreamingManager {
 	private Client client;
 
 	@Inject
+	private ClientThread clientThread;
+
+	@Inject
 	private ProceduralGenerator  proceduralGenerator;
 
 	private final LinkedBlockingDeque<WorkItem> workQueue = new LinkedBlockingDeque<>();
+	private final LinkedBlockingDeque<ClientCallbackItem> highPriorityClientCallbacks = new LinkedBlockingDeque<>();
+	private final LinkedBlockingDeque<ClientCallbackItem> clientCallbacks = new LinkedBlockingDeque<>();
 
+	private final int workerCount = PROCESSOR_COUNT - 1;
 	private Thread[] workers;
 	private final Semaphore pauseSema = new Semaphore(0);
 	private final Semaphore resumeSema = new Semaphore(0);
 	private transient boolean paused;
 	private transient boolean active;
+	private long clientCallbackElapsed;
+	private boolean clientInvokeScheduled;
 
 	public void initialize() {
-		workers = new Thread[HdPlugin.THREAD_COUNT];
+		workers = new Thread[workerCount];
 		paused = false;
 		active = true;
 
-		for(int i = 0; i < HdPlugin.THREAD_COUNT; i++) {
+		for(int i = 0; i < workerCount; i++) {
 			Thread newWorker = workers[i] = new Thread(this::workerRun);
 			newWorker.setPriority(Thread.MAX_PRIORITY);
 			newWorker.setName("117HD - Streaming Worker  " + i);
@@ -135,7 +152,7 @@ public class ZoneStreamingManager {
 		pauseSema.drainPermits();
 		paused = true;
 		// Ensure workers have woken up, since they might be blocked waiting for zone
-		for(int  i = 0; i < HdPlugin.THREAD_COUNT; i++)
+		for(int  i = 0; i < workerCount; i++)
 			workQueue.push(EMPTY);
 		pauseSema.acquire(workers.length);
 	}
@@ -143,7 +160,7 @@ public class ZoneStreamingManager {
 	@SneakyThrows
 	public void shutdown() {
 		active = false;
-		for(int i = 0; i < HdPlugin.THREAD_COUNT; i++) {
+		for(int i = 0; i < workerCount; i++) {
 			workers[i].interrupt();
 			workers[i].join();
 		}
@@ -190,8 +207,8 @@ public class ZoneStreamingManager {
 					uploader.estimateZoneSize(work.sceneContext, zone, work.x, work.z);
 					workerHandlePaused();
 
-					plugin.queueClientCallbackBlock(
-						work.highPriority, () -> {
+					queueClientCallback(
+						work.highPriority, false, () -> {
 							VBO o = null, a = null;
 							int sz = zone.sizeO * Zone.VERT_SIZE * 3;
 							if (sz > 0) {
@@ -216,8 +233,8 @@ public class ZoneStreamingManager {
 					uploader.uploadZone(work.sceneContext, zone, work.x, work.z);
 					workerHandlePaused();
 
-					plugin.queueClientCallbackBlock(
-						work.highPriority, () -> {
+					queueClientCallback(
+						work.highPriority, !work.highPriority, () -> {
 							zone.unmap();
 							zone.initialized = true;
 							zone.dirty = isRebuild;
@@ -239,5 +256,66 @@ public class ZoneStreamingManager {
 				log.warn("Caught exception whilst waiting for work", ex);
 			}
 		}
+	}
+
+	@SneakyThrows
+	private void queueClientCallback(boolean highPriority, boolean processNextFrame, Runnable callback) {
+		ClientCallbackItem newItem = CLIENT_CALLBACK_POOL.peek() != null ? CLIENT_CALLBACK_POOL.poll() : new ClientCallbackItem();
+		newItem.seme.drainPermits();
+		newItem.callback = callback;
+		newItem.processNextFrame = processNextFrame;;
+
+		if(highPriority) {
+			highPriorityClientCallbacks.add(newItem);
+		} else {
+			clientCallbacks.add(newItem);
+		}
+
+		if(!clientInvokeScheduled) {
+			clientInvokeScheduled = true;
+			clientThread.invoke(() -> {
+				clientInvokeScheduled = false;
+				processPendingClientCallbacks(true);
+			});
+		}
+
+		newItem.seme.acquire();
+	}
+
+	private void flushClientCallbackQueue(LinkedBlockingDeque<ClientCallbackItem> callbacks, boolean processNextFrame, long timeoutNs) {
+		long start = System.nanoTime();
+		int processCount = callbacks.size();
+		int processed = 0;
+		while(true) {
+			if(processed >= processCount || (timeoutNs > 0 && clientCallbackElapsed >= timeoutNs)) {
+				return;
+			}
+
+			ClientCallbackItem pair = callbacks.poll();
+			if(pair == null) {
+				return;
+			}
+
+			processed++;
+			if(pair.processNextFrame && !processNextFrame) {
+				callbacks.add(pair); // Add it back onto the end
+				continue;
+			}
+
+			pair.callback.run();
+			pair.seme.release();
+			clientCallbackElapsed += System.nanoTime() - start;
+		}
+	}
+
+	public void processPendingClientCallbacks(boolean processNextFrame) {
+		if (clientCallbacks.isEmpty() && highPriorityClientCallbacks.isEmpty())
+			return;
+
+		if(processNextFrame)
+			clientCallbackElapsed = 0;
+
+		flushClientCallbackQueue(highPriorityClientCallbacks, processNextFrame, -1);
+		flushClientCallbackQueue(clientCallbacks, processNextFrame, 500000); // Timeout after 0.5 ms
 	}
 }

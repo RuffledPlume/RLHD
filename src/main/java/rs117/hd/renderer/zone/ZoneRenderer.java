@@ -78,7 +78,6 @@ import static rs117.hd.HdPlugin.COLOR_FILTER_FADE_DURATION;
 import static rs117.hd.HdPlugin.NEAR_PLANE;
 import static rs117.hd.HdPlugin.ORTHOGRAPHIC_ZOOM;
 import static rs117.hd.HdPlugin.checkGLErrors;
-import static rs117.hd.HdPlugin.processPendingClientCallbacks;
 import static rs117.hd.utils.Mat4.clipFrustumToDistance;
 import static rs117.hd.utils.MathUtils.*;
 
@@ -276,7 +275,7 @@ public class ZoneRenderer implements Renderer {
 		this.hideRoofIds = hideRoofIds;
 
 		//zoneStreamingManager.resumeStreaming(); // TODO: This might be able to moved earlier?
-		processPendingClientCallbacks(false);
+		zoneStreamingManager.processPendingClientCallbacks(false);
 
 		WorldViewContext ctx = sceneManager.context(scene);
 		if (ctx != null && ctx.uboWorldViewStruct != null)
@@ -646,7 +645,7 @@ public class ZoneRenderer implements Renderer {
 
 	@Override
 	public void postSceneDraw(Scene scene) {
-		processPendingClientCallbacks(false);
+		zoneStreamingManager.processPendingClientCallbacks(false);
 
 		if (scene.getWorldViewId() == WorldView.TOPLEVEL)
 			postDrawTopLevel();
@@ -838,7 +837,7 @@ public class ZoneRenderer implements Renderer {
 
 	@Override
 	public void drawZoneOpaque(Projection entityProjection, Scene scene, int zx, int zz) {
-		processPendingClientCallbacks(false);
+		zoneStreamingManager.processPendingClientCallbacks(false);
 
 		WorldViewContext ctx = sceneManager.context(scene);
 		if (ctx == null)
@@ -867,7 +866,7 @@ public class ZoneRenderer implements Renderer {
 
 	@Override
 	public void drawZoneAlpha(Projection entityProjection, Scene scene, int level, int zx, int zz) {
-		processPendingClientCallbacks(false);
+		zoneStreamingManager.processPendingClientCallbacks(false);
 
 		WorldViewContext ctx = sceneManager.context(scene);
 		if (ctx == null)
@@ -932,7 +931,7 @@ public class ZoneRenderer implements Renderer {
 
 	@Override
 	public void drawPass(Projection projection, Scene scene, int pass) {
-		processPendingClientCallbacks(false);
+		zoneStreamingManager.processPendingClientCallbacks(false);
 
 		WorldViewContext ctx = sceneManager.context(scene);
 		if (ctx == null)
@@ -995,7 +994,7 @@ public class ZoneRenderer implements Renderer {
 		int y,
 		int z
 	) {
-		processPendingClientCallbacks(false);
+		zoneStreamingManager.processPendingClientCallbacks(false);
 
 		WorldViewContext ctx = sceneManager.context(scene);
 		if (ctx == null || !renderCallbackManager.drawObject(scene, tileObject))
@@ -1078,7 +1077,7 @@ public class ZoneRenderer implements Renderer {
 
 	@Override
 	public void drawTemp(Projection worldProjection, Scene scene, GameObject gameObject, Model m, int orientation, int x, int y, int z) {
-		processPendingClientCallbacks(false);
+		zoneStreamingManager.processPendingClientCallbacks(false);
 
 		WorldViewContext ctx = sceneManager.context(scene);
 		if (ctx == null || !renderCallbackManager.drawObject(scene, gameObject))
@@ -1259,7 +1258,7 @@ public class ZoneRenderer implements Renderer {
 //		frameModelInfoMap.clear();
 		checkGLErrors();
 
-		processPendingClientCallbacks(true);
+		zoneStreamingManager.processPendingClientCallbacks(true);
 		//zoneStreamingManager.pauseStreaming();
 	}
 

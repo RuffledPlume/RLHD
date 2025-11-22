@@ -9,6 +9,7 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.inject.Inject;
 import javax.inject.Singleton;
+import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.api.coords.*;
@@ -289,9 +290,6 @@ public class SceneManager {
 	}
 
 	private boolean shouldDeferZone(ZoneSceneContext ctx, Zone zone, int x, int z, int[] playerPos) {
-		if(true)
-			return true;
-
 		if(root.sceneContext == null || ctx.sceneBase == null || playerPos == null) {
 			return false; // First load, no point deferring
 		}
@@ -354,6 +352,7 @@ public class SceneManager {
 		}
 
 		proceduralGenerator.asyncProcGenTask = THREAD_POOL.submit(() -> proceduralGenerator.generateSceneData(nextSceneContext));
+		lightManager.asyncLoadTask = THREAD_POOL.submit(() ->  lightManager.loadSceneLights(nextSceneContext, root.sceneContext));
 
 		if (nextSceneContext.enableAreaHiding) {
 			assert nextSceneContext.sceneBase != null;
@@ -464,7 +463,6 @@ public class SceneManager {
 					prev.getRoofRemovalMode(), scene.getRoofRemovalMode());
 			}
 		}
-		log.debug("zone reuse time: {}", sw);
 
 		zoneStreamingManager.resumeStreaming();
 		for (int x = 0; x < NUM_ZONES; ++x) {
@@ -517,12 +515,10 @@ public class SceneManager {
 			}
 		}
 
-		lightManager.loadSceneLights(nextSceneContext, root.sceneContext);
-		root.completeStreaming();
-
 		log.debug("loadScene time: {}", sw);
 	}
 
+	@SneakyThrows
 	public void swapScene(Scene scene) {
 		if (!plugin.isActive() || plugin.skipScene == scene) {
 			plugin.redrawPreviousFrame = true;
@@ -539,6 +535,7 @@ public class SceneManager {
 
 		Stopwatch sw = Stopwatch.createStarted();
 
+		lightManager.asyncLoadTask.get();
 		lightManager.setupImposterTracking(nextSceneContext);
 		fishingSpotReplacer.despawnRuneLiteObjects();
 
@@ -547,6 +544,8 @@ public class SceneManager {
 		boolean isFirst = root.sceneContext == null;
 		if (!isFirst)
 			root.sceneContext.destroy(); // Destroy the old context before replacing it
+
+		root.completeStreaming();
 
 		int totalOpaque = 0;
 		int totalAlpha = 0;

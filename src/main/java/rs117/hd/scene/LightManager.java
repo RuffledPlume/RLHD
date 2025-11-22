@@ -33,6 +33,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.concurrent.Future;
 import java.util.function.Predicate;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -113,6 +114,9 @@ public class LightManager {
 	private boolean reloadLights;
 	private EntityHiderConfig entityHiderConfig;
 	private int currentPlane;
+
+	// TODO: Move this to be private & add a wait function in here
+	public Future<?> asyncLoadTask;
 
 	public void loadConfig(Gson gson, ResourcePath path) {
 		LightDefinition[] lights;
