@@ -370,7 +370,7 @@ public class SceneManager {
 			return REUSE_STATE_NONE;
 		Zone zone = zones[zx][zz];
 
-		if (!zone.initialized)
+		if (!zone.initialized || zone.invalidate)
 			return REUSE_STATE_NONE;
 		if (zone.sizeO == 0 && zone.sizeA == 0)
 			return REUSE_STATE_NONE;
@@ -438,6 +438,7 @@ public class SceneManager {
 			nextSceneContext.destroy();
 		nextSceneContext = null;
 
+		root.isLoading = true;
 		nextSceneContext = new ZoneSceneContext(
 			client,
 			worldView,
@@ -692,6 +693,7 @@ public class SceneManager {
 				uploader.clear();
 			});
 		}
+		rootAsyncSceneUploader.completeAll();
 	}
 
 	public void swapScene(Scene scene) {
