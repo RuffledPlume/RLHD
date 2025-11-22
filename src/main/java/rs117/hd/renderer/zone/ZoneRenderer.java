@@ -631,7 +631,6 @@ public class ZoneRenderer implements Renderer {
 		}
 
 		plugin.uboGlobal.upload();
-		uboWorldViews.upload();
 
 		// Reset buffers for the next frame
 		eboAlphaStaging.clear();
@@ -658,6 +657,9 @@ public class ZoneRenderer implements Renderer {
 		sceneFboValid = true;
 
 		vaoA.unmap();
+
+		// Upload world views before rendering
+		uboWorldViews.upload();
 
 		// Scene draw state to apply before all recorded commands
 		if (eboAlphaStaging.position() > 0) {

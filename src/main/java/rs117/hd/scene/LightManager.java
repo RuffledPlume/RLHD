@@ -666,6 +666,17 @@ public class LightManager {
 
 	public void setupImposterTracking(@Nonnull SceneContext sceneContext) {
 		for(TileObjectImpostorTracker tracker : sceneContext.trackedTileObjects.values()) {
+			ObjectComposition def = client.getObjectDefinition(tracker.tileObject.getId());
+			tracker.impostorIds = def.getImpostorIds();
+			if (tracker.impostorIds != null) {
+				tracker.impostorVarbit = def.getVarbitId();
+				tracker.impostorVarp = def.getVarPlayerId();
+				if (tracker.impostorVarbit != -1)
+					sceneContext.trackedVarbits.put(tracker.impostorVarbit, tracker);
+				if (tracker.impostorVarp != -1)
+					sceneContext.trackedVarps.put(tracker.impostorVarp, tracker);
+			}
+
 			trackImpostorChanges(sceneContext, tracker);
 		}
 	}
@@ -779,7 +790,7 @@ public class LightManager {
 		sceneContext.trackedTileObjects.put(tileObject, tracker);
 
 		// prevent objects at plane -1 and below from having lights
-		if (tileObject.getPlane() < 0)
+		if (tileObject.getPlane() < 0 || !client.isClientThread())
 			return;
 
 		ObjectComposition def = client.getObjectDefinition(tileObject.getId());
@@ -793,8 +804,7 @@ public class LightManager {
 				sceneContext.trackedVarps.put(tracker.impostorVarp, tracker);
 		}
 
-		if(client.isClientThread())
-			trackImpostorChanges(sceneContext, tracker);
+		trackImpostorChanges(sceneContext, tracker);
 	}
 
 	private void handleObjectDespawn(TileObject tileObject) {
