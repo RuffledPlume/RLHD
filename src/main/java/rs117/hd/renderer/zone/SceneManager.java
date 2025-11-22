@@ -118,12 +118,13 @@ public class SceneManager {
 			return uploader;
 		}
 
-		void completeAll() {
+		void completeAll(long timeout) {
 			boolean isClientThread = client.isClientThread();
 			for (SceneUploader uploader : sceneUploaders) {
-				uploader.completeTask(isClientThread);
+				uploader.completeTask(timeout, isClientThread);
 			}
 		}
+		void completeAll() { completeAll(-1); }
 	}
 
 	private final AsyncSceneUploaderGroup rootAsyncSceneUploader = new AsyncSceneUploaderGroup();
@@ -440,6 +441,8 @@ public class SceneManager {
 		rootAsyncSceneUploader.completeAll();
 		rebuildAsyncSceneUploader.completeAll();
 
+		long timestamp = System.currentTimeMillis();
+
 		if (nextSceneContext != null)
 			nextSceneContext.destroy();
 		nextSceneContext = null;
@@ -468,7 +471,6 @@ public class SceneManager {
 		} else {
 			nextPlayerPos = null;
 		}
-
 
 		Future<?> procGenTask = THREAD_POOL.submit(() -> proceduralGenerator.generateSceneData(nextSceneContext));
 
@@ -696,10 +698,34 @@ public class SceneManager {
 						}
 					}
 				}
+
+				plugin.queueClientCallbackBlock(true, false, () -> {
+						for (int idx = start; idx < end; idx++) {
+							int x = idx / NUM_ZONES;
+							int z = idx % NUM_ZONES;
+
+							Zone zone = nextZones[x][z];
+
+							if (!zone.initialized && zone.uploaded) {
+								zone.unmap();
+								zone.initialized = true;
+							}
+							zone.setMetadata(ctx, nextSceneContext, x, z);
+						}
+					});
 				uploader.clear();
 			});
 		}
+
+		lightManager.loadSceneLights(nextSceneContext, root.sceneContext);
+
 		rootAsyncSceneUploader.completeAll();
+		log.debug(
+			"upload time {} reused {} deferred {} new {} len opaque {} size opaque {} KiB len alpha {} size alpha {} KiB",
+			sw, nextSceneContext.totalReused, nextSceneContext.totalNewZones, nextSceneContext.totalDeferred,
+			nextSceneContext.totalOpaque, ((long) nextSceneContext.totalOpaque * Zone.VERT_SIZE * 3) / KiB,
+			nextSceneContext.totalAlpha, ((long) nextSceneContext.totalAlpha * Zone.VERT_SIZE * 3) / KiB
+		);
 	}
 
 	public void swapScene(Scene scene) {
@@ -722,31 +748,17 @@ public class SceneManager {
 		}
 		Stopwatch sw = Stopwatch.createStarted();
 
-		lightManager.loadSceneLights(nextSceneContext, root.sceneContext);
+		lightManager.setupImposterTracking(nextSceneContext);
 		fishingSpotReplacer.despawnRuneLiteObjects();
+
 		npcDisplacementCache.clear();
 
 		boolean isFirst = root.sceneContext == null;
 		if (!isFirst)
 			root.sceneContext.destroy(); // Destroy the old context before replacing it
 
-		log.debug("preSwapScene time: {}", sw);
-		sw.reset().start();
-
-		rootAsyncSceneUploader.completeAll();
-
-		log.debug(
-			"upload time {} reused {} deferred {} new {} len opaque {} size opaque {} KiB len alpha {} size alpha {} KiB",
-			sw, nextSceneContext.totalReused, nextSceneContext.totalNewZones, nextSceneContext.totalDeferred,
-			nextSceneContext.totalOpaque, ((long) nextSceneContext.totalOpaque * Zone.VERT_SIZE * 3) / KiB,
-			nextSceneContext.totalAlpha, ((long) nextSceneContext.totalAlpha * Zone.VERT_SIZE * 3) / KiB
-		);
-		sw.reset().start();
-
 		root.sceneContext = nextSceneContext;
 		nextSceneContext = null;
-
-		updateAreaHiding();
 
 		if (root.sceneContext.intersects(areaManager.getArea("PLAYER_OWNED_HOUSE"))) {
 			plugin.isInHouse = true;
@@ -774,20 +786,6 @@ public class SceneManager {
 		ctx.zones = nextZones;
 		nextZones = null;
 
-		// setup vaos
-		for (int x = 0; x < ctx.zones.length; ++x) {
-			for (int z = 0; z < ctx.zones[0].length; ++z) {
-				Zone zone = ctx.zones[x][z];
-
-				if (!zone.initialized && zone.uploaded) {
-					zone.unmap();
-					zone.initialized = true;
-				}
-
-				zone.setMetadata(ctx, x, z);
-			}
-		}
-
 		root.isLoading = false;
 
 		if (isFirst) {
@@ -806,9 +804,8 @@ public class SceneManager {
 			}
 		}
 
-		log.debug("swapScene time: {}", sw);
-
 		checkGLErrors();
+		log.debug("swapScene time: {}", sw);
 	}
 
 	private void loadSubScene(WorldView worldView, Scene scene) {

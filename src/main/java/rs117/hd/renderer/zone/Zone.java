@@ -207,19 +207,23 @@ class Zone {
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
 	}
 
-	void setMetadata(WorldViewContext viewContext, int mx, int mz) {
+	void setMetadata(WorldViewContext viewContext, SceneContext sceneContext, int mx, int mz) {
 		if (vboM == null || !metadataDirty)
 			return;
 		metadataDirty = false;
 
-		int baseX = (mx - (viewContext.sceneContext.sceneOffset >> 3)) << 10;
-		int baseZ = (mz - (viewContext.sceneContext.sceneOffset >> 3)) << 10;
+		int baseX = (mx - (sceneContext.sceneOffset >> 3)) << 10;
+		int baseZ = (mz - (sceneContext.sceneOffset >> 3)) << 10;
 
 		vboM.map();
 		vboM.vb.put(viewContext.uboWorldViewStruct != null ? viewContext.uboWorldViewStruct.worldViewIdx + 1 : 0);
 		vboM.vb.put(baseX);
 		vboM.vb.put(baseZ);
 		vboM.unmap();
+	}
+
+	void setMetadata(WorldViewContext viewContext, int mx, int mz) {
+		setMetadata(viewContext, viewContext.sceneContext, mx, mz);
 	}
 
 	void updateRoofs(Map<Integer, Integer> updates) {
