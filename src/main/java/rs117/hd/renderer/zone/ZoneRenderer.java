@@ -125,9 +125,6 @@ public class ZoneRenderer implements Renderer {
 	private HdPluginConfig config;
 
 	@Inject
-	private AreaManager areaManager;
-
-	@Inject
 	private LightManager lightManager;
 
 	@Inject
@@ -135,18 +132,11 @@ public class ZoneRenderer implements Renderer {
 
 	@Inject
 	private ModelOverrideManager modelOverrideManager;
-
-	@Inject
-	private ProceduralGenerator proceduralGenerator;
-
 	@Inject
 	private SceneUploader sceneUploader;
 
 	@Inject
 	private FacePrioritySorter facePrioritySorter;
-
-	@Inject
-	private FishingSpotReplacer fishingSpotReplacer;
 
 	@Inject
 	private NpcDisplacementCache npcDisplacementCache;
@@ -191,7 +181,6 @@ public class ZoneRenderer implements Renderer {
 	public static int eboAlpha;
 	public static GpuIntBuffer eboAlphaStaging;
 	public static int alphaFaceCount;
-
 
 	private boolean sceneFboValid;
 	private boolean deferScenePass;
@@ -665,8 +654,6 @@ public class ZoneRenderer implements Renderer {
 
 		checkGLErrors();
 	}
-
-
 
 	@Override
 	public void postSceneDraw(Scene scene) {
@@ -1202,20 +1189,6 @@ public class ZoneRenderer implements Renderer {
 	}
 
 	@Override
-	public void invalidateZone(Scene scene, int zx, int zz) {
-		sceneManager.invalidateZone(scene, zx, zz);
-	}
-
-	@Subscribe
-	public void onPostClientTick(PostClientTick event) {
-		WorldView wv = client.getTopLevelWorldView();
-		if (wv == null || !plugin.isActive())
-			return;
-
-		sceneManager.update(wv);
-	}
-
-	@Override
 	public void draw(int overlayColor) {
 		processPendingClientCallbacks();
 
@@ -1314,6 +1287,24 @@ public class ZoneRenderer implements Renderer {
 //			textureArrayId = -1;
 //			lastAnisotropicFilteringLevel = -1;
 //		}
+	}
+
+	/// ---------------------
+	///  SCENE MANAGER API 
+	/// ---------------------
+
+	@Override
+	public void invalidateZone(Scene scene, int zx, int zz) {
+		sceneManager.invalidateZone(scene, zx, zz);
+	}
+
+	@Subscribe
+	public void onPostClientTick(PostClientTick event) {
+		WorldView wv = client.getTopLevelWorldView();
+		if (wv == null || !plugin.isActive())
+			return;
+
+		sceneManager.update(wv);
 	}
 
 	@Override
