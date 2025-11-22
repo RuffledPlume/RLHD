@@ -625,7 +625,7 @@ class SceneUploader {
 		if (r instanceof Model) {
 			m = (Model) r;
 		} else if (r instanceof DynamicObject) {
-			//m = ((DynamicObject) r).getModelZbuf(); TODO: Asserts at the mo :(
+			m = ((DynamicObject) r).getModelZbuf();
 		}
 		if (m == null)
 			return;
@@ -670,7 +670,7 @@ class SceneUploader {
 		if (r instanceof Model) {
 			model = (Model) r;
 		} else if (r instanceof DynamicObject) {
-			//model = ((DynamicObject) r).getModelZbuf();
+			model = ((DynamicObject) r).getModelZbuf();
 		}
 		if (model == null)
 			return;
