@@ -56,6 +56,7 @@ import rs117.hd.scene.EnvironmentManager;
 import rs117.hd.scene.LightManager;
 import rs117.hd.scene.ModelOverrideManager;
 import rs117.hd.scene.ProceduralGenerator;
+import rs117.hd.scene.SceneContext;
 import rs117.hd.scene.lights.Light;
 import rs117.hd.scene.model_overrides.ModelOverride;
 import rs117.hd.utils.Camera;
@@ -1310,6 +1311,11 @@ public class ZoneRenderer implements Renderer {
 			return;
 
 		sceneManager.reloadScene();
+	}
+
+	@Override
+	public SceneContext getSceneContext() {
+		return sceneManager.getSceneContext();
 	}
 
 	@Override
