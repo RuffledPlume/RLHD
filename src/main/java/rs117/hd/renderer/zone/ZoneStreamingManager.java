@@ -10,7 +10,6 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.client.callback.ClientThread;
 import rs117.hd.HdPlugin;
-import rs117.hd.overlays.FrameTimer;
 import rs117.hd.scene.ProceduralGenerator;
 
 import static org.lwjgl.opengl.GL15.GL_STATIC_DRAW;
@@ -77,9 +76,6 @@ public class ZoneStreamingManager {
 
 	@Inject
 	private ProceduralGenerator  proceduralGenerator;
-
-	@Inject
-	private FrameTimer frameTimer;
 
 	private final LinkedBlockingDeque<WorkItem> workQueue = new LinkedBlockingDeque<>();
 	private final LinkedBlockingDeque<ClientCallbackItem> highPriorityClientCallbacks = new LinkedBlockingDeque<>();
@@ -173,81 +169,83 @@ public class ZoneStreamingManager {
 		final SceneUploader uploader = plugin.getInjector().getInstance(SceneUploader.class);
 		uploader.setStreamingUploaderCallback(this::workerHandlePaused);
 		while (active) {
+			final WorkItem work;
 			try {
 				if (workQueue.isEmpty())
 					uploader.clear();
 				workerHandlePaused();
 
-				final WorkItem work = workQueue.take();
+				work = workQueue.take();
 				workerHandlePaused();
 
-				if(work.handle.canceled) {
+				if (work.handle.canceled) {
 					WORK_ITEM_POOL.put(work);
 					WORK_HANDLE_POOL.put(work.handle);
 					continue;
 				}
+			} catch (InterruptedException e) {
+				log.debug("Interrupt caught");
+				continue;
+			}
 
-				try {
-					if (work.zone.needsTerrainGen) {
-						proceduralGenerator.asyncProcGenTask.get(); // TODO: replace this with something like proceduralGenerator.waitForAsyncProcGen();
-						proceduralGenerator.generateTerrainDataForZone(work.sceneContext, work.x, work.z);
-						work.zone.needsTerrainGen = false;
-					}
-
-					final Zone zone = work.zone.isRebuild ? new Zone() : work.zone;
-
-					uploader.setScene(work.sceneContext.scene);
-					uploader.estimateZoneSize(work.sceneContext, zone, work.x, work.z);
-					workerHandlePaused();
-
-					queueClientCallback(
-						work.highPriority, false, () -> {
-							VBO o = null, a = null;
-							int sz = zone.sizeO * Zone.VERT_SIZE * 3;
-							if (sz > 0) {
-								o = new VBO(sz);
-								o.initialize(GL_STATIC_DRAW);
-								o.map();
-							}
-
-							sz = zone.sizeA * Zone.VERT_SIZE * 3;
-							if (sz > 0) {
-								a = new VBO(sz);
-								a.initialize(GL_STATIC_DRAW);
-								a.map();
-							}
-
-							zone.initialize(o, a, eboAlpha);
-							zone.setMetadata(work.viewContext, work.sceneContext, work.x, work.z);
-						}
-					);
-					workerHandlePaused();
-
-					uploader.uploadZone(work.sceneContext, zone, work.x, work.z);
-					workerHandlePaused();
-
-					queueClientCallback(
-						work.highPriority, !work.highPriority, () -> {
-							zone.unmap();
-							zone.initialized = true;
-							zone.dirty = work.zone.isRebuild;
-							zone.isDeferred = false;
-
-							if(work.zone.isRebuild) {
-								work.viewContext.zones[work.x][work.z] = zone;
-							}
-
-							work.handle.semaphore.release();
-						}
-					);
-					workerHandlePaused();
-
-					WORK_ITEM_POOL.put(work);
-				} catch (Exception ex) {
-					log.warn("Caught exception whilst processing zone [{}, {}] worldId [{}]", work.x, work.z, work.viewContext.worldViewId, ex);
+			try {
+				if (work.zone.needsTerrainGen) {
+					proceduralGenerator.asyncProcGenTask.get(); // TODO: replace this with something like proceduralGenerator.waitForAsyncProcGen();
+					proceduralGenerator.generateTerrainDataForZone(work.sceneContext, work.x, work.z);
+					work.zone.needsTerrainGen = false;
 				}
+
+				final Zone zone = work.zone.isRebuild ? new Zone() : work.zone;
+
+				uploader.setScene(work.sceneContext.scene);
+				uploader.estimateZoneSize(work.sceneContext, zone, work.x, work.z);
+				workerHandlePaused();
+
+				queueClientCallback(
+					work.highPriority, false, () -> {
+						VBO o = null, a = null;
+						int sz = zone.sizeO * Zone.VERT_SIZE * 3;
+						if (sz > 0) {
+							o = new VBO(sz);
+							o.initialize(GL_STATIC_DRAW);
+							o.map();
+						}
+
+						sz = zone.sizeA * Zone.VERT_SIZE * 3;
+						if (sz > 0) {
+							a = new VBO(sz);
+							a.initialize(GL_STATIC_DRAW);
+							a.map();
+						}
+
+						zone.initialize(o, a, eboAlpha);
+						zone.setMetadata(work.viewContext, work.sceneContext, work.x, work.z);
+					}
+				);
+				workerHandlePaused();
+
+				uploader.uploadZone(work.sceneContext, zone, work.x, work.z);
+				workerHandlePaused();
+
+				queueClientCallback(
+					work.highPriority, !work.highPriority, () -> {
+						zone.unmap();
+						zone.initialized = true;
+						zone.dirty = work.zone.isRebuild;
+						zone.isDeferred = false;
+
+						if(work.zone.isRebuild) {
+							work.viewContext.zones[work.x][work.z] = zone;
+						}
+
+						work.handle.semaphore.release();
+					}
+				);
+				workerHandlePaused();
+
+				WORK_ITEM_POOL.put(work);
 			} catch (Exception ex) {
-				log.warn("Caught exception whilst waiting for work", ex);
+				log.warn("Caught exception whilst processing zone [{}, {}] worldId [{}]", work.x, work.z, work.viewContext.worldViewId, ex);
 			}
 		}
 	}
