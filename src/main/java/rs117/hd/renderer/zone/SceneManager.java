@@ -4,6 +4,7 @@ import com.google.common.base.Stopwatch;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -152,15 +153,6 @@ public class SceneManager {
 			rebuild(we.getWorldView());
 	}
 
-	public void startStreaming() {
-		// Allows Zones to be streamed in
-	}
-
-	public void stopStreaming() {
-		// Signals to stop & waits for it to signal that it has done so
-		// This will help prevent any issues caused by streaming whilst other plugins/runelite internals are processing tiles/models
-	}
-
 	private void updateAreaHiding() {
 		Player localPlayer = client.getLocalPlayer();
 		if(!isTopLevelValid() || localPlayer == null)
@@ -212,7 +204,6 @@ public class SceneManager {
 		}
 	}
 
-
 	private void rebuild(WorldView wv) {
 		assert client.isClientThread();
 		WorldViewContext ctx = context(wv);
@@ -222,11 +213,12 @@ public class SceneManager {
 		ctx.clearCompleteStreaming();
 		for (int x = 0; x < ctx.sizeX; ++x) {
 			for (int z = 0; z < ctx.sizeZ; ++z) {
-				if (!ctx.zones[x][z].invalidate || ctx.zones[x][z].isRebuilding)
+				Zone zone = ctx.zones[x][z];
+				if(!zone.needsRebuild())
 					continue;
 
-				ctx.zones[x][z].isRebuilding = true;
-				ctx.streamingZones.add(zoneStreamingManager.queueZone(ctx, ctx.sceneContext, ctx.zones[x][z], x, z, false));
+				zone.isRebuild = true;
+				ctx.streamingZones.add(zoneStreamingManager.queueZone(ctx, ctx.sceneContext, zone, x, z, false));
 			}
 		}
 	}
@@ -254,49 +246,26 @@ public class SceneManager {
 	public boolean isLoadingScene() { return nextSceneContext != null; }
 
 	private static int canReuse(Zone[][] zones, int zx, int zz) {
-		if(zx < 0 || zx >= NUM_ZONES || zz < 0 || zz >= NUM_ZONES)
-			return REUSE_STATE_NONE;
-		Zone zone = zones[zx][zz];
-
-		if (!zone.initialized)
-			return REUSE_STATE_NONE;
-		if (zone.sizeO == 0 && zone.sizeA == 0)
-			return REUSE_STATE_NONE;
-
+		// For tile blending, sharelight, and shadows to work correctly, the zones surrounding
+		// the zone must be valid.
 		for (int x = zx - 1; x <= zx + 1; ++x) {
 			if (x < 0 || x >= NUM_ZONES)
 				return REUSE_STATE_PARTIAL;
 			for (int z = zz - 1; z <= zz + 1; ++z) {
 				if (z < 0 || z >= NUM_ZONES)
 					return REUSE_STATE_PARTIAL;
-
-				if(x == zx && z == zz)
-					continue;
-
-				Zone neighbourZone = zones[zx][zz];
-				if (!neighbourZone.initialized)
+				Zone zone = zones[x][z];
+				if (!zone.initialized)
+					return REUSE_STATE_NONE;
+				if (zone.sizeO == 0 && zone.sizeA == 0)
+					return REUSE_STATE_NONE;
+				if (zone.hasWater)
 					return REUSE_STATE_PARTIAL;
-				if (neighbourZone.sizeO == 0 && zone.sizeA == 0)
+				if (zone.dirty)
 					return REUSE_STATE_PARTIAL;
 			}
 		}
-
-		if(zone.dirty)
-			return REUSE_STATE_PARTIAL;
-		if(zone.hasWater)
-			return REUSE_STATE_PARTIAL;
-
 		return REUSE_STATE_FULLY;
-	}
-
-	private boolean shouldDeferZone(ZoneSceneContext ctx, Zone zone, int x, int z, int[] playerPos) {
-		if(root.sceneContext == null || ctx.sceneBase == null || playerPos == null) {
-			return false; // First load, no point deferring
-		}
-
-		int baseX = (x - (ctx.sceneOffset >> 3)) << 10;
-		int baseZ = (z - (ctx.sceneOffset >> 3)) << 10;
-		return distance(vec(baseX, baseZ), vec(playerPos[0], playerPos[1])) > ZONE_DEFER_DIST_START;
 	}
 
 	public void invalidateZone(Scene scene, int zx, int zz) {
@@ -322,6 +291,7 @@ public class SceneManager {
 		Stopwatch sw = Stopwatch.createStarted();
 		if (nextSceneContext != null)
 			nextSceneContext.destroy();
+
 		nextSceneContext = null;
 
 		root.isLoading = true;
@@ -413,6 +383,8 @@ public class SceneManager {
 					for (int z = 0; z < NUM_ZONES; ++z) {
 						int ox = x + dx;
 						int oz = z + dy;
+						if(ox < 0 || ox >= NUM_ZONES || oz < 0 || oz >= NUM_ZONES)
+							continue;
 
 						int reuseState = canReuse(ctx.zones, ox, oz);
 						if (reuseState == REUSE_STATE_NONE)
@@ -475,9 +447,16 @@ public class SceneManager {
 				zone.needsTerrainGen = true;
 
 				if (!zone.initialized) {
-					boolean isRequiredZone = shouldDeferZone(nextSceneContext, zone, x, z, nextPlayerPos);
-					WorkHandle handle = zoneStreamingManager.queueZone(ctx, nextSceneContext, zone, x, z, isRequiredZone);
-					if(isRequiredZone) {
+					boolean isZoneRequired = root.sceneContext == null || nextSceneContext.sceneBase == null || nextPlayerPos == null;
+
+					if(!isZoneRequired) {
+						int baseX = (x - (nextSceneContext.sceneOffset >> 3)) << 10;
+						int baseZ = (z - (nextSceneContext.sceneOffset >> 3)) << 10;
+						isZoneRequired = distance(vec(baseX, baseZ), vec(nextPlayerPos[0], nextPlayerPos[1])) > ZONE_DEFER_DIST_START;
+					}
+
+					WorkHandle handle = zoneStreamingManager.queueZone(ctx, nextSceneContext, zone, x, z, isZoneRequired);
+					if(isZoneRequired) {
 						ctx.streamingZones.add(handle);
 					} else {
 						nextSceneContext.totalDeferred++;
@@ -558,7 +537,7 @@ public class SceneManager {
 
 		log.debug(
 			"upload time {} reused {} deferred {} new {} len opaque {} size opaque {} KiB len alpha {} size alpha {} KiB",
-			sw, nextSceneContext.totalReused, nextSceneContext.totalNewZones, nextSceneContext.totalDeferred,
+			sw, nextSceneContext.totalReused, nextSceneContext.totalDeferred, nextSceneContext.totalNewZones,
 			totalOpaque, ((long) totalOpaque * Zone.VERT_SIZE * 3) / KiB,
 			totalAlpha, ((long) totalAlpha * Zone.VERT_SIZE * 3) / KiB
 		);
@@ -628,6 +607,16 @@ public class SceneManager {
 			prevCtx.free();
 		}
 		assert prevCtx == null;
+
+		if(proceduralGenerator.asyncProcGenTask != null) {
+			try {
+				proceduralGenerator.asyncProcGenTask.get();
+			} catch (InterruptedException e) {
+				throw new RuntimeException(e);
+			} catch (ExecutionException e) {
+				throw new RuntimeException(e);
+			}
+		}
 
 		var sceneContext = new ZoneSceneContext(client, worldView, scene, plugin.getExpandedMapLoadingChunks(), null);
 		proceduralGenerator.generateSceneData(sceneContext);

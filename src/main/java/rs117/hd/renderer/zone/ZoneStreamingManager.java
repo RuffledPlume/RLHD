@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.client.callback.ClientThread;
 import rs117.hd.HdPlugin;
+import rs117.hd.overlays.FrameTimer;
 import rs117.hd.scene.ProceduralGenerator;
 
 import static org.lwjgl.opengl.GL15.GL_STATIC_DRAW;
@@ -19,7 +20,6 @@ import static rs117.hd.renderer.zone.ZoneRenderer.eboAlpha;
 @Singleton
 @Slf4j
 public class ZoneStreamingManager {
-	private static final WorkItem EMPTY = new WorkItem();
 	private static final LinkedBlockingDeque<WorkItem> WORK_ITEM_POOL = new LinkedBlockingDeque<>();
 	private static final LinkedBlockingDeque<WorkHandle> WORK_HANDLE_POOL = new LinkedBlockingDeque<>();
 	private static final LinkedBlockingDeque<ClientCallbackItem> CLIENT_CALLBACK_POOL = new LinkedBlockingDeque<>();
@@ -78,13 +78,15 @@ public class ZoneStreamingManager {
 	@Inject
 	private ProceduralGenerator  proceduralGenerator;
 
+	@Inject
+	private FrameTimer frameTimer;
+
 	private final LinkedBlockingDeque<WorkItem> workQueue = new LinkedBlockingDeque<>();
 	private final LinkedBlockingDeque<ClientCallbackItem> highPriorityClientCallbacks = new LinkedBlockingDeque<>();
 	private final LinkedBlockingDeque<ClientCallbackItem> clientCallbacks = new LinkedBlockingDeque<>();
 
 	private final int workerCount = PROCESSOR_COUNT - 1;
 	private Thread[] workers;
-	private final Semaphore pauseSema = new Semaphore(0);
 	private final Semaphore resumeSema = new Semaphore(0);
 	private transient boolean paused;
 	private transient boolean active;
@@ -111,6 +113,7 @@ public class ZoneStreamingManager {
 		newItem.viewContext = viewContext;
 		newItem.sceneContext = sceneContext;
 		newItem.zone = zone;
+		newItem.zone.isDeferred = true;
 		newItem.x = x;
 		newItem.z = z;
 		newItem.highPriority = highPriority;
@@ -135,11 +138,8 @@ public class ZoneStreamingManager {
 
 	public void resumeStreaming() {
 		if(!paused) return;
-		log.debug("---- resumeStreaming ----");
-		// Signal that the workers can reuse processing zones
 		paused = false;
-		resumeSema.release(workers.length);
-		resumeSema.drainPermits();
+		resumeSema.release(workerCount);
 	}
 
 	public boolean isPaused() { return paused; }
@@ -147,36 +147,31 @@ public class ZoneStreamingManager {
 	@SneakyThrows
 	public void pauseStreaming() {
 		if(paused) return;
-		log.debug("---- pauseStreaming ----");
-		// Signal that we should pause, wait for all workers to do so
-		pauseSema.drainPermits();
+		resumeSema.drainPermits();
 		paused = true;
-		// Ensure workers have woken up, since they might be blocked waiting for zone
-		for(int  i = 0; i < workerCount; i++)
-			workQueue.push(EMPTY);
-		pauseSema.acquire(workers.length);
+		// TODO: Do we need to check that its actually paused or will be safe enough
 	}
 
 	@SneakyThrows
 	public void shutdown() {
 		active = false;
+		workQueue.clear();
 		for(int i = 0; i < workerCount; i++) {
 			workers[i].interrupt();
 			workers[i].join();
 		}
 	}
 
-	private void workerHandlePaused() throws InterruptedException {
+	@SneakyThrows
+	private void workerHandlePaused() {
 		if(!paused) return;
 		// Signal that where paused, then wait for the resume signal
-		log.debug("---- " + Thread.currentThread().getName() + ": paused ----");
-		pauseSema.release();
 		resumeSema.acquire();
-		log.debug("---- " + Thread.currentThread().getName() + ": resumed ----");
 	}
 
 	private void workerRun() {
 		final SceneUploader uploader = plugin.getInjector().getInstance(SceneUploader.class);
+		uploader.setStreamingUploaderCallback(this::workerHandlePaused);
 		while (active) {
 			try {
 				if (workQueue.isEmpty())
@@ -184,8 +179,7 @@ public class ZoneStreamingManager {
 				workerHandlePaused();
 
 				final WorkItem work = workQueue.take();
-				if (work == EMPTY)
-					continue;
+				workerHandlePaused();
 
 				if(work.handle.canceled) {
 					WORK_ITEM_POOL.put(work);
@@ -200,8 +194,7 @@ public class ZoneStreamingManager {
 						work.zone.needsTerrainGen = false;
 					}
 
-					final boolean isRebuild = work.zone.initialized || work.zone.invalidate || work.zone.cull;
-					final Zone zone = isRebuild ? new Zone() : work.zone;
+					final Zone zone = work.zone.isRebuild ? new Zone() : work.zone;
 
 					uploader.setScene(work.sceneContext.scene);
 					uploader.estimateZoneSize(work.sceneContext, zone, work.x, work.z);
@@ -237,9 +230,10 @@ public class ZoneStreamingManager {
 						work.highPriority, !work.highPriority, () -> {
 							zone.unmap();
 							zone.initialized = true;
-							zone.dirty = isRebuild;
+							zone.dirty = work.zone.isRebuild;
+							zone.isDeferred = false;
 
-							if(isRebuild) {
+							if(work.zone.isRebuild) {
 								work.viewContext.zones[work.x][work.z] = zone;
 							}
 

@@ -59,11 +59,12 @@ class Zone {
 
 	boolean initialized; // whether the zone vao and vbos are ready
 	boolean uploaded; // whether the zone has been uploaded or its deferred
+	boolean isDeferred; // whether the zone has been deferred
+	boolean isRebuild;
 	boolean cull; // whether the zone is queued for deletion
 	boolean dirty; // whether the zone has temporary modifications
-	boolean needsTerrainGen;
+	boolean needsTerrainGen; // whether the zone needs the proc terrain gen
 	boolean invalidate; // whether the zone needs rebuilding
-	boolean isRebuilding; // whether the zone is already rebuilding
 	boolean metadataDirty; // whether the zone needs its metadata updating
 	boolean hasWater; // whether the zone has any water tiles
 	boolean onlyWater; // whether the zone only contains water tiles
@@ -99,6 +100,10 @@ class Zone {
 			glVaoA = glGenVertexArrays();
 			setupVao(glVaoA, a.bufId, vboM.bufId, eboShared);
 		}
+	}
+
+	boolean needsRebuild() {
+		return !isDeferred && (invalidate || (!initialized && !uploaded));
 	}
 
 	public static void freeZones(@Nullable Zone[][] zones) {

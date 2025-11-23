@@ -274,7 +274,6 @@ public class ZoneRenderer implements Renderer {
 		this.maxLevel = maxLevel;
 		this.hideRoofIds = hideRoofIds;
 
-		//zoneStreamingManager.resumeStreaming(); // TODO: This might be able to moved earlier?
 		zoneStreamingManager.processPendingClientCallbacks(false);
 
 		WorldViewContext ctx = sceneManager.context(scene);
@@ -1261,7 +1260,8 @@ public class ZoneRenderer implements Renderer {
 		checkGLErrors();
 
 		zoneStreamingManager.processPendingClientCallbacks(true);
-		//zoneStreamingManager.pauseStreaming();
+		if(!sceneManager.isLoadingScene())
+			zoneStreamingManager.pauseStreaming();
 	}
 
 	@Subscribe
@@ -1288,6 +1288,11 @@ public class ZoneRenderer implements Renderer {
 	@Override
 	public void invalidateZone(Scene scene, int zx, int zz) {
 		sceneManager.invalidateZone(scene, zx, zz);
+	}
+
+	@Subscribe(priority = -1)
+	public void onBeforeRender(BeforeRender beforeRender) {
+		zoneStreamingManager.resumeStreaming();
 	}
 
 	@Subscribe

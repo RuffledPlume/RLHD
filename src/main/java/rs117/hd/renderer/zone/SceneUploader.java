@@ -27,7 +27,6 @@ package rs117.hd.renderer.zone;
 import java.nio.IntBuffer;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.concurrent.Future;
 import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
@@ -88,9 +87,11 @@ class SceneUploader {
 	@Inject
 	public ProceduralGenerator proceduralGenerator;
 
-	private Future<?> asyncTask;
+	@Inject
+	private ZoneStreamingManager zoneStreamingManager;
 
 	private int basex, basez, rid, level;
+	private Runnable streamingCallback;
 
 	private final Set<Integer> roofIds = new HashSet<>();
 	private Scene currentScene;
@@ -112,6 +113,8 @@ class SceneUploader {
 	private final int[] modelLocalXI = new int[MAX_VERTEX_COUNT];
 	private final int[] modelLocalYI = new int[MAX_VERTEX_COUNT];
 	private final int[] modelLocalZI = new int[MAX_VERTEX_COUNT];
+
+	void setStreamingUploaderCallback(Runnable streamingCallback) { this.streamingCallback = streamingCallback; }
 
 	void setScene(Scene scene) {
 		if(scene == currentScene) {
@@ -297,6 +300,9 @@ class SceneUploader {
 	}
 
 	private void estimateZoneTileSize(ZoneSceneContext ctx, Zone z, Tile t) {
+		if(streamingCallback != null)
+			streamingCallback.run();
+
 		var tilePoint = t.getSceneLocation();
 		int[] worldPos = ctx.sceneToWorld(tilePoint.getX(), tilePoint.getY(), t.getPlane());
 
@@ -403,6 +409,9 @@ class SceneUploader {
 		GpuIntBuffer vertexBuffer,
 		GpuIntBuffer alphaBuffer
 	) {
+		if(streamingCallback != null)
+			streamingCallback.run();
+
 		var tilePoint = t.getSceneLocation();
 		int tileExX = tilePoint.getX() + ctx.sceneOffset;
 		int tileExY = tilePoint.getY() + ctx.sceneOffset;
