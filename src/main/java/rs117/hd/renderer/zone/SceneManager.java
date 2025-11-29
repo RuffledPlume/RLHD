@@ -168,25 +168,22 @@ public class SceneManager {
 			try {
 				loadingLock.lock();
 
-				WorldView wv = client.getTopLevelWorldView();
-				if(wv != null) {
-					despawnWorldView(wv);
-					loadScene(wv, wv.getScene());
-					swapScene(wv.getScene());
+				if(!generateSceneDataTask.isCompleted())
+					generateSceneDataTask.waitForCompletion();
+				generateSceneDataTask.queue();
 
-					for (WorldEntity we : wv.worldEntities()) {
-						WorldView ewv = we.getWorldView();
+				root.invalidate();
+				for (var sub : subs)
+					if (sub != null)
+						sub.invalidate();
 
-						despawnWorldView(ewv);
-						loadScene(ewv, ewv.getScene());
-						swapScene(ewv.getScene());
-					}
-				}
+				root.sceneLoadGroup.complete();
+				root.streamingGroup.complete();
+
 			} finally {
 				loadingLock.unlock();
 				log.debug("loadingLock unlocked - holdCount: {}", loadingLock.getHoldCount());
 			}
-			return;
 		}
 
 		boolean anyScenesLoading = root.isLoading;
@@ -309,12 +306,6 @@ public class SceneManager {
 			return;
 
 		Zone zone = ctx.zones[zx][zz];
-		if(zone.zoneUploadTask != null) {
-			zone.zoneUploadTask.cancel();
-			zone.zoneUploadTask.release();
-			zone.zoneUploadTask = null;
-		}
-
 		if(zone.rebuild)
 			return;
 
@@ -343,7 +334,7 @@ public class SceneManager {
 	private final JobGenericTask generateSceneDataTask = JobGenericTask.build(
 		"ProceduralGenerator::generateSceneData",
 		(task) -> {
-			proceduralGenerator.generateSceneData(nextSceneContext);
+			proceduralGenerator.generateSceneData(nextSceneContext != null ? nextSceneContext : root.sceneContext);
 		}
 	);
 
