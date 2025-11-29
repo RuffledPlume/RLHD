@@ -1,7 +1,6 @@
 package rs117.hd.renderer.zone;
 
 import java.util.concurrent.ConcurrentLinkedDeque;
-import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 import rs117.hd.scene.ProceduralGenerator;
 import rs117.hd.utils.jobs.JobSystem;
@@ -17,20 +16,19 @@ public final class ZoneUploadTask extends JobWork {
 	private static final ThreadLocal<SceneUploader> tlSceneUploader = new ThreadLocal<>();
 	private static ProceduralGenerator proceduralGenerator;
 
-	private WorldViewContext viewContext;
-	private ZoneSceneContext sceneContext;
-	private Zone zone;
-	private int x, z;
-	private boolean addToSwap;
+	WorldViewContext viewContext;
+	ZoneSceneContext sceneContext;
+	Zone zone;
+	int x, z;
 
-	protected ZoneUploadTask() {
+	ZoneUploadTask() {
 		if(proceduralGenerator == null) {
 			proceduralGenerator = JobSystem.INSTANCE.injector.getInstance(ProceduralGenerator.class);
 		}
 	}
 
 	@Override
-	protected void run() throws InterruptedException {
+	protected void onRun() throws InterruptedException {
 		SceneUploader sceneUploader = tlSceneUploader.get();
 		if(sceneUploader == null)
 			tlSceneUploader.set(sceneUploader = JobSystem.INSTANCE.injector.getInstance(SceneUploader.class));
@@ -43,7 +41,7 @@ public final class ZoneUploadTask extends JobWork {
 
 		workerHandleCancel();
 
-		queueClientCallback(handle.isHighPriority(), true, () -> {
+		queueClientCallback(isHighPriority(), true, () -> {
 				try {
 					VBO o = null, a = null;
 					int sz = zone.sizeO * Zone.VERT_SIZE * 3;
@@ -63,8 +61,8 @@ public final class ZoneUploadTask extends JobWork {
 					zone.initialize(o, a, eboAlpha);
 					zone.setMetadata(viewContext, sceneContext, x, z);
 				} catch (Throwable ex) {
-					log.warn("Caught exception whilst processing zone [{}, {}] worldId [{}] group priority [{}] cancelling...\n", x, z, viewContext.worldViewId, handle.isHighPriority(), ex);
-					handle.cancel(false);
+					log.warn("Caught exception whilst processing zone [{}, {}] worldId [{}] group priority [{}] cancelling...\n", x, z, viewContext.worldViewId, isHighPriority(), ex);
+					cancel();
 				}
 			}
 		);
@@ -74,12 +72,9 @@ public final class ZoneUploadTask extends JobWork {
 			sceneUploader.uploadZone(sceneContext, zone, x, z);
 			workerHandleCancel();
 
-			queueClientCallback(handle.isHighPriority(), handle.isHighPriority(), () -> {
+			queueClientCallback(isHighPriority(), isHighPriority(), () -> {
 					zone.unmap();
 					zone.initialized = true;
-
-					if(addToSwap)
-						viewContext.pendingSwap.add(new WorldViewContext.SwapZone(x, z, zone));
 				}
 			);
 		}
@@ -88,36 +83,25 @@ public final class ZoneUploadTask extends JobWork {
 	}
 
 	@Override
-	protected void cancelled() {
+	protected void onCancel() {
 		SceneUploader sceneUploader = tlSceneUploader.get();
 		if(sceneUploader != null)
 			sceneUploader.clear();
 
-		if(zone.zoneUploadHandle == handle)
-			zone.zoneUploadHandle = null;
-
-		if(viewContext.zones[x][z] != zone && addToSwap) {
-			viewContext.pendingSwap.remove(zone);
+		if(viewContext.zones[x][z] != zone)
 			viewContext.pendingCull.add(zone);
-		}
 	}
 
 	@Override
-	protected void release() {
+	protected void onReleased() {
 		viewContext = null;
 		sceneContext = null;
 		zone = null;
+		assert !POOL.contains(this) : "Task is already in pool";
 		POOL.add(this);
 	}
 
-	@Override
-	protected String debugInfo() {
-		return "worldViewId: [" + (viewContext != null ? viewContext.worldViewId : "null") + "]" +
-			   "X: " + x + ", Z: " + z;
-	}
-
-	@SneakyThrows
-	public static ZoneUploadTask build(WorldViewContext viewContext, ZoneSceneContext sceneContext, Zone zone, int x, int z, boolean addToSwap) {
+	public static ZoneUploadTask build(WorldViewContext viewContext, ZoneSceneContext sceneContext, Zone zone, int x, int z) {
 		assert viewContext != null : "WorldViewContext cant be null";
 		assert sceneContext != null : "ZoneSceneContext cant be null";
 		assert zone != null : "Zone cant be null";
@@ -131,8 +115,13 @@ public final class ZoneUploadTask extends JobWork {
 		newTask.zone = zone;
 		newTask.x = x;
 		newTask.z = z;
-		newTask.addToSwap = addToSwap;
+		newTask.isReleased = false;
 
 		return newTask;
+	}
+
+	@Override
+	public String toString() {
+		return super.toString() + " worldViewId: [" + (viewContext != null ? viewContext.worldViewId : "null") + "] X: [" + x + "] Z: [" + z + "]";
 	}
 }

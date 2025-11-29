@@ -24,7 +24,6 @@ import rs117.hd.HdPluginConfig;
 import rs117.hd.opengl.uniforms.UBOWorldViews;
 import rs117.hd.overlays.FrameTimer;
 import rs117.hd.overlays.Timer;
-import rs117.hd.renderer.zone.WorldViewContext.SwapZone;
 import rs117.hd.scene.AreaManager;
 import rs117.hd.scene.EnvironmentManager;
 import rs117.hd.scene.FishingSpotReplacer;
@@ -89,7 +88,7 @@ public class SceneManager {
 	private UBOWorldViews uboWorldViews;
 
 	private final Map<Integer, Integer> nextRoofChanges = new HashMap<>();
-	private final WorldViewContext root = new WorldViewContext(null, null, null);
+	private final WorldViewContext root = new WorldViewContext(this, null, null, null);
 	private final WorldViewContext[] subs = new WorldViewContext[MAX_WORLDVIEWS];
 	private final List<SortedZone> sortedZones = new ArrayList<>();
 	private ZoneSceneContext nextSceneContext;
@@ -137,17 +136,14 @@ public class SceneManager {
 
 	public void initialize(UBOWorldViews uboWorldViews) {
 		this.uboWorldViews = uboWorldViews;
-
-		root.sceneLoadGroup = jobSystem.getWorkGroup(true);
-		root.streamingGroup = jobSystem.getWorkGroup(false);
 	}
 
 	public void shutdown() {
-		root.free(false);
+		root.free();
 
 		for (int i = 0; i < subs.length; i++) {
 			if (subs[i] != null)
-				subs[i].free(false);
+				subs[i].free();
 			subs[i] = null;
 		}
 
@@ -188,6 +184,7 @@ public class SceneManager {
 				}
 			} finally {
 				loadingLock.unlock();
+				log.debug("loadingLock unlocked - holdCount: {}", loadingLock.getHoldCount());
 			}
 			return;
 		}
@@ -272,14 +269,11 @@ public class SceneManager {
 			if (subs[worldViewId] == null) {
 				log.debug("Attempted to despawn unloaded worldview: {}", worldView);
 			} else {
-				subs[worldViewId].free(true);
+				subs[worldViewId].free();
 				subs[worldViewId] = null;
 			}
 		} else if(worldViewId == root.worldViewId) {
-			root.free(true);
-
-			root.sceneLoadGroup = jobSystem.getWorkGroup(true);
-			root.streamingGroup = jobSystem.getWorkGroup(false);
+			root.free();
 		}
 	}
 
@@ -294,45 +288,38 @@ public class SceneManager {
 	public boolean isLoadingScene() { return nextSceneContext != null; }
 
 	public void completeAllStreaming() {
-		if (root.sceneLoadGroup != null)
-			root.sceneLoadGroup.complete();
-
-		if (root.streamingGroup != null)
-			root.streamingGroup.complete();
+		root.sceneLoadGroup.complete();
+		root.streamingGroup.complete();
 
 		WorldView wv = client.getTopLevelWorldView();
 		if(wv != null) {
 			for (WorldEntity we : wv.worldEntities()) {
 				WorldViewContext ctx = context(we.getWorldView());
 				if (ctx != null) {
-					if (ctx.sceneLoadGroup != null)
-						ctx.sceneLoadGroup.complete();
-
-					if (ctx.streamingGroup != null)
-						ctx.streamingGroup.complete();
+					ctx.sceneLoadGroup.complete();
+					ctx.streamingGroup.complete();
 				}
 			}
 		}
 	}
 
 	public void invalidateZone(Scene scene, int zx, int zz) {
-		try {
-			loadingLock.lock();
-			WorldViewContext ctx = context(scene);
-			if (ctx == null)
-				return;
+		WorldViewContext ctx = context(scene);
+		if (ctx == null)
+			return;
 
-			if(ctx.zones[zx][zz].zoneUploadHandle != null)
-				ctx.zones[zx][zz].zoneUploadHandle.cancel(true);
-
-			if(ctx.zones[zx][zz].rebuild)
-				return;
-
-			ctx.zones[zx][zz].rebuild = true;
-			log.debug("Zone invalidated: wx={} x={} z={}", scene.getWorldViewId(), zx, zz);
-		} finally {
-			loadingLock.unlock();
+		Zone zone = ctx.zones[zx][zz];
+		if(zone.zoneUploadTask != null) {
+			zone.zoneUploadTask.cancel();
+			zone.zoneUploadTask.release();
+			zone.zoneUploadTask = null;
 		}
+
+		if(zone.rebuild)
+			return;
+
+		zone.rebuild = true;
+		log.debug("Zone invalidated: wx={} x={} z={}", scene.getWorldViewId(), zx, zz);
 	}
 
 	private static boolean isEdgeTile(Zone[][] zones, int zx, int zz) {
@@ -352,6 +339,62 @@ public class SceneManager {
 		return false;
 	}
 
+	@Getter
+	private final JobGenericTask generateSceneDataTask = JobGenericTask.build(
+		"ProceduralGenerator::generateSceneData",
+		(task) -> {
+			proceduralGenerator.generateSceneData(nextSceneContext);
+		}
+	);
+
+	@Getter
+	private final JobGenericTask loadSceneLightsTask = JobGenericTask.build(
+		"lightManager::loadSceneLights",
+		(task) -> {
+			lightManager.loadSceneLights(nextSceneContext, root.sceneContext);
+		}
+	);
+
+	private final JobGenericTask calculateRoofChangesTask = JobGenericTask.build(
+		"calculateRoofChanges",
+		(task) -> {
+			Scene prev = client.getTopLevelWorldView().getScene();
+			Scene scene = nextSceneContext.scene;
+
+			// Calculate roof ids for the zone
+			final int[][][] prids = prev.getRoofs();
+			final int[][][] nrids = scene.getRoofs();
+
+			final int dx = scene.getBaseX() - prev.getBaseX() >> 3;
+			final int dy = scene.getBaseY() - prev.getBaseY() >> 3;
+
+			nextRoofChanges.clear();
+			for (int x = 0; x < EXTENDED_SCENE_SIZE; ++x) {
+				for (int z = 0; z < EXTENDED_SCENE_SIZE; ++z) {
+					int ox = x + (dx << 3);
+					int oz = z + (dy << 3);
+
+					for (int level = 0; level < 4; ++level) {
+						task.workerHandleCancel();
+						// old zone still in scene?
+						if (ox >= 0 && oz >= 0 && ox < EXTENDED_SCENE_SIZE && oz < EXTENDED_SCENE_SIZE) {
+							int prid = prids[level][ox][oz];
+							int nrid = nrids[level][x][z];
+							if (prid > 0 && nrid > 0 && prid != nrid) {
+								Integer old = nextRoofChanges.putIfAbsent(prid, nrid);
+								if (old == null) {
+									log.trace("Roof change: {} -> {}", prid, nrid);
+								} else if (old != nrid) {
+									log.debug("Roof change mismatch: {} -> {} vs {}", prid, nrid, old);
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	);
+
 	public synchronized void loadScene(WorldView worldView, Scene scene) {
 		try {
 			loadingLock.lock();
@@ -366,16 +409,17 @@ public class SceneManager {
 
 			Stopwatch sw = Stopwatch.createStarted();
 			root.isLoading = true;
+
+			generateSceneDataTask.cancel();
+			loadSceneLightsTask.cancel();
+			calculateRoofChangesTask.cancel();
+
 			root.sceneLoadGroup.cancel();
 			root.streamingGroup.cancel();
 
 			if (nextSceneContext != null)
 				nextSceneContext.destroy();
 			nextSceneContext = null;
-
-			SwapZone swapZone;
-			while ((swapZone = root.pendingSwap.poll()) != null)
-				root.pendingCull.add(swapZone.zone);
 
 			nextZones = new Zone[NUM_ZONES][NUM_ZONES];
 			nextSceneContext = new ZoneSceneContext(
@@ -393,57 +437,9 @@ public class SceneManager {
 
 			environmentManager.loadSceneEnvironments(nextSceneContext);
 
-			root.procGenHandle = JobGenericTask.build(
-					"ProceduralGenerator::generateSceneData",
-					(task) -> {
-						proceduralGenerator.generateSceneData(nextSceneContext);
-						root.procGenHandle = null;
-					}
-				)
-				.queue(true);
-
-			root.lightJobHandle = JobGenericTask.build(
-					"lightManager::loadSceneLights",
-					(task) -> lightManager.loadSceneLights(nextSceneContext, root.sceneContext)
-				)
-				.queue(true);
-
-			final int dx = scene.getBaseX() - prev.getBaseX() >> 3;
-			final int dy = scene.getBaseY() - prev.getBaseY() >> 3;
-
-			// Calculate roof ids for the zone
-			final int[][][] prids = prev.getRoofs();
-			final int[][][] nrids = scene.getRoofs();
-
-			nextRoofChanges.clear();
-			var roofJobHandle = JobGenericTask.build(
-				"CalculateRoofChanges",
-				(task) -> {
-					for (int x = 0; x < EXTENDED_SCENE_SIZE; ++x) {
-						for (int z = 0; z < EXTENDED_SCENE_SIZE; ++z) {
-							int ox = x + (dx << 3);
-							int oz = z + (dy << 3);
-
-							for (int level = 0; level < 4; ++level) {
-								task.workerHandleCancel();
-								// old zone still in scene?
-								if (ox >= 0 && oz >= 0 && ox < EXTENDED_SCENE_SIZE && oz < EXTENDED_SCENE_SIZE) {
-									int prid = prids[level][ox][oz];
-									int nrid = nrids[level][x][z];
-									if (prid > 0 && nrid > 0 && prid != nrid) {
-										Integer old = nextRoofChanges.putIfAbsent(prid, nrid);
-										if (old == null) {
-											log.trace("Roof change: {} -> {}", prid, nrid);
-										} else if (old != nrid) {
-											log.debug("Roof change mismatch: {} -> {} vs {}", prid, nrid, old);
-										}
-									}
-								}
-							}
-						}
-					}
-				}
-			).queue(true);
+			generateSceneDataTask.queue();
+			loadSceneLightsTask.queue();
+			calculateRoofChangesTask.queue();
 
 			if (nextSceneContext.enableAreaHiding) {
 				assert nextSceneContext.sceneBase != null;
@@ -485,6 +481,9 @@ public class SceneManager {
 				for (int z = 0; z < NUM_ZONES; ++z)
 					ctx.zones[x][z].cull = true;
 
+			final int dx = scene.getBaseX() - prev.getBaseX() >> 3;
+			final int dy = scene.getBaseY() - prev.getBaseY() >> 3;
+
 			if (ctx.sceneContext != null &&
 				prev.isInstance() == scene.isInstance() &&
 				ctx.sceneContext.expandedMapLoadingChunks == nextSceneContext.expandedMapLoadingChunks &&
@@ -508,11 +507,15 @@ public class SceneManager {
 							nextSceneContext.totalDeferred++;
 						}
 
-						JobGenericTask.build(
-								"updateRoof",
-								(task) -> old.updateRoofs(nextRoofChanges)
-							)
-							.queue(true, roofJobHandle);
+						if(old.updateRoofsTask != null) {
+							old.updateRoofsTask.cancel();
+							old.updateRoofsTask.release();
+						}
+
+						old.updateRoofsTask = JobGenericTask
+								.build( "updateRoof",
+								(task) -> old.updateRoofs(nextRoofChanges))
+								.queue(true, calculateRoofChangesTask);
 
 						nextZones[x][z] = old;
 						nextSceneContext.totalReused++;
@@ -529,9 +532,9 @@ public class SceneManager {
 					if (!zone.initialized) {
 						float dist = distance(vec(x, z), vec(NUM_ZONES / 2, NUM_ZONES / 2));
 						if (root.sceneContext == null || dist < ZONE_DEFER_DIST_START) {
-							zone.zoneUploadHandle = ZoneUploadTask
-								.build(ctx, nextSceneContext, zone, x, z, false)
-								.queue(ctx.sceneLoadGroup, root.procGenHandle);
+							ZoneUploadTask
+								.build(ctx, nextSceneContext, zone, x, z)
+								.queue(ctx.sceneLoadGroup, generateSceneDataTask);
 							nextSceneContext.totalMapZones++;
 						} else {
 							sortedZones.add(SortedZone.getZone(zone, x, z, dist));
@@ -545,10 +548,9 @@ public class SceneManager {
 			for (SortedZone sorted : sortedZones) {
 				Zone newZone = new Zone();
 				newZone.dirty = sorted.zone.dirty;
-
-				sorted.zone.zoneUploadHandle = ZoneUploadTask
-						.build(ctx, nextSceneContext, newZone, sorted.x, sorted.z, true)
-						.queue(ctx.streamingGroup, root.procGenHandle);
+				sorted.zone.zoneUploadTask = ZoneUploadTask
+					.build(ctx, nextSceneContext, newZone, sorted.x, sorted.z)
+					.queue(ctx.streamingGroup, generateSceneDataTask);
 				sorted.free();
 			}
 			sortedZones.clear();
@@ -559,6 +561,7 @@ public class SceneManager {
 			log.debug("loadScene time: {}", sw);
 		} finally {
 			loadingLock.unlock();
+			log.debug("loadingLock unlocked - holdCount: {}", loadingLock.getHoldCount());
 		}
 	}
 
@@ -580,7 +583,7 @@ public class SceneManager {
 		Stopwatch sw = Stopwatch.createStarted();
 
 		// Handle object spawns that must be processed on the client thread
-		root.lightJobHandle.await(true);
+		loadSceneLightsTask.waitForCompletion();
 
 		for (var tileObject : nextSceneContext.lightSpawnsToHandleOnClientThread)
 			lightManager.handleObjectSpawn(nextSceneContext, tileObject);
@@ -643,7 +646,6 @@ public class SceneManager {
 
 		nextZones = null;
 		nextSceneContext = null;
-		root.lightJobHandle = null;
 
 		if (isFirst) {
 			// Load all pre-existing sub scenes on the first scene load
@@ -677,27 +679,18 @@ public class SceneManager {
 			log.error("Reload of an already loaded sub scene?");
 			prevCtx.sceneLoadGroup.cancel();
 			prevCtx.streamingGroup.cancel();
-			clientThread.invoke(() -> prevCtx.free(false));
+			clientThread.invoke(prevCtx::free);
 		}
 
 		var sceneContext = new ZoneSceneContext(client, worldView, scene, plugin.getExpandedMapLoadingChunks(), null);
 		proceduralGenerator.generateSceneData(sceneContext);
 
-		final WorldViewContext ctx = new WorldViewContext(worldView, sceneContext, uboWorldViews);
-		ctx.sceneLoadGroup = jobSystem.getWorkGroup(true);
-		ctx.streamingGroup = jobSystem.getWorkGroup(false);
+		final WorldViewContext ctx = new WorldViewContext(this, worldView, sceneContext, uboWorldViews);
 		subs[worldViewId] = ctx;
 
-		for(int x = 0; x <  ctx.sizeX; ++x) {
-			for(int z = 0; z < ctx.sizeZ; ++z) {
-				ctx.zones[x][z].zoneUploadHandle = ZoneUploadTask.build(ctx, sceneContext, ctx.zones[x][z], x, z, false).queue(ctx.sceneLoadGroup);
-
-				if(root.sceneContext == null) {
-					// Wait on each zone load to prevent boats from erroring on first load. (Calling LoadSubScene during initial load might be the root cause)
-					ctx.zones[x][z].zoneUploadHandle.await();
-				}
-			}
-		}
+		for(int x = 0; x <  ctx.sizeX; ++x)
+			for (int z = 0; z < ctx.sizeZ; ++z)
+				ctx.zones[x][z].zoneUploadTask = ZoneUploadTask.build(ctx, sceneContext, ctx.zones[x][z], x, z).queue(ctx.sceneLoadGroup);
 
 		jobSystem.wakeWorkers();
 	}

@@ -2,7 +2,6 @@ package rs117.hd.utils.jobs;
 
 import java.util.concurrent.BlockingDeque;
 import java.util.concurrent.LinkedBlockingDeque;
-import java.util.concurrent.Semaphore;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -17,32 +16,8 @@ public final class JobWorker {
 	Thread thread;
 	JobHandle handle;
 
-	final Semaphore pauseSma = new Semaphore(0);
 	final BlockingDeque<JobHandle> localWorkQueue = new LinkedBlockingDeque<>();
 	final AtomicBoolean inflight = new AtomicBoolean();
-
-	void waitForPause() throws InterruptedException {
-		if(!thread.isAlive())
-			return;
-
-		if(JobSystem.INSTANCE.client.isClientThread()) {
-			while (!pauseSma.tryAcquire())
-				JobSystem.INSTANCE.processPendingClientCallbacks(false);
-		} else {
-			pauseSma.acquire();
-		}
-		pauseSma.release();
-	}
-
-	void setPaused(boolean pause) throws InterruptedException {
-		if(pause) {
-			if(VALIDATE) thread.setName(pausedName);
-			pauseSma.release();
-		} else {
-			pauseSma.acquire();
-			if(VALIDATE) thread.setName(name);
-		}
-	}
 
 	void run() {
 		name = thread.getName();
@@ -85,9 +60,10 @@ public final class JobWorker {
 			try {
 				workerHandleCancel();
 
-				if(handle.setRunning(this)) {
+				if(handle.item != null && handle.setRunning(this)) {
 					inflight.lazySet(true);
-					handle.item.run();
+					handle.item.onRun();
+					handle.item.ranToCompletion.set(true);
 				}
 			}
 			catch (InterruptedException e) {
@@ -109,7 +85,7 @@ public final class JobWorker {
 		if (handle.isCancelled()) {
 			if(VALIDATE) log.debug("Handle {} has been cancelled, interrupting to exit execution", handle);
 			if(handle.item != null)
-				handle.item.cancelled();
+				handle.item.onCancel();
 			throw new InterruptedException();
 		}
 	}

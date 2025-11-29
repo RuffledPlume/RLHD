@@ -88,12 +88,6 @@ public final class JobSystem {
 		return workQueue.size();
 	}
 
-	public JobGroup getWorkGroup(boolean highPriority) {
-		JobGroup newGroup = new JobGroup();
-		newGroup.highPriority = highPriority;
-		return newGroup;
-	}
-
 	public void wakeWorkers() {
 		int queueSize = workQueue.size();
 		if(queueSize == 0)
@@ -156,23 +150,21 @@ public final class JobSystem {
 			worker.printState();
 	}
 
-	protected JobHandle queue(JobGroup group, JobWork item, boolean highPriority, JobHandle... dependencies) {
+	protected void queue(JobWork item, boolean highPriority, JobWork... dependencies) {
 		JobHandle newHandle = item.handle = JobHandle.obtain();
 		newHandle.highPriority = highPriority;
-		newHandle.group = group;
 		newHandle.item = item;
 
-		if(group != null)
-			group.pending.add(newHandle);
-
 		boolean shouldQueue = true;
-		for(JobHandle handle : dependencies) {
-			if(handle == null) continue;
-			if(handle.addDependant(newHandle)) {
+		for(JobWork dep : dependencies) {
+			if(dep == null || dep.handle == null) continue;
+			if(dep.handle.addDependant(newHandle)) {
 				shouldQueue = false;
 			}
 		}
 
+		item.wasCancelled.set(false);
+		item.ranToCompletion.set(false);
 		if(shouldQueue) {
 			newHandle.setInQueue();
 			if(VALIDATE) log.debug("Handle [{}] Added to queue (Dep Count: {{}})", newHandle, dependencies);
@@ -182,8 +174,6 @@ public final class JobSystem {
 				workQueue.addLast(newHandle);
 			}
 		}
-
-		return newHandle;
 	}
 
 	protected void queueClientCallback(boolean highPriority, boolean immediate, Runnable callback) throws InterruptedException {

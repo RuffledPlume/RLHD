@@ -71,7 +71,6 @@ import rs117.hd.utils.RenderState;
 import rs117.hd.utils.ShadowCasterVolume;
 import rs117.hd.utils.buffer.GpuIntBuffer;
 import rs117.hd.utils.jobs.JobGenericTask;
-import rs117.hd.utils.jobs.JobHandle;
 import rs117.hd.utils.jobs.JobSystem;
 
 import static net.runelite.api.Constants.*;
@@ -1121,7 +1120,7 @@ public class ZoneRenderer implements Renderer {
 			int zz = (gameObject.getY() >> 10) + offset;
 			Zone zone = ctx.zones[zx][zz];
 
-			JobHandle shadowUploadHandle = null;
+			JobGenericTask shadowUploadTask = null;
 			if (zone.inShadowFrustum) {
 				final VAO o = vaoPOShadow.get(size, ctx.vboM);
 				final JobGenericTask.TaskRunnable uploadFunc = (t) -> {
@@ -1139,7 +1138,7 @@ public class ZoneRenderer implements Renderer {
 				};
 
 				if(!sceneManager.isRoot(ctx) || zone.inSceneFrustum) {
-					shadowUploadHandle = JobGenericTask.build("uploadTempModel", uploadFunc).queue(true);
+					shadowUploadTask = JobGenericTask.build("uploadTempModel", uploadFunc).queue(true);
 					jobSystem.wakeWorkers();
 				} else {
 					uploadFunc.run(null);
@@ -1183,8 +1182,10 @@ public class ZoneRenderer implements Renderer {
 				}
 			}
 
-			if(shadowUploadHandle != null)
-				shadowUploadHandle.await(true);
+			if(shadowUploadTask != null) {
+				shadowUploadTask.waitForCompletion();
+				shadowUploadTask.release();
+			}
 		} else {
 			VAO o = vaoO.get(size, ctx.vboM);
 			sceneUploader.uploadTempModel(

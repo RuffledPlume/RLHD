@@ -134,6 +134,7 @@ public class WaterTypeManager {
 				log.error("Failed to load water types:", ex);
 			} finally {
 				sceneManager.getLoadingLock().unlock();
+				log.debug("loadingLock unlocked - holdCount: {}", sceneManager.getLoadingLock().getHoldCount());
 			}
 		}));
 	}

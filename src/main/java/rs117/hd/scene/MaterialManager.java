@@ -461,6 +461,7 @@ public class MaterialManager {
 			}
 		} finally {
 			sceneManager.getLoadingLock().unlock();
+			log.debug("loadingLock unlocked - holdCount: {}", sceneManager.getLoadingLock().getHoldCount());
 		}
 	}
 

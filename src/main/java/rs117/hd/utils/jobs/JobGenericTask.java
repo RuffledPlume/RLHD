@@ -17,6 +17,7 @@ public final class JobGenericTask extends JobWork {
 			newTask = new JobGenericTask();
 		newTask.context = context;
 		newTask.runnable = runnable;
+		newTask.isReleased = false;
 
 		return newTask;
 	}
@@ -25,21 +26,21 @@ public final class JobGenericTask extends JobWork {
 	public TaskRunnable runnable;
 
 	@Override
-	public void run() throws InterruptedException {
+	public void onRun() throws InterruptedException {
 		runnable.run(this);
 	}
 
 	@Override
-	protected void cancelled() {}
+	protected void onCancel() {}
 
 	@Override
-	public void release() {
+	public void onReleased() {
 		runnable = null;
 		POOL.add(this);
 	}
 
 	@Override
-	protected String debugInfo() {
-		return "runnable: " + context;
+	public String toString() {
+		return super.toString() + " " + context;
 	}
 }

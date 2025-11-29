@@ -18,7 +18,7 @@ import rs117.hd.scene.materials.Material;
 import rs117.hd.scene.model_overrides.ModelOverride;
 import rs117.hd.utils.Camera;
 import rs117.hd.utils.CommandBuffer;
-import rs117.hd.utils.jobs.JobHandle;
+import rs117.hd.utils.jobs.JobGenericTask;
 
 import static net.runelite.api.Perspective.*;
 import static org.lwjgl.opengl.GL33C.*;
@@ -69,7 +69,8 @@ public class Zone {
 	public boolean inSceneFrustum; // whether the zone is visible to the scene camera
 	public boolean inShadowFrustum; // whether the zone casts shadows into the visible scene
 
-	JobHandle zoneUploadHandle;
+	ZoneUploadTask zoneUploadTask;
+	JobGenericTask updateRoofsTask;
 
 	int[] levelOffsets = new int[5]; // buffer pos in ints for the end of the level
 
@@ -136,6 +137,16 @@ public class Zone {
 		if (glVaoA != 0) {
 			glDeleteVertexArrays(glVaoA);
 			glVaoA = 0;
+		}
+
+		if(updateRoofsTask != null) {
+			updateRoofsTask.release();
+			updateRoofsTask = null;
+		}
+
+		if(zoneUploadTask != null) {
+			zoneUploadTask.release();
+			zoneUploadTask = null;
 		}
 
 		sizeO = 0;

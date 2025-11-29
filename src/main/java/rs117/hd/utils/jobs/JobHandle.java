@@ -15,7 +15,7 @@ import static rs117.hd.utils.HDUtils.printStacktrace;
 import static rs117.hd.utils.jobs.JobSystem.VALIDATE;
 
 @Slf4j
-public final class JobHandle extends AbstractQueuedSynchronizer {
+final class JobHandle extends AbstractQueuedSynchronizer {
 	public static final int STATE_NONE      = 0;
 	public static final int STATE_QUEUED    = 1;
 	public static final int STATE_RUNNING   = 2;
@@ -35,13 +35,11 @@ public final class JobHandle extends AbstractQueuedSynchronizer {
 	@Getter
 	JobWork item;
 	@Getter
-	JobGroup group;
-	@Getter
 	JobWorker worker;
 	@Getter
 	boolean highPriority;
 
-	public static JobHandle obtain() {
+	static JobHandle obtain() {
 		JobHandle handle = POOL.poll();
 		if (handle == null || handle.refCounter.get() > 0) {
 			if(handle != null) {
@@ -60,17 +58,16 @@ public final class JobHandle extends AbstractQueuedSynchronizer {
 		handle.depCount.lazySet(0);
 		handle.highPriority = false;
 		handle.item = null;
-		handle.group = null;
 		handle.worker = null;
 
 		return handle;
 	}
 
-	public synchronized boolean addDependency(@Nullable JobHandle handle) {
+	synchronized boolean addDependency(@Nullable JobHandle handle) {
 		return handle != null && handle.addDependant(this);
 	}
 
-	public synchronized boolean addDependant(@Nullable JobHandle handle) {
+	synchronized boolean addDependant(@Nullable JobHandle handle) {
 		if (handle == null)
 			return false;
 
@@ -92,7 +89,7 @@ public final class JobHandle extends AbstractQueuedSynchronizer {
 		return true;
 	}
 
-	private static boolean wouldCreateCycle(JobHandle start, JobHandle target) {
+	static boolean wouldCreateCycle(JobHandle start, JobHandle target) {
 		LinkedBlockingDeque<JobHandle> stack = CYCLE_STACK.get();
 		stack.clear();
 		stack.push(start);
@@ -106,7 +103,7 @@ public final class JobHandle extends AbstractQueuedSynchronizer {
 		return false;
 	}
 
-	protected synchronized boolean setRunning(JobWorker worker) {
+	synchronized boolean setRunning(JobWorker worker) {
 		if(isInQueue()) {
 			setJobState(STATE_RUNNING);
 			this.worker = worker;
@@ -129,8 +126,8 @@ public final class JobHandle extends AbstractQueuedSynchronizer {
 		// Signal completion via AQS
 		releaseShared(0); // TODO: This should increment the generation
 
-		if (group != null)
-			group.pending.remove(this);
+		if(item != null)
+			item.wasCancelled.set(wasCancelled);
 
 		if (VALIDATE)
 			log.debug("Handle [{}] Completed", this);
@@ -156,10 +153,6 @@ public final class JobHandle extends AbstractQueuedSynchronizer {
 				}
 			}
 		}
-		depCount.lazySet(0);
-
-		if (item != null && group != null)
-			release();
 	}
 
 	private void setJobState(int newState) {
@@ -174,7 +167,7 @@ public final class JobHandle extends AbstractQueuedSynchronizer {
 	}
 
 	@SneakyThrows
-	private synchronized void release() {
+	synchronized void release() {
 		if (isReleased()) return;
 
 		if (refCounter.decrementAndGet() > 0)
@@ -185,16 +178,15 @@ public final class JobHandle extends AbstractQueuedSynchronizer {
 		assert !POOL.contains(this) : "POOL already contains this Handle?!";
 
 		setJobState(STATE_NONE);
-		item.release();
+		item.handle = null;
 		item = null;
-		group = null;
 		worker = null;
 
 		POOL.add(this);
 	}
 
 	@SneakyThrows
-	public void cancel(boolean block) {
+	void cancel(boolean block) {
 		if (item == null || isCancelled() || isCompleted())
 			return;
 
@@ -215,14 +207,14 @@ public final class JobHandle extends AbstractQueuedSynchronizer {
 			await();
 	}
 
-	public boolean isReleased() { return isIdle() && refCounter.get() == 0;}
-	public boolean isIdle() { return jobState.getAcquire() == STATE_NONE; }
-	public boolean isInQueue() { return jobState.getAcquire() == STATE_QUEUED; }
-	public boolean isCancelled() { return jobState.getAcquire() == STATE_CANCELLED; }
-	public boolean isCompleted() { return jobState.getAcquire() == STATE_COMPLETED; }
+	boolean isReleased() { return isIdle() && refCounter.get() == 0;}
+	boolean isIdle() { return jobState.getAcquire() == STATE_NONE; }
+	boolean isInQueue() { return jobState.getAcquire() == STATE_QUEUED; }
+	boolean isCancelled() { return jobState.getAcquire() == STATE_CANCELLED; }
+	boolean isCompleted() { return jobState.getAcquire() == STATE_COMPLETED; }
 
 	@SneakyThrows
-	public void await(boolean shouldRelease) {
+	void await() {
 		refCounter.incrementAndGet();
 
 		final boolean isClientThread = JobSystem.INSTANCE.client != null && JobSystem.INSTANCE.client.isClientThread();
@@ -259,12 +251,8 @@ public final class JobHandle extends AbstractQueuedSynchronizer {
 			}
 		} finally {
 			refCounter.decrementAndGet();
-			if (isDone() && shouldRelease)
-				release();
 		}
 	}
-
-	public void await() { await(false); }
 
 	private boolean isDone() {
 		return getState() != 0;

@@ -9,7 +9,6 @@ import rs117.hd.HdPlugin;
 import rs117.hd.overlays.FrameTimer;
 import rs117.hd.overlays.Timer;
 import rs117.hd.utils.jobs.JobGenericTask;
-import rs117.hd.utils.jobs.JobHandle;
 import rs117.hd.utils.jobs.JobSystem;
 
 import static org.lwjgl.opengl.GL33C.*;
@@ -35,7 +34,8 @@ public class AsyncUICopy {
 	private int interfaceTexture;
 	private int width;
 	private int height;
-	private JobHandle handle;
+	private JobGenericTask uploadTask;
+	private boolean inFlight = false;
 
 	public void prepare(int interfacePbo, int interfaceTex) {
 		// Ensure there isn't already another UI copy in progress
@@ -65,20 +65,26 @@ public class AsyncUICopy {
 			mappedIntBuffer = mappedBuffer.asIntBuffer();
 		}
 
-		handle = JobGenericTask.build(
-			"AsyncUICopy",
-			(t) -> mappedIntBuffer.put(pixels, 0, width * height))
-			.queue(true);
+		if(uploadTask == null) {
+			uploadTask = JobGenericTask.build("AsyncUICopy", this::copyPixels);
+		}
+
+		uploadTask.queue();
 		jobSystem.wakeWorkers();
+		inFlight = true;
+	}
+
+	private void copyPixels(JobGenericTask task) {
+		mappedIntBuffer.put(pixels, 0, width * height);
 	}
 
 	public boolean complete() {
-		if (mappedBuffer == null || handle == null)
+		if (mappedBuffer == null || !inFlight)
 			return false;
 
 		long timestamp = System.nanoTime();
-		handle.await(true);
-		handle = null;
+		uploadTask.waitForCompletion();
+		inFlight = false;
 
 		var uiResolution = plugin.getUiResolution();
 		if (uiResolution == null || width > uiResolution[0] || height > uiResolution[1]) {

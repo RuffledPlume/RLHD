@@ -1,12 +1,63 @@
 package rs117.hd.utils.jobs;
 
-public abstract class JobWork {
-	protected JobHandle handle;
+import java.util.concurrent.atomic.AtomicBoolean;
 
+public abstract class JobWork {
+	protected final AtomicBoolean wasCancelled = new AtomicBoolean();
+	protected final AtomicBoolean ranToCompletion = new AtomicBoolean();
+	protected JobHandle handle;
+	protected JobGroup group;
+	protected boolean isReleased;
+
+	public void waitForCompletion() {
+		if(handle != null) {
+			handle.await();
+			handle.release();
+
+			if(group != null) {
+				group.pending.remove(this);
+				group = null;
+			}
+		}
+	}
+
+	public boolean wasCancelled() {
+		return wasCancelled.get();
+	}
+
+	public boolean ranToCompletion() {
+		return ranToCompletion.get();
+	}
+
+	public void cancel() {
+		if(handle != null) {
+			handle.cancel(true);
+			handle.release();
+		}
+	}
+
+	public void release() {
+		if(isReleased)
+			return;
+		isReleased = true;
+		waitForCompletion();
+		onReleased();
+	}
+
+	public boolean isCompleted() {
+		return handle == null || handle.isCompleted();
+	}
+
+	public boolean isHighPriority() {
+		return (group != null && group.highPriority) || (handle != null && handle.highPriority);
+	}
+
+	// TODO: Move this to JobSystem Class ?
 	public final void queueClientCallback(boolean highPriority, boolean immediate, Runnable callback) throws InterruptedException {
 		JobSystem.INSTANCE.queueClientCallback(highPriority, immediate, callback);
 	}
 
+	// TODO: Move this to JobSystem Class ?
 	public final void workerHandleCancel() throws InterruptedException {
 		if(handle == null)
 			return;
@@ -18,24 +69,28 @@ public abstract class JobWork {
 		worker.workerHandleCancel();
 	}
 
-	public final JobHandle queue(JobGroup group, JobHandle... dependencies) {
-		return JobSystem.INSTANCE.queue(group, this, group.highPriority, dependencies);
+	public final <T extends JobWork> T queue(JobGroup group, JobWork... dependencies) {
+		assert group != null;
+		JobSystem.INSTANCE.queue(this, group.highPriority, dependencies);
+		group.pending.add(this);
+		return (T) this;
 	}
 
-	public final JobHandle queue(boolean highPriority, JobHandle... dependencies) {
-		return JobSystem.INSTANCE.queue(null, this, highPriority, dependencies);
+	public final <T extends JobWork> T queue(boolean highPriority, JobWork... dependencies) {
+		JobSystem.INSTANCE.queue(this, highPriority, dependencies);
+		return (T) this;
 	}
 
-	public final JobHandle queue(JobHandle... dependencies) {
-		return queue(true, dependencies);
+	public final <T extends JobWork> T queue(JobWork... dependencies) {
+		JobSystem.INSTANCE.queue(this, true, dependencies);
+		return (T) this;
 	}
 
-	protected abstract void run() throws InterruptedException;
-	protected abstract void cancelled();
-	protected abstract void release();
-	protected abstract String debugInfo();
+	protected abstract void onRun() throws InterruptedException;
+	protected abstract void onCancel();
+	protected abstract void onReleased();
 
 	public String toString() {
-		return getClass().getSimpleName() + " [" + debugInfo() + "]";
+		return "[" + hashCode() + "|" + getClass().getSimpleName() + "]";
 	}
 }

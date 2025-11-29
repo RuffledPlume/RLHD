@@ -129,6 +129,7 @@ public class TileOverrideManager {
 			log.error("Failed to load tile overrides:", ex);
 		} finally {
 			sceneManager.getLoadingLock().unlock();
+			log.debug("loadingLock unlocked - holdCount: {}", sceneManager.getLoadingLock().getHoldCount());
 		}
 
 		// Update the reference, since the underlying dirt materials may have changed

@@ -1785,6 +1785,7 @@ public class HdPlugin extends Plugin {
 				stopPlugin();
 			} finally {
 				sceneManager.getLoadingLock().unlock();
+				log.debug("loadingLock unlocked - holdCount: {}", sceneManager.getLoadingLock().getHoldCount());
 				pendingConfigChanges.clear();
 				frameTimer.reset();
 			}

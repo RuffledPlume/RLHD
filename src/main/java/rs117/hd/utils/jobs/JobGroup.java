@@ -2,35 +2,39 @@ package rs117.hd.utils.jobs;
 
 import java.util.concurrent.LinkedBlockingDeque;
 import lombok.Getter;
+import lombok.RequiredArgsConstructor;
 import lombok.SneakyThrows;
 import lombok.extern.slf4j.Slf4j;
 
 @Slf4j
-public final class JobGroup {
+@RequiredArgsConstructor
+public final class JobGroup<T extends JobWork> {
 	@Getter
-	protected final LinkedBlockingDeque<JobHandle> pending = new LinkedBlockingDeque<>();
+	protected final LinkedBlockingDeque<T> pending = new LinkedBlockingDeque<>();
 
 	@Getter
-	protected boolean highPriority;
+	protected final boolean highPriority;
+
+	@Getter
+	protected final boolean autoRelease;
 
 	public int getPendingCount() { return pending.size(); }
 
 	@SneakyThrows
 	public void complete() {
-		JobHandle handle;
-		while ((handle = pending.poll()) != null) {
-			handle.await();
+		T work;
+		while ((work = pending.poll()) != null) {
+			work.waitForCompletion();
+			if(autoRelease) work.release();
 		}
-	}
-
-	public void cancel(boolean block) {
-		for(JobHandle handle : pending) {
-			handle.cancel(block);
-		}
-		pending.clear();
 	}
 
 	public void cancel() {
-		cancel(true);
+		T work;
+		while ((work = pending.poll()) != null) {
+			work.cancel();
+			if(autoRelease) work.release();
+		}
+		pending.clear();
 	}
 }

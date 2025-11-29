@@ -2,41 +2,33 @@ package rs117.hd.renderer.zone;
 
 import java.util.concurrent.LinkedBlockingDeque;
 import javax.annotation.Nullable;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import rs117.hd.opengl.uniforms.UBOWorldViews;
 import rs117.hd.opengl.uniforms.UBOWorldViews.WorldViewStruct;
 import rs117.hd.utils.jobs.JobGroup;
-import rs117.hd.utils.jobs.JobHandle;
 
 import static org.lwjgl.opengl.GL33C.*;
 import static rs117.hd.renderer.zone.SceneManager.NUM_ZONES;
 
 @Slf4j
 public class WorldViewContext {
-	@RequiredArgsConstructor
-	public static class SwapZone {
-		final int x, z;
-		final Zone zone;
-	}
-
 	final int worldViewId;
 	final int sizeX, sizeZ;
 	@Nullable
 	WorldViewStruct uboWorldViewStruct;
+	SceneManager sceneManager;
 	ZoneSceneContext sceneContext;
 	Zone[][] zones;
 	VBO vboM;
-	LinkedBlockingDeque<SwapZone> pendingSwap = new LinkedBlockingDeque<>();
-	LinkedBlockingDeque<Zone> pendingCull = new LinkedBlockingDeque<>();
-	JobHandle lightJobHandle;
-	JobHandle procGenHandle;
-	JobGroup sceneLoadGroup;
-	JobGroup streamingGroup;
 	boolean isLoading = true;
 
-	WorldViewContext(@Nullable WorldView worldView, @Nullable ZoneSceneContext sceneContext, UBOWorldViews uboWorldViews) {
+	final LinkedBlockingDeque<Zone> pendingCull = new LinkedBlockingDeque<>();
+	final JobGroup<ZoneUploadTask> sceneLoadGroup = new JobGroup<>(true, false);
+	final JobGroup<ZoneUploadTask> streamingGroup = new JobGroup<>(false, false);
+
+	WorldViewContext(SceneManager sceneManager, @Nullable WorldView worldView, @Nullable ZoneSceneContext sceneContext, UBOWorldViews uboWorldViews) {
+		this.sceneManager = sceneManager;
 		this.worldViewId = worldView == null ? -1 : worldView.getId();
 		this.sceneContext = sceneContext;
 		this.sizeX = worldView == null ? NUM_ZONES : worldView.getSizeX() >> 3;
@@ -71,34 +63,35 @@ public class WorldViewContext {
 		boolean queuedWork = false;
 		for(int x = 0; x < sizeX; x++) {
 			for(int z = 0; z < sizeZ; z++) {
-				if(zones[x][z].rebuild) {
-					zones[x][z].rebuild = false;
+				Zone curZone = zones[x][z];
+				if(curZone.rebuild) {
+					curZone.rebuild = false;
 					invalidateZone(x, z);
 					queuedWork = true;
-				}
-			}
-		}
+				} else if(curZone.zoneUploadTask != null) {
+					ZoneUploadTask uploadTask = curZone.zoneUploadTask;
+					if(uploadTask.isCompleted()) {
+						curZone.zoneUploadTask = null;
+						if(uploadTask.ranToCompletion() && !uploadTask.wasCancelled()) {
+							Zone PrevZone = curZone;
+							// Swap the zone out with the one we just uploaded
+							zones[x][z] = curZone = uploadTask.zone;
 
-		SwapZone swapZone;
-		while((swapZone = pendingSwap.poll()) != null) {
-			Zone curZone = zones[swapZone.x][swapZone.z];
-			if(curZone != swapZone.zone) {
-				curZone.free();
-				zones[swapZone.x][swapZone.z] = swapZone.zone;
+							if (PrevZone != curZone)
+								PrevZone.free();
+						}
+						uploadTask.release();
+					}
+				}
 			}
 		}
 
 		return queuedWork;
 	}
 
-	void free(boolean block) {
-		if(sceneLoadGroup != null)
-			sceneLoadGroup.cancel(block);
-		sceneLoadGroup = null;
-
-		if(streamingGroup != null)
-			streamingGroup.cancel(block);
-		streamingGroup = null;
+	void free() {
+		sceneLoadGroup.cancel();
+		streamingGroup.cancel();
 
 		if (sceneContext != null)
 			sceneContext.destroy();
@@ -116,12 +109,6 @@ public class WorldViewContext {
 		while((cullZone = pendingCull.poll()) != null)
 			cullZone.free();
 
-		SwapZone swapScene;
-		while((swapScene = pendingSwap.poll()) != null) {
-			zones[swapScene.x][swapScene.z].free();
-			zones[swapScene.x][swapScene.z] = swapScene.zone;
-		}
-
 		if (vboM != null)
 			vboM.destroy();
 		vboM = null;
@@ -138,14 +125,16 @@ public class WorldViewContext {
 
 	void invalidateZone(int zx, int zz) {
 		Zone curZone = zones[zx][zz];
-		if(curZone.zoneUploadHandle != null)
-			curZone.zoneUploadHandle.cancel(false);
+		if(curZone.zoneUploadTask != null) {
+			curZone.zoneUploadTask.cancel();
+			curZone.zoneUploadTask.release();
+		}
 
 		Zone newZone = new Zone();
 		newZone.dirty = zones[zx][zz].dirty;
 
-		curZone.zoneUploadHandle = ZoneUploadTask
-			.build(this, sceneContext, newZone, zx, zz, true)
-			.queue(streamingGroup, procGenHandle);
+		curZone.zoneUploadTask = ZoneUploadTask
+			.build(this, sceneContext, newZone, zx, zz)
+			.queue(streamingGroup, sceneManager.getGenerateSceneDataTask());
 	}
 }
