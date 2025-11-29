@@ -5,7 +5,7 @@ import java.nio.IntBuffer;
 
 import static org.lwjgl.opengl.GL33C.*;
 
-class VBO {
+public class VBO {
 	final int size;
 	int glUsage;
 	int bufId;
@@ -15,11 +15,11 @@ class VBO {
 
 	private ByteBuffer mappedBuffer;
 
-	VBO(int size) {
+	public VBO(int size) {
 		this.size = size;
 	}
 
-	void initialize(int glUsage) {
+	public void initialize(int glUsage) {
 		this.glUsage = glUsage;
 		bufId = glGenBuffers();
 		glBindBuffer(GL_ARRAY_BUFFER, bufId);
@@ -38,7 +38,7 @@ class VBO {
 		bufId = 0;
 	}
 
-	void map() {
+	public void map() {
 		assert !mapped;
 		glBindBuffer(GL_ARRAY_BUFFER, bufId);
 		if (glUsage != GL_STATIC_DRAW) {

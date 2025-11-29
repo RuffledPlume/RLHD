@@ -6,6 +6,8 @@ import java.awt.Dimension;
 import java.awt.Graphics2D;
 import java.util.ArrayDeque;
 import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
 import net.runelite.client.ui.FontManager;
 import net.runelite.client.ui.overlay.OverlayLayer;
 import net.runelite.client.ui.overlay.OverlayManager;
@@ -14,8 +16,10 @@ import net.runelite.client.ui.overlay.OverlayPosition;
 import net.runelite.client.ui.overlay.components.LineComponent;
 import net.runelite.client.ui.overlay.components.TitleComponent;
 import rs117.hd.HdPlugin;
+import rs117.hd.renderer.zone.SceneManager;
 import rs117.hd.utils.FrameTimingsRecorder;
 import rs117.hd.utils.NpcDisplacementCache;
+import rs117.hd.utils.jobs.JobSystem;
 
 import static rs117.hd.utils.MathUtils.*;
 
@@ -36,8 +40,15 @@ public class FrameTimerOverlay extends OverlayPanel implements FrameTimer.Listen
 	@Inject
 	private NpcDisplacementCache npcDisplacementCache;
 
+	@Inject
+	private JobSystem jobSystem;
+
+	@Inject
+	private SceneManager sceneManager;
+
 	private final ArrayDeque<FrameTimings> frames = new ArrayDeque<>();
 	private final long[] timings = new long[Timer.TIMERS.length];
+	private final Map<String, LineComponent> componentMap = new HashMap<>();
 	private final StringBuilder sb = new StringBuilder();
 
 	@Inject
@@ -86,6 +97,11 @@ public class FrameTimerOverlay extends OverlayPanel implements FrameTimer.Listen
 			for (var t : Timer.TIMERS)
 				if (!t.isGpuTimer && t != Timer.DRAW_FRAME)
 					addTiming(t, timings);
+
+			children.add(LineComponent.builder()
+				.left("Garbage Collection Count:")
+				.right(String.valueOf(plugin.getGarbageCollectionCount()))
+				.build());
 
 			long gpuTime = timings[Timer.RENDER_FRAME.ordinal()];
 			addTiming("GPU", gpuTime, true);
@@ -145,6 +161,36 @@ public class FrameTimerOverlay extends OverlayPanel implements FrameTimer.Listen
 				.right(String.valueOf(npcDisplacementCache.size()))
 				.build());
 
+			children.add(LineComponent.builder()
+				.leftFont(boldFont)
+				.left("Streaming Stats:")
+				.build());
+
+			addTiming("Scene Load", sceneManager.getSceneLoadTime(), false);
+			addTiming("Scene Upload", sceneManager.getSceneUploadTime(), false);
+			addTiming("Scene Swap", sceneManager.getSceneSwapTime(), false);
+
+			children.add(LineComponent.builder()
+				.left("Streaming Zones:")
+				.right(String.valueOf(jobSystem.getWorkQueueSize()))
+				.build());
+
+
+			children.add(LineComponent.builder()
+				.leftFont(boldFont)
+				.left("Job System:")
+				.build());
+
+			children.add(LineComponent.builder()
+				.left("Workers Inflight:")
+				.right(String.valueOf(jobSystem.getInflightWorkerCount()))
+				.build());
+
+			children.add(LineComponent.builder()
+				.left("Work Queue:")
+				.right(String.valueOf(jobSystem.getWorkQueueSize()))
+				.build());
+
 			if (frameTimingsRecorder.isCapturingSnapshot())
 				children.add(LineComponent.builder()
 					.leftFont(boldFont)
@@ -188,12 +234,21 @@ public class FrameTimerOverlay extends OverlayPanel implements FrameTimer.Listen
 			result = sb.append(round(nanos / 1e3) / 1e3).append(" ms").toString();
 			sb.setLength(0);
 		}
-		var font = bold ? FontManager.getRunescapeBoldFont() : FontManager.getRunescapeFont();
-		panelComponent.getChildren().add(LineComponent.builder()
-			.left(name + ":")
-			.leftFont(font)
-			.right(result)
-			.rightFont(font)
-			.build());
+
+		LineComponent component = componentMap.get(name);
+		if (component == null) {
+			var font = bold ? FontManager.getRunescapeBoldFont() : FontManager.getRunescapeFont();
+			component = LineComponent.builder()
+				.left(name + ":")
+				.leftFont(font)
+				.right(result)
+				.rightFont(font)
+				.build();
+			componentMap.put(name, component);
+		} else {
+			component.setRight(result);
+		}
+		
+		panelComponent.getChildren().add(component);
 	}
 }
