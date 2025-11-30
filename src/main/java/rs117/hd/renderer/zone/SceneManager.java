@@ -485,7 +485,24 @@ public class SceneManager {
 						if (ox < 0 || ox >= NUM_ZONES || oz < 0 || oz >= NUM_ZONES)
 							continue;
 
-						Zone old = ctx.zones[ox][oz];
+						// Ensure that we've finished swapping the zone
+						if(ctx.zones[ox][oz].zoneUploadTask != null) {
+							ZoneUploadTask uploadTask = ctx.zones[ox][oz].zoneUploadTask;
+							if(uploadTask.isCompleted()) {
+								ctx.zones[ox][oz].zoneUploadTask = null;
+								if(uploadTask.ranToCompletion() && !uploadTask.wasCancelled()) {
+									Zone PrevZone = ctx.zones[ox][oz];
+									// Swap the zone out with the one we just uploaded
+									ctx.zones[x][z] = uploadTask.zone;
+
+									if (PrevZone != ctx.zones[ox][oz])
+										ctx.pendingCull.add(PrevZone);
+								}
+								uploadTask.release();
+							}
+						}
+
+						final Zone old = ctx.zones[ox][oz];
 						if (!old.initialized || (old.sizeO == 0 && old.sizeA == 0))
 							continue;
 
