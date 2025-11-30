@@ -401,12 +401,8 @@ public class SceneManager {
 			Stopwatch sw = Stopwatch.createStarted();
 			root.isLoading = true;
 
-			generateSceneDataTask.cancel();
-			loadSceneLightsTask.cancel();
-			calculateRoofChangesTask.cancel();
-
-			root.sceneLoadGroup.cancel();
-			root.streamingGroup.cancel();
+			root.sceneLoadGroup.complete();
+			root.streamingGroup.complete();
 
 			if (nextSceneContext != null)
 				nextSceneContext.destroy();
@@ -427,6 +423,9 @@ public class SceneManager {
 			nextSceneContext.enableAreaHiding = nextSceneContext.sceneBase != null && config.hideUnrelatedAreas();
 
 			environmentManager.loadSceneEnvironments(nextSceneContext);
+
+			loadSceneLightsTask.cancel();
+			calculateRoofChangesTask.cancel();
 
 			generateSceneDataTask.queue();
 			loadSceneLightsTask.queue();
