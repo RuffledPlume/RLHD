@@ -120,7 +120,7 @@ public class WorldViewContext {
 		}
 	}
 
-	boolean update(float deltaTime) {
+	boolean update(float deltaTime, boolean canInvalidate) {
 		Zone cullZone;
 		while ((cullZone = pendingCull.poll()) != null) {
 			log.trace("Culling zone({})", cullZone.hashCode());
@@ -132,7 +132,7 @@ public class WorldViewContext {
 			for (int z = 0; z < sizeZ; z++) {
 				handleZoneSwap(deltaTime, x, z);
 
-				if (zones[x][z].rebuild) {
+				if (zones[x][z].rebuild && canInvalidate) {
 					zones[x][z].rebuild = false;
 					invalidateZone(x, z);
 					queuedWork = true;

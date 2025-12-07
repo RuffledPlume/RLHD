@@ -190,17 +190,17 @@ public class SceneManager {
 			}
 		}
 
-		if(!isAnySceneLoading) {
-			root.update(plugin.deltaTime);
+		root.update(plugin.deltaTime, !isAnySceneLoading);
 
-			if (wv != null) {
-				for (WorldEntity we : wv.worldEntities()) {
-					WorldViewContext ctx = getContext(we.getWorldView());
-					if (ctx != null)
-						ctx.update(plugin.deltaTime);
-				}
+		if (wv != null) {
+			for (WorldEntity we : wv.worldEntities()) {
+				WorldViewContext ctx = getContext(we.getWorldView());
+				if (ctx != null)
+					ctx.update(plugin.deltaTime, !isAnySceneLoading);
 			}
+		}
 
+		if(!isAnySceneLoading) {
 			// Ensure any queued zone invalidations are now completed
 			root.completeInvalidation();
 
