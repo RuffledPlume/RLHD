@@ -55,6 +55,10 @@ public class WorldViewContext {
 				zones[x][z] = new Zone();
 	}
 
+	boolean isLoadingAnything() {
+		return isLoading || sceneLoadGroup.getPendingCount() > 0 || streamingGroup.getPendingCount() > 0;
+	}
+
 	void initMetadata() {
 		if (vboM != null || uboWorldViewStruct == null)
 			return;
@@ -117,9 +121,6 @@ public class WorldViewContext {
 	}
 
 	boolean update(float deltaTime) {
-		if (isLoading)
-			return false;
-
 		Zone cullZone;
 		while ((cullZone = pendingCull.poll()) != null) {
 			log.trace("Culling zone({})", cullZone.hashCode());
@@ -143,9 +144,6 @@ public class WorldViewContext {
 	}
 
 	void completeInvalidation() {
-		if (isLoading)
-			return;
-
 		invalidationGroup.complete();
 
 		for (int x = 0; x < sizeX; x++)

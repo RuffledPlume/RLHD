@@ -176,25 +176,40 @@ public class SceneManager {
 			}
 		}
 
-		root.update(plugin.deltaTime);
-
 		WorldView wv = client.getTopLevelWorldView();
-		if (wv != null) {
+		boolean isAnySceneLoading = root.isLoadingAnything();
+
+		if (wv != null && !isAnySceneLoading) {
 			for (WorldEntity we : wv.worldEntities()) {
 				WorldViewContext ctx = getContext(we.getWorldView());
-				if (ctx != null)
-					ctx.update(plugin.deltaTime);
+				if (ctx != null) {
+					isAnySceneLoading = ctx.isLoadingAnything();
+					if(isAnySceneLoading)
+						break;
+				}
 			}
 		}
 
-		// Ensure any queued zone invalidations are now completed
-		root.completeInvalidation();
+		if(!isAnySceneLoading) {
+			root.update(plugin.deltaTime);
 
-		if (wv != null) {
-			for (WorldEntity we : wv.worldEntities()) {
-				WorldViewContext ctx = getContext(we.getWorldView());
-				if (ctx != null)
-					ctx.completeInvalidation();
+			if (wv != null) {
+				for (WorldEntity we : wv.worldEntities()) {
+					WorldViewContext ctx = getContext(we.getWorldView());
+					if (ctx != null)
+						ctx.update(plugin.deltaTime);
+				}
+			}
+
+			// Ensure any queued zone invalidations are now completed
+			root.completeInvalidation();
+
+			if (wv != null) {
+				for (WorldEntity we : wv.worldEntities()) {
+					WorldViewContext ctx = getContext(we.getWorldView());
+					if (ctx != null)
+						ctx.completeInvalidation();
+				}
 			}
 		}
 	}
