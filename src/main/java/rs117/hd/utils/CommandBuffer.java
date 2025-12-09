@@ -94,18 +94,24 @@ public class CommandBuffer {
 			(writeAlpha ? 1 : 0) << 11;
 	}
 
-	public void MultiDrawArrays(int mode, int[] offsets, int[] counts) {
-		assert offsets.length == counts.length;
-		assert (mode & DRAW_MODE_MASK) == mode;
-		if (offsets.length == 0)
+	public void MultiDrawArrays(int mode, int[] offsets, int[] counts, int length) {
+		if (length == 0)
 			return;
 
-		ensureCapacity(1 + offsets.length);
-		cmd[writeHead++] = GL_MULTI_DRAW_ARRAYS_TYPE & 0xFF | mode << 8 | (long) offsets.length << 32;
-		for (int i = 0; i < offsets.length; i++) {
+		assert length <= offsets.length;
+		assert length <= counts.length;
+		assert (mode & DRAW_MODE_MASK) == mode;
+
+		ensureCapacity(1 + length);
+		cmd[writeHead++] = GL_MULTI_DRAW_ARRAYS_TYPE & 0xFF | mode << 8 | (long) length << 32;
+		for (int i = 0; i < length; i++) {
 			cmd[writeHead++] = (long) offsets[i] << 32 | counts[i] & INT_MASK;
 			drawCallCount++;
 		}
+	}
+
+	public void MultiDrawArrays(int mode, int[] offsets, int[] counts) {
+		MultiDrawArrays(mode, offsets, counts, counts.length);
 	}
 
 	public void DrawElements(int mode, int vertexCount, long offset) {

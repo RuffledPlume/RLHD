@@ -160,9 +160,9 @@ public class ZoneRenderer implements Renderer {
 	private final CommandBuffer directionalCmd = new CommandBuffer(renderState);
 
 	private SlicedVAO vaoO;
-	private VAO.VAOList vaoA;
+	private SlicedVAO vaoA;
 	private SlicedVAO vaoPO;
-	private VAO.VAOList vaoShadow;
+	private SlicedVAO vaoShadow;
 
 	public static int indirectDrawCmds;
 	public static GpuIntBuffer indirectDrawCmdsStaging;
@@ -252,18 +252,17 @@ public class ZoneRenderer implements Renderer {
 		indirectDrawCmdsStaging = new GpuIntBuffer();
 
 		vaoO = new SlicedVAO(eboAlpha);
-		vaoA = new VAO.VAOList(eboAlpha);
+		vaoA = new SlicedVAO(eboAlpha);
 		vaoPO = new SlicedVAO(eboAlpha);
-		vaoShadow = new VAO.VAOList(eboAlpha);
+		vaoShadow = new SlicedVAO(eboAlpha);
 	}
 
 	private void destroyBuffers() {
 		vaoO.destroy();
-		vaoA.free();
+		vaoA.destroy();
 		vaoPO.destroy();
-		vaoShadow.free();
-		vaoA = vaoShadow = null;
-		vaoO = vaoPO = null;
+		vaoShadow.destroy();
+		vaoA = vaoShadow = vaoO = vaoPO = null;
 
 		if (eboAlpha != 0)
 			glDeleteBuffers(eboAlpha);
@@ -300,14 +299,8 @@ public class ZoneRenderer implements Renderer {
 		if (ctx.uboWorldViewStruct != null)
 			ctx.uboWorldViewStruct.update();
 
-		if (scene.getWorldViewId() == WorldView.TOPLEVEL) {
+		if (scene.getWorldViewId() == WorldView.TOPLEVEL)
 			preSceneDrawTopLevel(scene, cameraX, cameraY, cameraZ, cameraPitch, cameraYaw);
-		} else {
-			Scene topLevel = client.getScene();
-			//vaoO.addRange(topLevel);
-			//vaoPO.addRange(topLevel);
-			vaoShadow.addRange(topLevel);
-		}
 	}
 
 	private void preSceneDrawTopLevel(
@@ -684,8 +677,6 @@ public class ZoneRenderer implements Renderer {
 
 		sceneFboValid = true;
 
-		vaoA.unmap();
-
 		// Upload world views & zone data before rendering
 		uboWorldViews.upload();
 		uboZoneData.upload();
@@ -948,25 +939,17 @@ public class ZoneRenderer implements Renderer {
 
 		switch (pass) {
 			case DrawCallbacks.PASS_OPAQUE:
-				//vaoO.addRange(scene);
-				//vaoPO.addRange(scene);
-				vaoShadow.addRange(scene);
-
 				if (scene.getWorldViewId() == -1) {
 					directionalCmd.SetShader(fastShadowProgram);
 
 					// Draw opaque
-					//vaoO.unmap();
 					vaoO.drawAll(sceneCmd);
 					vaoO.drawAll(directionalCmd);
 					vaoO.clear();
 
-					//vaoPO.unmap();
-
 					// Draw shadow-only models
-					vaoShadow.unmap();
 					vaoShadow.drawAll(directionalCmd);
-					vaoShadow.resetAll();
+					vaoShadow.clear();
 
 					// Draw players opaque, without depth writes
 					sceneCmd.DepthMask(false);
@@ -1067,12 +1050,12 @@ public class ZoneRenderer implements Renderer {
 
 		boolean hasAlpha = m.getFaceTransparencies() != null || modelOverride.mightHaveTransparency;
 		if (hasAlpha) {
-			VAO a = vaoA.get(size);
-			int start = a.vbo.vb.position();
+			VBOSlice a = vaoA.allocate(size);
+			int start = a.getBuffer().position();
 
 			if (zone.inSceneFrustum) {
 				try {
-				facePrioritySorter.uploadSortedModel(projection, m, modelOverride, preOrientation, orient, x, y, z, zone.zoneData.zoneIdx, modelDataOffset, o.getBuffer(), a.vbo.vb);
+				facePrioritySorter.uploadSortedModel(projection, m, modelOverride, preOrientation, orient, x, y, z, zone.zoneData.zoneIdx, modelDataOffset, o.getBuffer(), a.getBuffer());
 				} catch (Exception ex) {
 					log.debug("error drawing entity", ex);
 				}
@@ -1080,7 +1063,7 @@ public class ZoneRenderer implements Renderer {
 				if (plugin.configShadowsEnabled) {
 					// Since priority sorting of models includes back-face culling,
 					// we need to upload the entire model again for shadows
-					VAO vao = vaoShadow.get(size);
+					VBOSlice vao = vaoShadow.allocate(size);
 					sceneUploader.uploadTempModel(
 						m,
 						modelOverride,
@@ -1089,21 +1072,21 @@ public class ZoneRenderer implements Renderer {
 						x, y, z,
 						zone.zoneData.zoneIdx,
 						modelDataOffset,
-						vao.vbo.vb,
-						vao.vbo.vb
+						vao.getBuffer(),
+						vao.getBuffer()
 					);
 				}
 			} else {
-				sceneUploader.uploadTempModel(m, modelOverride, preOrientation, orient, x, y, z, zone.zoneData.zoneIdx, modelDataOffset, o.getBuffer(), a.vbo.vb);
+				sceneUploader.uploadTempModel(m, modelOverride, preOrientation, orient, x, y, z, zone.zoneData.zoneIdx, modelDataOffset, o.getBuffer(), a.getBuffer());
 			}
 
-			int end = a.vbo.vb.position();
+			int end = a.getBuffer().position();
 			if (end > start) {
 				// level is checked prior to this callback being run, in order to cull clickboxes, but
 				// tileObject.getPlane()>maxLevel if visbelow is set - lower the object to the max level
 				int plane = Math.min(ctx.maxLevel, tileObject.getPlane());
 				// renderable modelheight is typically not set here because DynamicObject doesn't compute it on the returned model
-				zone.addTempAlphaModel(a.vao, start, end, plane, x & 1023, y, z & 1023);
+				zone.addTempAlphaModel(a.getVAO(), start, end, plane, x & 1023, y, z & 1023);
 			}
 		} else {
 			sceneUploader.uploadTempModel(m, modelOverride, preOrientation, orient, x, y, z, zone.zoneData.zoneIdx, modelDataOffset, o.getBuffer(), o.getBuffer());
@@ -1154,7 +1137,7 @@ public class ZoneRenderer implements Renderer {
 		if (renderable instanceof Player || m.getFaceTransparencies() != null) {
 			GenericJob shadowUploadTask = null;
 			if (zone.inShadowFrustum) {
-				final VAO o = vaoShadow.get(size);
+				final VBOSlice o = vaoShadow.allocate(size);
 
 				shadowUploadTask = GenericJob
 					.build("uploadTempModel", t -> {
@@ -1168,8 +1151,8 @@ public class ZoneRenderer implements Renderer {
 							x, y, z,
 							zone.zoneData.zoneIdx,
 							modelDataOffset,
-							o.vbo.vb,
-							o.vbo.vb
+							o.getBuffer(),
+							o.getBuffer()
 						);
 					})
 					.setExecuteAsync(false)
@@ -1181,9 +1164,9 @@ public class ZoneRenderer implements Renderer {
 				// because they are not depth tested. transparent player faces don't need their own vao because normal
 				// transparent faces are already not depth tested
 				VBOSlice o = renderable instanceof Player ? vaoPO.allocate(size) : vaoO.allocate(size);
-				VAO a = vaoA.get(size);
+				VBOSlice a = vaoA.allocate(size);
 
-				int start = a.vbo.vb.position();
+				int start = a.getBuffer().position();
 				try {
 					facePrioritySorter.uploadSortedModel(
 						worldProjection,
@@ -1195,15 +1178,15 @@ public class ZoneRenderer implements Renderer {
 						zone.zoneData.zoneIdx,
 						modelDataOffset,
 						o.getBuffer(),
-						a.vbo.vb
+						a.getBuffer()
 					);
 				} catch (Exception ex) {
 					log.debug("error drawing entity", ex);
 				}
-				int end = a.vbo.vb.position();
+				int end = a.getBuffer().position();
 				if (end > start) {
 					zone.addTempAlphaModel(
-						a.vao,
+						a.getVAO(),
 						start,
 						end,
 						gameObject.getPlane(),
