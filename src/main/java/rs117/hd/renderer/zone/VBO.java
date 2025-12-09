@@ -58,11 +58,8 @@ public class VBO {
 		}
 		if (buf == null)
 			throw new RuntimeException("unable to map GL buffer " + bufId + " size " + size);
-		if (buf != mappedBuffer) {
-			mappedBuffer = buf;
-			vb = mappedBuffer.asIntBuffer();
-		}
-		vb.position(0);
+		mappedBuffer = buf;
+		vb = mappedBuffer.asIntBuffer();
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
 		mapped = true;
 	}

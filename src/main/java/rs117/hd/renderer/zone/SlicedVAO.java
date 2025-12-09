@@ -3,7 +3,6 @@ package rs117.hd.renderer.zone;
 import java.nio.IntBuffer;
 import java.util.Arrays;
 import java.util.Comparator;
-import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import rs117.hd.utils.CommandBuffer;
 import rs117.hd.utils.HDUtils;
@@ -111,7 +110,6 @@ public class SlicedVAO {
 		drawRangeCount++;
 	}
 
-
 	public void clear() {
 		allocator.clear();
 		allocator.defrag();
@@ -122,9 +120,6 @@ public class SlicedVAO {
 	}
 
 	public final class VBOSlice extends SliceAllocator.Slice {
-		private IntBuffer mappedBuffer;
-		private IntBuffer sliceBuffer;
-
 		private VBOSlice(int offset, int size) {
 			super(offset, size);
 		}
@@ -136,10 +131,8 @@ public class SlicedVAO {
 				return;
 
 			boolean wasMapped = vao.vbo.mapped;
-			if (wasMapped) {
-				// unmap existing mapping before manipulating buffers
+			if (wasMapped)
 				vao.vbo.unmap();
-			}
 
 			final int oldBuf = vao.vbo.bufId;
 			final int oldSize = vao.vbo.size;
@@ -182,9 +175,6 @@ public class SlicedVAO {
 			vao.vbo.bufId = newBuf;
 			vao.vbo.size = requiredBytes;
 
-			// Invalidate cached slice mapped buffers so future getBuffer() recreates views
-			clearSliceMappedCaches();
-
 			if (wasMapped)
 				vao.vbo.map();
 
@@ -199,30 +189,12 @@ public class SlicedVAO {
 		}
 
 		public IntBuffer getBuffer() {
-			// must be mapped by caller
 			assert vao.vbo.mapped;
-
-			// If the underlying mapped buffer object changed since last time,
-			// recreate our slice view against the current mapping.
-			if (vao.vbo.vb != mappedBuffer) {
-				mappedBuffer = vao.vbo.vb;
-
-				IntBuffer dup = mappedBuffer.duplicate();
-				int start = offset / Integer.BYTES;
-				int end = start + size / Integer.BYTES;
-				dup.position(start);
-				dup.limit(end);
-				sliceBuffer = dup.slice();
-			}
-
-			return sliceBuffer;
-		}
-	}
-
-	private void clearSliceMappedCaches() {
-		for (VBOSlice s : allocator) {
-			s.mappedBuffer = null;
-			s.sliceBuffer = null;
+			vao.vbo.vb.clear();
+			assert (offset + size) / Integer.BYTES <= vao.vbo.vb.capacity() : "Buffer overflow, requested " + (offset + size) / Integer.BYTES + " ints, but only " + vao.vbo.vb.capacity() + " ints available";
+			return vao.vbo.vb
+				.position(offset / Integer.BYTES)
+				.limit((offset + size) / Integer.BYTES);
 		}
 	}
 }
