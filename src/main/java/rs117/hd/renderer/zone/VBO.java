@@ -6,7 +6,7 @@ import java.nio.IntBuffer;
 import static org.lwjgl.opengl.GL33C.*;
 
 public class VBO {
-	final int size;
+	int size;
 	int glUsage;
 	int bufId;
 	IntBuffer vb;

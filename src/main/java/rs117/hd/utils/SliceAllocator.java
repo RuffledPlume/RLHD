@@ -2,12 +2,13 @@ package rs117.hd.utils;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.Iterator;
 import java.util.List;
 import java.util.NavigableSet;
 import java.util.TreeSet;
 import lombok.Getter;
 
-public class SliceAllocator<SLICE extends SliceAllocator.Slice> {
+public class SliceAllocator<SLICE extends SliceAllocator.Slice> implements Iterable<SLICE> {
 	@Getter
 	public static abstract class Slice {
 		protected SliceAllocator<?> owner;
@@ -179,6 +180,16 @@ public class SliceAllocator<SLICE extends SliceAllocator.Slice> {
 				assert !overlap : "Free " + free + " overlaps active " + active;
 			}
 		}
+	}
+
+	@Override
+	public Iterator<SLICE> iterator() {
+		return activeSlices.iterator();
+	}
+
+	public void clear() {
+		while (!activeSlices.isEmpty())
+			activeSlices.get(0).free();
 	}
 
 	@FunctionalInterface

@@ -52,6 +52,7 @@ import rs117.hd.opengl.shader.ShadowShaderProgram;
 import rs117.hd.overlays.FrameTimer;
 import rs117.hd.overlays.Timer;
 import rs117.hd.renderer.Renderer;
+import rs117.hd.renderer.zone.SlicedVAO.VBOSlice;
 import rs117.hd.scene.EnvironmentManager;
 import rs117.hd.scene.LightManager;
 import rs117.hd.scene.ModelOverrideManager;
@@ -158,9 +159,9 @@ public class ZoneRenderer implements Renderer {
 	private final CommandBuffer sceneCmd = new CommandBuffer(renderState);
 	private final CommandBuffer directionalCmd = new CommandBuffer(renderState);
 
-	private VAO.VAOList vaoO;
+	private SlicedVAO vaoO;
 	private VAO.VAOList vaoA;
-	private VAO.VAOList vaoPO;
+	private SlicedVAO vaoPO;
 	private VAO.VAOList vaoShadow;
 
 	public static int indirectDrawCmds;
@@ -250,18 +251,19 @@ public class ZoneRenderer implements Renderer {
 		indirectDrawCmds = glGenBuffers();
 		indirectDrawCmdsStaging = new GpuIntBuffer();
 
-		vaoO = new VAO.VAOList(eboAlpha);
+		vaoO = new SlicedVAO(eboAlpha);
 		vaoA = new VAO.VAOList(eboAlpha);
-		vaoPO = new VAO.VAOList(eboAlpha);
+		vaoPO = new SlicedVAO(eboAlpha);
 		vaoShadow = new VAO.VAOList(eboAlpha);
 	}
 
 	private void destroyBuffers() {
-		vaoO.free();
+		vaoO.destroy();
 		vaoA.free();
-		vaoPO.free();
+		vaoPO.destroy();
 		vaoShadow.free();
-		vaoO = vaoA = vaoPO = vaoShadow = null;
+		vaoA = vaoShadow = null;
+		vaoO = vaoPO = null;
 
 		if (eboAlpha != 0)
 			glDeleteBuffers(eboAlpha);
@@ -302,8 +304,8 @@ public class ZoneRenderer implements Renderer {
 			preSceneDrawTopLevel(scene, cameraX, cameraY, cameraZ, cameraPitch, cameraYaw);
 		} else {
 			Scene topLevel = client.getScene();
-			vaoO.addRange(topLevel);
-			vaoPO.addRange(topLevel);
+			//vaoO.addRange(topLevel);
+			//vaoPO.addRange(topLevel);
 			vaoShadow.addRange(topLevel);
 		}
 	}
@@ -946,20 +948,20 @@ public class ZoneRenderer implements Renderer {
 
 		switch (pass) {
 			case DrawCallbacks.PASS_OPAQUE:
-				vaoO.addRange(scene);
-				vaoPO.addRange(scene);
+				//vaoO.addRange(scene);
+				//vaoPO.addRange(scene);
 				vaoShadow.addRange(scene);
 
 				if (scene.getWorldViewId() == -1) {
 					directionalCmd.SetShader(fastShadowProgram);
 
 					// Draw opaque
-					vaoO.unmap();
+					//vaoO.unmap();
 					vaoO.drawAll(sceneCmd);
 					vaoO.drawAll(directionalCmd);
-					vaoO.resetAll();
+					vaoO.clear();
 
-					vaoPO.unmap();
+					//vaoPO.unmap();
 
 					// Draw shadow-only models
 					vaoShadow.unmap();
@@ -976,7 +978,7 @@ public class ZoneRenderer implements Renderer {
 					vaoPO.drawAll(sceneCmd);
 					sceneCmd.ColorMask(true, true, true, true);
 
-					vaoPO.resetAll();
+					vaoPO.clear();
 				}
 				break;
 			case DrawCallbacks.PASS_ALPHA:
@@ -1061,7 +1063,7 @@ public class ZoneRenderer implements Renderer {
 		int preOrientation = HDUtils.getModelPreOrientation(HDUtils.getObjectConfig(tileObject));
 
 		int size = m.getFaceCount() * 3 * VAO.VERT_SIZE;
-		VAO o = vaoO.get(size);
+		VBOSlice o = vaoO.allocate(size);
 
 		boolean hasAlpha = m.getFaceTransparencies() != null || modelOverride.mightHaveTransparency;
 		if (hasAlpha) {
@@ -1070,7 +1072,7 @@ public class ZoneRenderer implements Renderer {
 
 			if (zone.inSceneFrustum) {
 				try {
-				facePrioritySorter.uploadSortedModel(projection, m, modelOverride, preOrientation, orient, x, y, z, zone.zoneData.zoneIdx, modelDataOffset, o.vbo.vb, a.vbo.vb);
+				facePrioritySorter.uploadSortedModel(projection, m, modelOverride, preOrientation, orient, x, y, z, zone.zoneData.zoneIdx, modelDataOffset, o.getBuffer(), a.vbo.vb);
 				} catch (Exception ex) {
 					log.debug("error drawing entity", ex);
 				}
@@ -1092,7 +1094,7 @@ public class ZoneRenderer implements Renderer {
 					);
 				}
 			} else {
-				sceneUploader.uploadTempModel(m, modelOverride, preOrientation, orient, x, y, z, zone.zoneData.zoneIdx, modelDataOffset, o.vbo.vb, a.vbo.vb);
+				sceneUploader.uploadTempModel(m, modelOverride, preOrientation, orient, x, y, z, zone.zoneData.zoneIdx, modelDataOffset, o.getBuffer(), a.vbo.vb);
 			}
 
 			int end = a.vbo.vb.position();
@@ -1104,7 +1106,7 @@ public class ZoneRenderer implements Renderer {
 				zone.addTempAlphaModel(a.vao, start, end, plane, x & 1023, y, z & 1023);
 			}
 		} else {
-			sceneUploader.uploadTempModel(m, modelOverride, preOrientation, orient, x, y, z, zone.zoneData.zoneIdx, modelDataOffset, o.vbo.vb, o.vbo.vb);
+			sceneUploader.uploadTempModel(m, modelOverride, preOrientation, orient, x, y, z, zone.zoneData.zoneIdx, modelDataOffset, o.getBuffer(), o.getBuffer());
 		}
 		plugin.drawnDynamicRenderableCount++;
 	}
@@ -1170,7 +1172,7 @@ public class ZoneRenderer implements Renderer {
 							o.vbo.vb
 						);
 					})
-					.setExecuteAsync(!sceneManager.isRoot(ctx) || zone.inSceneFrustum)
+					.setExecuteAsync(false)
 					.queue(true);
 			}
 
@@ -1178,7 +1180,7 @@ public class ZoneRenderer implements Renderer {
 				// opaque player faces have their own vao and are drawn in a separate pass from normal opaque faces
 				// because they are not depth tested. transparent player faces don't need their own vao because normal
 				// transparent faces are already not depth tested
-				VAO o = renderable instanceof Player ? vaoPO.get(size) : vaoO.get(size);
+				VBOSlice o = renderable instanceof Player ? vaoPO.allocate(size) : vaoO.allocate(size);
 				VAO a = vaoA.get(size);
 
 				int start = a.vbo.vb.position();
@@ -1192,7 +1194,7 @@ public class ZoneRenderer implements Renderer {
 						x, y, z,
 						zone.zoneData.zoneIdx,
 						modelDataOffset,
-						o.vbo.vb,
+						o.getBuffer(),
 						a.vbo.vb
 					);
 				} catch (Exception ex) {
@@ -1217,7 +1219,7 @@ public class ZoneRenderer implements Renderer {
 				shadowUploadTask.release();
 			}
 		} else {
-			VAO o = vaoO.get(size);
+			VBOSlice o = vaoO.allocate(size);
 			sceneUploader.uploadTempModel(
 				m,
 				modelOverride,
@@ -1225,8 +1227,8 @@ public class ZoneRenderer implements Renderer {
 				orientation,
 				x, y, z,
 				zone.zoneData.zoneIdx, modelDataOffset,
-				o.vbo.vb,
-				o.vbo.vb
+				o.getBuffer(),
+				o.getBuffer()
 			);
 		}
 		plugin.drawnDynamicRenderableCount++;
