@@ -1523,19 +1523,6 @@ public class SceneUploader {
 			int vy3 = modelLocalYI[triangleC];
 			int vz3 = modelLocalZI[triangleC];
 
-			int texA, texB, texC;
-
-			if (isVanillaUVMapped && textureFaces[face] != -1) {
-				int tface = textureFaces[face] & 0xff;
-				texA = texIndices1[tface];
-				texB = texIndices2[tface];
-				texC = texIndices3[tface];
-			} else {
-				texA = triangleA;
-				texB = triangleB;
-				texC = triangleC;
-			}
-
 			int transparency = transparencies != null ? transparencies[face] & 0xFF : 0;
 			int textureId = isVanillaTextured ? faceTextures[face] : -1;
 			boolean isTextured = textureId != -1;
@@ -1864,21 +1851,7 @@ public class SceneUploader {
 			float vy3 = modelLocalY[triangleC];
 			float vz3 = modelLocalZ[triangleC];
 
-			int texA, texB, texC;
-
-			if (isVanillaUVMapped && textureFaces[face] != -1) {
-				int tface = textureFaces[face] & 0xff;
-				texA = texIndices1[tface];
-				texB = texIndices2[tface];
-				texC = texIndices3[tface];
-			} else {
-				texA = triangleA;
-				texB = triangleB;
-				texC = triangleC;
-			}
-
 			int textureId = isVanillaTextured ? faceTextures[face] : -1;
-
 			UvType uvType = UvType.GEOMETRY;
 			Material material = baseMaterial;
 			ModelOverride faceOverride = modelOverride;
