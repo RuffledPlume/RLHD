@@ -1226,6 +1226,177 @@ public class SceneUploader {
 		}
 	}
 
+	// Writes UVs directly into modelUvs at indices:
+// [0,1], [4,5], [8,9]
+	static void computeFaceUvsInline(
+		Model model,
+		int face,
+		float[] modelUvs
+	) {
+		final float[] vx = model.getVerticesX();
+		final float[] vy = model.getVerticesY();
+		final float[] vz = model.getVerticesZ();
+
+		final int[] i1 = model.getFaceIndices1();
+		final int[] i2 = model.getFaceIndices2();
+		final int[] i3 = model.getFaceIndices3();
+
+		final byte[] textureFaces = model.getTextureFaces();
+		final int[] ti1 = model.getTexIndices1();
+		final int[] ti2 = model.getTexIndices2();
+		final int[] ti3 = model.getTexIndices3();
+
+		if (textureFaces != null && textureFaces[face] != -1) {
+			// Triangle indices
+			final int a = i1[face];
+			final int b = i2[face];
+			final int c = i3[face];
+
+			// Texture triangle
+			final int t = textureFaces[face] & 0xFF;
+			final int ta = ti1[t];
+			final int tb = ti2[t];
+			final int tc = ti3[t];
+
+			// v1
+			final float v1x = vx[ta];
+			final float v1y = vy[ta];
+			final float v1z = vz[ta];
+
+			// v2, v3
+			final float v2x = vx[tb] - v1x;
+			final float v2y = vy[tb] - v1y;
+			final float v2z = vz[tb] - v1z;
+
+			final float v3x = vx[tc] - v1x;
+			final float v3y = vy[tc] - v1y;
+			final float v3z = vz[tc] - v1z;
+
+			// v4, v5, v6
+			final float v4x = vx[a] - v1x;
+			final float v4y = vy[a] - v1y;
+			final float v4z = vz[a] - v1z;
+
+			final float v5x = vx[b] - v1x;
+			final float v5y = vy[b] - v1y;
+			final float v5z = vz[b] - v1z;
+
+			final float v6x = vx[c] - v1x;
+			final float v6y = vy[c] - v1y;
+			final float v6z = vz[c] - v1z;
+
+			// v7 = v2 x v3
+			final float v7x = v2y * v3z - v2z * v3y;
+			final float v7y = v2z * v3x - v2x * v3z;
+			final float v7z = v2x * v3y - v2y * v3x;
+
+			// --- U axis ---
+			float px = v3y * v7z - v3z * v7y;
+			float py = v3z * v7x - v3x * v7z;
+			float pz = v3x * v7y - v3y * v7x;
+
+			float inv = 1.0f / (px * v2x + py * v2y + pz * v2z);
+
+			modelUvs[0] = (px * v4x + py * v4y + pz * v4z) * inv;
+			modelUvs[4] = (px * v5x + py * v5y + pz * v5z) * inv;
+			modelUvs[8] = (px * v6x + py * v6y + pz * v6z) * inv;
+
+			// --- V axis ---
+			px = v2y * v7z - v2z * v7y;
+			py = v2z * v7x - v2x * v7z;
+			pz = v2x * v7y - v2y * v7x;
+
+			inv = 1.0f / (px * v3x + py * v3y + pz * v3z);
+
+			modelUvs[1] = (px * v4x + py * v4y + pz * v4z) * inv;
+			modelUvs[5] = (px * v5x + py * v5y + pz * v5z) * inv;
+			modelUvs[9] = (px * v6x + py * v6y + pz * v6z) * inv;
+		} else {
+			// Reduced vanilla identity mapping
+			modelUvs[0] = 0f;
+			modelUvs[1] = 0f;
+			modelUvs[4] = 1f;
+			modelUvs[5] = 0f;
+			modelUvs[8] = 0f;
+			modelUvs[9] = 1f;
+		}
+
+		// Z unused
+		modelUvs[2] = 0f;
+		modelUvs[6] = 0f;
+		modelUvs[10] = 0f;
+	}
+
+	static void computeWorldUvsInline(
+		float[] uv,
+		float x1, float y1, float z1,
+		float x2, float y2, float z2,
+		float x3, float y3, float z3
+	) {
+		// N = normalize(uvw[0])
+		float nx = uv[0];
+		float ny = uv[1];
+		float nz = uv[2];
+
+		float invNLen = 1.0f / (float) Math.sqrt(nx * nx + ny * ny + nz * nz);
+		nx *= invNLen;
+		ny *= invNLen;
+		nz *= invNLen;
+
+		// C1 = (0,0,1) x N
+		float c1x = -ny;
+		float c1y = nx;
+		float c1z = 0f;
+
+		// C2 = (0,1,0) x N
+		float c2x = nz;
+		float c2y = 0f;
+		float c2z = -nx;
+
+		// Choose larger
+		float tx, ty, tz;
+		if ((c1x * c1x + c1y * c1y) > (c2x * c2x + c2z * c2z)) {
+			tx = c1x;
+			ty = c1y;
+			tz = c1z;
+		} else {
+			tx = c2x;
+			ty = c2y;
+			tz = c2z;
+		}
+
+		// Normalize T
+		float invTLen = 1.0f / (float) Math.sqrt(tx * tx + ty * ty + tz * tz);
+		tx *= invTLen;
+		ty *= invTLen;
+		tz *= invTLen;
+
+		// B = N x T
+		float bx = ny * tz - nz * ty;
+		float by = nz * tx - nx * tz;
+		float bz = nx * ty - ny * tx;
+
+		// scale = 1 / |uvw[0]|
+		float scale = invNLen / 128.0f;
+
+		// Vertex 1
+		uv[0] = (tx * x1 + ty * y1 + tz * z1) * scale;
+		uv[1] = (bx * x1 + by * y1 + bz * z1) * scale;
+
+		// Vertex 2
+		uv[4] = (tx * x2 + ty * y2 + tz * z2) * scale;
+		uv[5] = (bx * x2 + by * y2 + bz * z2) * scale;
+
+		// Vertex 3
+		uv[8] = (tx * x3 + ty * y3 + tz * z3) * scale;
+		uv[9] = (bx * x3 + by * y3 + bz * z3) * scale;
+
+		// Z unused
+		uv[2] = 0f;
+		uv[6] = 0f;
+		uv[10] = 0f;
+	}
+
 	// scene upload
 	private int uploadStaticModel(
 		ZoneSceneContext ctx,
@@ -1504,15 +1675,17 @@ public class SceneUploader {
 			int materialData = material.packMaterialData(faceOverride, uvType, false, keepShading);
 
 			if (uvType == UvType.VANILLA) {
-				modelUvs[0] = modelLocalXI[texA] - vx1;
-				modelUvs[1] = modelLocalYI[texA] - vy1;
-				modelUvs[2] = modelLocalZI[texA] - vz1;
-				modelUvs[4] = modelLocalXI[texB] - vx2;
-				modelUvs[5] = modelLocalYI[texB] - vy2;
-				modelUvs[6] = modelLocalZI[texB] - vz2;
-				modelUvs[8] = modelLocalXI[texC] - vx3;
-				modelUvs[9] = modelLocalYI[texC] - vy3;
-				modelUvs[10] = modelLocalZI[texC] - vz3;
+				if (uvType.worldUvs) {
+					computeWorldUvsInline(
+						modelUvs,
+						vx1, vy1, vz1,
+						vx2, vy2, vz2,
+						vx3, vy3, vz3
+					);
+				} else {
+					computeFaceUvsInline(model, face, modelUvs);
+				}
+
 			} else {
 				faceOverride.fillUvsForFace(modelUvs, model, preOrientation, uvType, face, workingSpace);
 			}
@@ -1745,15 +1918,16 @@ public class SceneUploader {
 			int materialData = material.packMaterialData(faceOverride, uvType, false, textureId != -1);
 
 			if (uvType == UvType.VANILLA) {
-				modelUvs[0] = modelLocalX[texA] - vx1;
-				modelUvs[1] = modelLocalY[texA] - vy1;
-				modelUvs[2] = modelLocalZ[texA] - vz1;
-				modelUvs[4] = modelLocalX[texB] - vx2;
-				modelUvs[5] = modelLocalY[texB] - vy2;
-				modelUvs[6] = modelLocalZ[texB] - vz2;
-				modelUvs[8] = modelLocalX[texC] - vx3;
-				modelUvs[9] = modelLocalY[texC] - vy3;
-				modelUvs[10] = modelLocalZ[texC] - vz3;
+				if (uvType.worldUvs) {
+					computeWorldUvsInline(
+						modelUvs,
+						vx1, vy1, vz1,
+						vx2, vy2, vz2,
+						vx3, vy3, vz3
+					);
+				} else {
+					computeFaceUvsInline(model, face, modelUvs);
+				}
 			} else {
 				faceOverride.fillUvsForFace(modelUvs, model, preOrientation, uvType, face, workingSpace);
 			}
