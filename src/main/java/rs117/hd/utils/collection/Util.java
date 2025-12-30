@@ -32,7 +32,7 @@ public final class Util {
 			return (int) (lastRead >>> 32);
 
 		int idx = murmurHash3(key) & mask;
-		for (int dist = 0; distances[idx] >= dist; dist++) {
+		for (int dist = 0; dist == 0 || distances[idx] >= dist; dist++) {
 			final int k = keys[idx];
 
 			if (k == EMPTY)

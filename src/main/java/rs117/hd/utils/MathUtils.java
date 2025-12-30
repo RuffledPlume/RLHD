@@ -12,6 +12,8 @@ import java.util.Arrays;
 import java.util.Random;
 import javax.annotation.Nullable;
 
+import static net.runelite.api.Perspective.*;
+
 /**
  * Math utility functions similar to GLSL, including vector operations on raw float arrays.
  * Usability and conciseness is prioritized, however most methods at least allow avoiding unnecessary allocations.
@@ -40,6 +42,18 @@ public final class MathUtils {
 	public static final float RAD_TO_DEG = 1 / DEG_TO_RAD;
 	public static final float JAU_TO_RAD = TWO_PI / 2048;
 	public static final float RAD_TO_JAU = 1 / JAU_TO_RAD;
+
+	private static final float[] SINF = new float[2048];
+	private static final float[] COSF = new float[2048];
+
+	static
+	{
+		// Duplicated from Perspective.class since SINF & COSF are private
+		for (int i = 0; i < 2048; ++i) {
+			SINF[i] = (float) Math.sin((double) i * UNIT);
+			COSF[i] = (float) Math.cos((double) i * UNIT);
+		}
+	}
 
 	public static float[] vec(float... vec) {
 		return vec;
@@ -718,9 +732,13 @@ public final class MathUtils {
 		return (float) Math.sin(rad);
 	}
 
+	public static float jauToSinF(int JAU) { return SINF[mod(JAU, 2048)]; }
+
 	public static float cos(float rad) {
 		return (float) Math.cos(rad);
 	}
+
+	public static float jauToCosF(int JAU) { return COSF[mod(JAU, 2048)]; }
 
 	public static float tan(float rad) {
 		return (float) Math.tan(rad);

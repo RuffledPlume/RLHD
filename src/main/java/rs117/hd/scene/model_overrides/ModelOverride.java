@@ -472,13 +472,12 @@ public class ModelOverride
 		v[2 * 3 + 1] = verticesY[vidx];
 		v[2 * 3 + 2] = verticesZ[vidx];
 
-		float rad, cos, sin;
+		float cos, sin;
 		float temp;
 		if (modelOrientation % 2048 != 0) {
 			// Reverse baked vertex rotation
-			rad = modelOrientation * JAU_TO_RAD;
-			cos = cos(rad);
-			sin = sin(rad);
+			cos = jauToCosF(modelOrientation);
+			sin = jauToSinF(modelOrientation);
 
 			for (int i = 0; i < 3; i++) {
 				temp = v[i * 3] * sin + v[i * 3 + 2] * cos;
@@ -511,9 +510,8 @@ public class ModelOverride
 			}
 
 			if (uvOrientationX % 2048 != 0) {
-				rad = uvOrientationX * JAU_TO_RAD;
-				cos = cos(rad);
-				sin = sin(rad);
+				cos = jauToCosF(uvOrientationX);
+				sin = jauToSinF(uvOrientationX);
 
 				for (int i = 0; i < 3; i++) {
 					int j = i * 4;
@@ -535,9 +533,8 @@ public class ModelOverride
 			}
 
 			if (uvOrientationY % 2048 != 0) {
-				rad = uvOrientationY * JAU_TO_RAD;
-				cos = cos(rad);
-				sin = sin(rad);
+				cos = jauToCosF(uvOrientationY);
+				sin = jauToSinF(uvOrientationY);
 
 				for (int i = 0; i < 3; i++) {
 					int j = i * 4;
@@ -559,9 +556,8 @@ public class ModelOverride
 			}
 
 			if (uvOrientationZ % 2048 != 0) {
-				rad = uvOrientationZ * JAU_TO_RAD;
-				cos = cos(rad);
-				sin = sin(rad);
+				cos = jauToCosF(uvOrientationZ);
+				sin = jauToSinF(uvOrientationZ);
 
 				for (int i = 0; i < 3; i++) {
 					int j = i * 4;
