@@ -207,7 +207,7 @@ class FacePrioritySorter {
 			distanceToFaces[distance][distanceFaceCount[distance]++] = i;
 		}
 
-		WRITE_CACHE.setOutputBuffers(opaqueBuffer, alphaBuffer, opaqueTexBuffer, alphaTexBuffer);
+		WRITE_CACHE.setOutputBuffers(opaqueBuffer, alphaBuffer, opaqueTexBuffer, alphaTexBuffer, faceCount);
 
 		int len = 0;
 		if (faceRenderPriorities == null) {
@@ -520,14 +520,12 @@ class FacePrioritySorter {
 		color2 |= packedAlphaBiasHsl;
 		color3 |= packedAlphaBiasHsl;
 
-		tb.ensureFace(1);
 		final int texturedFaceIdx = tb.putFace(
 			color1, color2, color3,
 			materialData, materialData, materialData,
 			0, 0, 0
 		);
 
-		vb.ensureVertex(3);
 		vb.putVertex(
 			vx1, vy1, vz1,
 			floatToUnorm16(faceUVs[0]), floatToUnorm16(faceUVs[1]), floatToUnorm16(faceUVs[2]),

@@ -1663,13 +1663,12 @@ public class SceneUploader {
 		IntBuffer opaqueTexBuffer,
 		IntBuffer alphaTexBuffer
 	) {
+		final int triangleCount = model.getFaceCount();
 		if (writeCache == null)
 			writeCache = new VertexWriteCache.Collection();
-		writeCache.setOutputBuffers(opaqueBuffer, alphaBuffer, opaqueTexBuffer, alphaTexBuffer);
+		writeCache.setOutputBuffers(opaqueBuffer, alphaBuffer, opaqueTexBuffer, alphaTexBuffer, triangleCount);
 
-		final int triangleCount = model.getFaceCount();
 		final int vertexCount = model.getVerticesCount();
-
 		final float[] verticesX = model.getVerticesX();
 		final float[] verticesY = model.getVerticesY();
 		final float[] verticesZ = model.getVerticesZ();
@@ -1861,14 +1860,12 @@ public class SceneUploader {
 			color2 |= packedAlphaBiasHsl;
 			color3 |= packedAlphaBiasHsl;
 
-			tb.ensureFace(1);
 			final int texturedFaceIdx = tb.putFace(
 				color1, color2, color3,
 				materialData, materialData, materialData,
 				0, 0, 0
 			);
 
-			vb.ensureVertex(3);
 			vb.putVertex(
 				modelLocalXI[triangleA], modelLocalYI[triangleA], modelLocalZI[triangleA],
 				floatToUnorm16(faceUVs[0]), floatToUnorm16(faceUVs[1]), floatToUnorm16(faceUVs[2]),

@@ -3,6 +3,7 @@ package rs117.hd.renderer.zone;
 import java.nio.IntBuffer;
 import lombok.extern.slf4j.Slf4j;
 import org.lwjgl.system.MemoryUtil;
+import rs117.hd.utils.HDUtils;
 
 import static rs117.hd.utils.MathUtils.*;
 
@@ -18,20 +19,21 @@ public final class VertexWriteCache {
 	private static final int VERTEX_INTS  = 7;   // 7 ints = 28 bytes
 	private static final int VERTEX_BYTES = VERTEX_INTS * INT_BYTES;
 
+	private final boolean isFaceCache;
+
 	private IntBuffer outputBuffer;
 	private long outputBaseAddr;
 
-	private final int maxCapacityBytes;
-	private int stagingCapacityBytes;
+	private long stagingCapacityBytes;
 
 	private long stagingBaseAddr;
 	private long stagingPtr;
 
 	private int writtenInts; // exact number of ints written
 
-	public VertexWriteCache(int initialCapacityInts, int maxCapacityInts) {
-		this.maxCapacityBytes = maxCapacityInts * INT_BYTES;
-		this.stagingCapacityBytes = initialCapacityInts * INT_BYTES;
+	public VertexWriteCache(int initialCapacityInts, boolean isFaceCache) {
+		this.stagingCapacityBytes = (long)initialCapacityInts * INT_BYTES;
+		this.isFaceCache = isFaceCache;
 
 		this.stagingBaseAddr =
 			MemoryUtil.nmemAlloc(stagingCapacityBytes);
@@ -45,7 +47,7 @@ public final class VertexWriteCache {
 		}
 	}
 
-	public void setOutputBuffer(IntBuffer outputBuffer) {
+	public void setOutputBuffer(IntBuffer outputBuffer, int faceCount) {
 		if (outputBuffer != null && !outputBuffer.isDirect())
 			throw new IllegalArgumentException("outputBuffer must be direct");
 
@@ -53,37 +55,29 @@ public final class VertexWriteCache {
 		this.outputBaseAddr =
 			outputBuffer != null ? MemoryUtil.memAddress(outputBuffer, 0) : 0L;
 
+		if(outputBuffer != null) {
+			if (isFaceCache) {
+				ensureCapacity((long)faceCount * FACE_BYTES);
+			} else {
+				ensureCapacity((long)faceCount * 3 * VERTEX_BYTES);
+			}
+		}
+
 		stagingPtr = stagingBaseAddr;
 		writtenInts = 0;
 	}
 
-	private int usedBytes() {
-		return (int) (stagingPtr - stagingBaseAddr);
-	}
+	private void ensureCapacity(long requiredBytes) {
+		if(requiredBytes < stagingCapacityBytes)
+			return;
 
-	private void flushAndGrow() {
-		flush();
+		stagingCapacityBytes = HDUtils.ceilPow2(requiredBytes * 2);
 
-		if (stagingCapacityBytes < maxCapacityBytes) {
-			stagingCapacityBytes =
-				min(stagingCapacityBytes * 2, maxCapacityBytes);
-
-			stagingBaseAddr = MemoryUtil.nmemRealloc(
-				stagingBaseAddr,
-				stagingCapacityBytes
-			);
-			stagingPtr = stagingBaseAddr;
-		}
-	}
-
-	public void ensureFace(int count) {
-		if (usedBytes() + count * FACE_BYTES > stagingCapacityBytes)
-			flushAndGrow();
-	}
-
-	public void ensureVertex(int count) {
-		if (usedBytes() + count * VERTEX_BYTES > stagingCapacityBytes)
-			flushAndGrow();
+		stagingBaseAddr = MemoryUtil.nmemRealloc(
+			stagingBaseAddr,
+			stagingCapacityBytes
+		);
+		stagingPtr = stagingBaseAddr;
 	}
 
 	public int putFace(
@@ -91,6 +85,7 @@ public final class VertexWriteCache {
 		int materialDataA, int materialDataB, int materialDataC,
 		int terrainDataA, int terrainDataB, int terrainDataC
 	) {
+		assert isFaceCache;
 		final int textureFaceIdx =
 			(outputBuffer.position() + writtenInts) / 3;
 
@@ -113,6 +108,7 @@ public final class VertexWriteCache {
 		int nx, int ny, int nz,
 		int textureFaceIdx
 	) {
+		assert !isFaceCache;
 		long p = stagingPtr;
 
 		p = putFloat(p, x);
@@ -129,6 +125,7 @@ public final class VertexWriteCache {
 		int nx, int ny, int nz,
 		int textureFaceIdx
 	) {
+		assert !isFaceCache;
 		long p = stagingPtr;
 
 		p = putLong2Ints(p, x, y);
@@ -200,25 +197,24 @@ public final class VertexWriteCache {
 	}
 
 	public static class Collection {
-		private static final int MAX_CAPACITY = (int) (MiB / Integer.BYTES);
 		private static final int INITIAL_CAPACITY = (int) (32 * KiB / Integer.BYTES);
 
-		public final VertexWriteCache opaque = new VertexWriteCache(INITIAL_CAPACITY, MAX_CAPACITY);
-		public final VertexWriteCache alpha = new VertexWriteCache(INITIAL_CAPACITY, MAX_CAPACITY);
-		public final VertexWriteCache opaqueTex = new VertexWriteCache(INITIAL_CAPACITY, MAX_CAPACITY);
-		public final VertexWriteCache alphaTex = new VertexWriteCache(INITIAL_CAPACITY, MAX_CAPACITY);
+		public final VertexWriteCache opaque = new VertexWriteCache(INITIAL_CAPACITY, false);
+		public final VertexWriteCache alpha = new VertexWriteCache(INITIAL_CAPACITY, false);
+		public final VertexWriteCache opaqueTex = new VertexWriteCache(INITIAL_CAPACITY, true);
+		public final VertexWriteCache alphaTex = new VertexWriteCache(INITIAL_CAPACITY, true);
 		public boolean useAlphaBuffer;
 
-		public void setOutputBuffers(IntBuffer opaque, IntBuffer alpha, IntBuffer opaqueTex, IntBuffer alphaTex) {
-			this.opaque.setOutputBuffer(opaque);
-			this.opaqueTex.setOutputBuffer(opaqueTex);
+		public void setOutputBuffers(IntBuffer opaque, IntBuffer alpha, IntBuffer opaqueTex, IntBuffer alphaTex, int faceCount) {
+			this.opaque.setOutputBuffer(opaque, faceCount);
+			this.opaqueTex.setOutputBuffer(opaqueTex, faceCount);
 			useAlphaBuffer = alpha != opaque && alphaTex != opaqueTex;
 			if (useAlphaBuffer) {
-				this.alpha.setOutputBuffer(alpha);
-				this.alphaTex.setOutputBuffer(alphaTex);
+				this.alpha.setOutputBuffer(alpha, faceCount);
+				this.alphaTex.setOutputBuffer(alphaTex, faceCount);
 			} else {
-				this.alpha.setOutputBuffer(null);
-				this.alphaTex.setOutputBuffer(null);
+				this.alpha.setOutputBuffer(null, faceCount);
+				this.alphaTex.setOutputBuffer(null, faceCount);
 			}
 		}
 
