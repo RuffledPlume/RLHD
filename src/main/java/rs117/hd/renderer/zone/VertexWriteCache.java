@@ -2,42 +2,88 @@ package rs117.hd.renderer.zone;
 
 import java.nio.IntBuffer;
 import lombok.extern.slf4j.Slf4j;
+import org.lwjgl.system.MemoryUtil;
 
 import static rs117.hd.utils.MathUtils.*;
 
 @Slf4j
 public final class VertexWriteCache {
+	private static final int INT_BYTES   = Integer.BYTES;
+	private static final int FLOAT_BYTES = Float.BYTES;
+
+	// Logical layout (must match shaders)
+	private static final int FACE_INTS   = 9;   // 9 ints = 36 bytes
+	private static final int FACE_BYTES  = FACE_INTS * INT_BYTES;
+
+	private static final int VERTEX_INTS  = 7;   // 7 ints = 28 bytes
+	private static final int VERTEX_BYTES = VERTEX_INTS * INT_BYTES;
+
 	private IntBuffer outputBuffer;
+	private long outputBaseAddr;
 
-	private final int maxCapacity;
-	private int[] stagingBuffer;
-	private int stagingPosition;
+	private final int maxCapacityBytes;
+	private int stagingCapacityBytes;
 
-	public VertexWriteCache(int initialCapacity, int maxCapacity) {
-		this.maxCapacity = maxCapacity;
-		stagingBuffer = new int[initialCapacity];
+	private long stagingBaseAddr;
+	private long stagingPtr;
+
+	private int writtenInts; // exact number of ints written
+
+	public VertexWriteCache(int initialCapacityInts, int maxCapacityInts) {
+		this.maxCapacityBytes = maxCapacityInts * INT_BYTES;
+		this.stagingCapacityBytes = initialCapacityInts * INT_BYTES;
+
+		this.stagingBaseAddr =
+			MemoryUtil.nmemAlloc(stagingCapacityBytes);
+		this.stagingPtr = stagingBaseAddr;
+	}
+
+	public void free() {
+		if (stagingBaseAddr != MemoryUtil.NULL) {
+			MemoryUtil.nmemFree(stagingBaseAddr);
+			stagingBaseAddr = MemoryUtil.NULL;
+		}
 	}
 
 	public void setOutputBuffer(IntBuffer outputBuffer) {
+		if (outputBuffer != null && !outputBuffer.isDirect())
+			throw new IllegalArgumentException("outputBuffer must be direct");
+
 		this.outputBuffer = outputBuffer;
-		stagingPosition = 0;
+		this.outputBaseAddr =
+			outputBuffer != null ? MemoryUtil.memAddress(outputBuffer, 0) : 0L;
+
+		stagingPtr = stagingBaseAddr;
+		writtenInts = 0;
+	}
+
+	private int usedBytes() {
+		return (int) (stagingPtr - stagingBaseAddr);
 	}
 
 	private void flushAndGrow() {
-		// Flush buffer and then resize to avoid flushing mid put
 		flush();
 
-		if (stagingBuffer.length < maxCapacity)
-			stagingBuffer = new int[min(stagingBuffer.length * 2, maxCapacity)];
+		if (stagingCapacityBytes < maxCapacityBytes) {
+			stagingCapacityBytes =
+				min(stagingCapacityBytes * 2, maxCapacityBytes);
+
+			stagingBaseAddr = MemoryUtil.nmemRealloc(
+				stagingBaseAddr,
+				stagingCapacityBytes
+			);
+			stagingPtr = stagingBaseAddr;
+		}
 	}
 
-	public void ensureFace(int faceCount) {
-		if (stagingPosition + (9 * faceCount) > stagingBuffer.length)
+	public void ensureFace(int count) {
+		if (usedBytes() + count * FACE_BYTES > stagingCapacityBytes)
 			flushAndGrow();
 	}
 
-	private void put(int value) {
-		stagingBuffer[stagingPosition++] = value;
+	public void ensureVertex(int count) {
+		if (usedBytes() + count * VERTEX_BYTES > stagingCapacityBytes)
+			flushAndGrow();
 	}
 
 	public int putFace(
@@ -45,26 +91,20 @@ public final class VertexWriteCache {
 		int materialDataA, int materialDataB, int materialDataC,
 		int terrainDataA, int terrainDataB, int terrainDataC
 	) {
-		final int textureFaceIdx = (outputBuffer.position() + stagingPosition) / 3;
+		final int textureFaceIdx =
+			(outputBuffer.position() + writtenInts) / 3;
 
-		put(alphaBiasHslA);
-		put(alphaBiasHslB);
-		put(alphaBiasHslC);
+		long p = stagingPtr;
 
-		put(materialDataA);
-		put(materialDataB);
-		put(materialDataC);
+		p = putLong2Ints(p, alphaBiasHslA, alphaBiasHslB);
+		p = putLong2Ints(p, alphaBiasHslC, materialDataA);
+		p = putLong2Ints(p, materialDataB, materialDataC);
+		p = putLong2Ints(p, terrainDataA, terrainDataB);
+		p = putInt(p, terrainDataC);
 
-		put(terrainDataA);
-		put(terrainDataB);
-		put(terrainDataC);
-
+		stagingPtr = p;
+		writtenInts += FACE_INTS;
 		return textureFaceIdx;
-	}
-
-	public void ensureVertex(int vertexCount) {
-		if (stagingPosition + (7 * vertexCount) > stagingBuffer.length)
-			flushAndGrow();
 	}
 
 	public void putVertex(
@@ -73,11 +113,14 @@ public final class VertexWriteCache {
 		int nx, int ny, int nz,
 		int textureFaceIdx
 	) {
-		putVertex(
-			Float.floatToRawIntBits(x), Float.floatToRawIntBits(y), Float.floatToRawIntBits(z),
-			u, v, w,
-			nx, ny, nz,
-			textureFaceIdx);
+		long p = stagingPtr;
+
+		p = putFloat(p, x);
+		p = putFloat(p, y);
+		p = putFloat(p, z);
+
+		stagingPtr = putAdditionalVertexData(p, u, v, w, nx, ny, nz, textureFaceIdx);
+		writtenInts += VERTEX_INTS;
 	}
 
 	public void putVertex(
@@ -86,21 +129,74 @@ public final class VertexWriteCache {
 		int nx, int ny, int nz,
 		int textureFaceIdx
 	) {
-		put( x);
-		put( y);
-		put( z);
-		put( v << 16 | u);
-		put( (nx & 0xFFFF) << 16 | w);
-		put( (nz & 0xFFFF) << 16 | ny & 0xFFFF);
-		put( textureFaceIdx);
+		long p = stagingPtr;
+
+		p = putLong2Ints(p, x, y);
+		p = putInt(p, z);
+
+		stagingPtr = putAdditionalVertexData(p, u, v, w, nx, ny, nz, textureFaceIdx);
+		writtenInts += VERTEX_INTS;
+	}
+
+	private static long putAdditionalVertexData(
+		long p,
+		int u, int v, int w,
+		int nx, int ny, int nz,
+		int textureFaceIdx
+	) {
+		// Vertex u,v,w,nx packed in one long (4 shorts)
+		p = putLong4Shorts(p, (short)u, (short)v, (short)w, (short)nx);
+
+		// ny,nz and face index packed in one long (2 ints)
+		p = putLong2Ints(p, ((ny & 0xFFFF) << 16 | (nz & 0xFFFF)), textureFaceIdx);
+
+		return p;
 	}
 
 	public void flush() {
-		if (stagingPosition == 0 || outputBuffer == null)
+		if (outputBuffer == null || stagingPtr == stagingBaseAddr)
 			return;
 
-		outputBuffer.put(stagingBuffer, 0, stagingPosition);
-		stagingPosition = 0;
+		final long byteCount = stagingPtr - stagingBaseAddr;
+
+		long dst =
+			outputBaseAddr +
+			(long) outputBuffer.position() * INT_BYTES;
+
+		MemoryUtil.memCopy(stagingBaseAddr, dst, byteCount);
+
+		outputBuffer.position(outputBuffer.position() + writtenInts);
+
+		stagingPtr = stagingBaseAddr;
+		writtenInts = 0;
+	}
+
+	private static long putFloat(long p, float a) {
+		MemoryUtil.memPutFloat(p, a);
+		return p + FLOAT_BYTES;
+	}
+
+	private static long putInt(long p, int a) {
+		MemoryUtil.memPutInt(p, a);
+		return p + INT_BYTES;
+	}
+
+	private static long putLong4Shorts(long p, short a, short b, short c, short d) {
+		// Packs four 16-bit shorts into a 64-bit long
+		long packed =
+			((long)(d & 0xFFFF) << 48) |
+			((long)(c & 0xFFFF) << 32) |
+			((long)(b & 0xFFFF) << 16) |
+			((long)(a & 0xFFFF));
+		MemoryUtil.memPutLong(p, packed);
+		return p + Long.BYTES;
+	}
+
+	private static long putLong2Ints(long p, int a, int b) {
+		// Packs two 32-bit ints into a 64-bit long
+		long packed = ((long)b << 32) | (a & 0xFFFFFFFFL);
+		MemoryUtil.memPutLong(p, packed);
+		return p + Long.BYTES;
 	}
 
 	public static class Collection {

@@ -1699,13 +1699,8 @@ public class SceneUploader {
 		final byte overrideSat = model.getOverrideSaturation();
 		final byte overrideLum = model.getOverrideLuminance();
 
-		float orientSinf = 0;
-		float orientCosf = 0;
-		if (orientation != 0) {
-			orientation = mod(orientation, 2048);
-			orientSinf = SINE[orientation] / 65536f;
-			orientCosf = COSINE[orientation] / 65536f;
-		}
+		final float orientSinf = orientation != 0 ? jauToSinF(orientation) : 0.0f;
+		final float orientCosf = orientation != 0 ? jauToCosF(orientation) : 0.0f;
 
 		for (int v = 0; v < vertexCount; ++v) {
 			float vertexX = verticesX[v];
