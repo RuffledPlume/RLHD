@@ -2,9 +2,13 @@ package rs117.hd.utils;
 
 import java.nio.IntBuffer;
 import java.util.Arrays;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.lwjgl.system.MemoryStack;
+import rs117.hd.opengl.GLFence;
 import rs117.hd.opengl.shader.ShaderProgram;
+import rs117.hd.overlays.FrameTimer;
+import rs117.hd.overlays.Timer;
 import rs117.hd.utils.buffer.GpuIntBuffer;
 
 import static org.lwjgl.opengl.GL33C.*;
@@ -33,6 +37,7 @@ public class CommandBuffer {
 	private static final int GL_USE_PROGRAM = 12;
 
 	private static final int GL_TOGGLE_TYPE = 13; // Combined glEnable & glDisable
+	private static final int GL_FENCE_SYNC = 14;
 
 	private static final long INT_MASK = 0xFFFF_FFFFL;
 	private static final int DRAW_MODE_MASK = 0xF;
@@ -42,11 +47,18 @@ public class CommandBuffer {
 
 	private final RenderState renderState;
 
-	private long[] cmd = new long[1 << 20]; // ~1 million calls
+	@Setter
+	private FrameTimer frameTimer;
+
+	private long[] cmd = new long[100000]; // 100k calls
 	private int writeHead = 0;
 
 	public CommandBuffer(RenderState renderState) {
 		this.renderState = renderState;
+	}
+
+	public boolean isEmpty() {
+		return writeHead == 0;
 	}
 
 	private void ensureCapacity(int numLongs) {
@@ -57,6 +69,12 @@ public class CommandBuffer {
 	public void BindVertexArray(int vao) {
 		ensureCapacity(1);
 		cmd[writeHead++] = GL_BIND_VERTEX_ARRAY_TYPE & 0xFF | (long) vao << 8;
+	}
+
+	public void FenceSync(GLFence fence, int condition) {
+		ensureCapacity(2);
+		cmd[writeHead++] = GL_FENCE_SYNC & 0xFF | (long)condition << 8;
+		cmd[writeHead++] = writeObject(fence);
 	}
 
 	public void BindElementsArray(int ebo) {
@@ -130,11 +148,18 @@ public class CommandBuffer {
 
 		// https://registry.khronos.org/OpenGL-Refpages/gl4/html/glDrawArraysIndirect.xhtml
 		int indirectOffset = indirectBuffer.position();
-		indirectBuffer.ensureCapacity(4).getBuffer()
-			.put(vertexCount)  // count
-			.put(1)         // primCount
-			.put(vertexOffset) // first
-			.put(0);        // baseInstance (reserved 4.1 prior)
+		try {
+			indirectBuffer.ensureCapacity(4).getBuffer()
+				.put(vertexCount)  // count
+				.put(1)         // primCount
+				.put(vertexOffset) // first
+				.put(0);        // baseInstance (reserved 4.1 prior)
+		} catch (Exception e) {
+			log.debug("Failed to write DrawArraysIndirect buffer position={} remaining={} capacity={}",
+				indirectBuffer.getBuffer().position(),
+				indirectBuffer.getBuffer().remaining(),
+				indirectBuffer.getBuffer().capacity(), e);
+		}
 
 		cmd[writeHead++] = GL_DRAW_ARRAYS_INDIRECT_TYPE & 0xFF | (long) mode << 8;
 		cmd[writeHead++] = (long) indirectOffset * Integer.BYTES;
@@ -145,12 +170,19 @@ public class CommandBuffer {
 
 		// https://registry.khronos.org/OpenGL-Refpages/gl4/html/glDrawElementsIndirect.xhtml
 		int indirectOffset = indirectBuffer.position();
-		indirectBuffer.ensureCapacity(5).getBuffer()
-			.put(indexCount)    // count
-			.put(1)          // instanceCount
-			.put(indexOffset)   // firstIndex
-			.put(0)          // baseVertex
-			.put(0);         // baseInstance
+		try {
+			indirectBuffer.ensureCapacity(5).getBuffer()
+				.put(indexCount)    // count
+				.put(1)          // instanceCount
+				.put(indexOffset)   // firstIndex
+				.put(0)          // baseVertex
+				.put(0);         // baseInstance
+		} catch (Exception e) {
+			log.debug("Failed to write DrawArraysIndirect buffer position={} remaining={} capacity={}",
+				indirectBuffer.getBuffer().position(),
+				indirectBuffer.getBuffer().remaining(),
+				indirectBuffer.getBuffer().capacity(), e);
+		}
 
 		cmd[writeHead++] = GL_DRAW_ELEMENTS_INDIRECT_TYPE & 0xFF | (long) mode << 8;
 		cmd[writeHead++] = (long) indirectOffset * Integer.BYTES;
@@ -172,18 +204,25 @@ public class CommandBuffer {
 
 		// https://registry.khronos.org/OpenGL-Refpages/gl4/html/glMultiDrawArraysIndirect.xhtml
 		indirectBuffer.ensureCapacity(drawCount * 4);
+		try {
 		IntBuffer buf = indirectBuffer.getBuffer();
-		for (int i = 0; i < drawCount; i++) {
-			buf.put(vertexCounts[i]);  // count
-			buf.put(1);              // instanceCount
-			buf.put(vertexOffsets[i]); // first
-			buf.put(0);             // baseInstance
+			for (int i = 0; i < drawCount; i++) {
+				buf.put(vertexCounts[i]);  // count
+				buf.put(1);              // instanceCount
+				buf.put(vertexOffsets[i]); // first
+				buf.put(0);             // baseInstance
+			}
+		} catch (Exception e) {
+			log.debug("Failed to write DrawArraysIndirect buffer drawCount={} position={} remaining={} capacity={}",
+				drawCount,
+				indirectBuffer.getBuffer().position(),
+				indirectBuffer.getBuffer().remaining(),
+				indirectBuffer.getBuffer().capacity(), e);
 		}
 
 		cmd[writeHead++] = GL_MULTI_DRAW_ARRAYS_INDIRECT_TYPE & 0xFF | (long) mode << 8 | (long) drawCount << 32;
 		cmd[writeHead++] = (long) indirectOffset * Integer.BYTES;
 	}
-
 
 	public void Enable(int capability) {
 		Toggle(capability, true);
@@ -199,7 +238,18 @@ public class CommandBuffer {
 		cmd[writeHead++] = (enabled ? 1L : 0) << 32 | capability & INT_MASK;
 	}
 
+	public void append(CommandBuffer other) {
+		if(other.isEmpty())
+			return;
+
+		ensureCapacity(other.writeHead);
+		System.arraycopy(other.cmd, 0, cmd, writeHead, other.writeHead);
+		writeHead += other.writeHead;
+	}
+
 	public void execute() {
+		if(frameTimer != null)
+			frameTimer.begin(Timer.EXECUTE_COMMAND_BUFFER);
 		try (MemoryStack stack = MemoryStack.stackPush()) {
 			IntBuffer offsets = null, counts = null;
 			int readHead = 0;
@@ -261,6 +311,12 @@ public class CommandBuffer {
 						} else {
 							renderState.disable.set(capability);
 						}
+						break;
+					}
+					case GL_FENCE_SYNC: {
+						int condition = (int) (data >> 8);
+						GLFence fence = (GLFence) objects[(int)cmd[readHead++]];
+						fence.handle = glFenceSync(condition, 0);
 						break;
 					}
 					case GL_DRAW_ARRAYS_TYPE: {
@@ -327,6 +383,8 @@ public class CommandBuffer {
 			}
 			renderState.apply();
 		}
+		if(frameTimer != null)
+			frameTimer.end(Timer.EXECUTE_COMMAND_BUFFER);
 	}
 
 	private int writeObject(Object obj) {

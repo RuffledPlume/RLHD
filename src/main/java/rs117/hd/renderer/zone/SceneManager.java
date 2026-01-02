@@ -134,11 +134,11 @@ public class SceneManager {
 	}
 
 	public void destroy() {
-		root.free();
+		root.free(true);
 
 		for (int i = 0; i < subs.length; i++) {
 			if (subs[i] != null)
-				subs[i].free();
+				subs[i].free(true);
 			subs[i] = null;
 		}
 
@@ -266,7 +266,7 @@ public class SceneManager {
 			if (subs[worldViewId] == null) {
 				log.debug("Attempted to despawn unloaded worldview: {}", worldView);
 			} else {
-				subs[worldViewId].free();
+				subs[worldViewId].free(false);
 				subs[worldViewId] = null;
 			}
 		}
@@ -677,7 +677,7 @@ public class SceneManager {
 		nextSceneContext = null;
 
 		if (isFirst) {
-			root.initMetadata();
+			root.initBuffers();
 
 			// Load all pre-existing sub scenes on the first scene load
 			for (WorldEntity subEntity : client.getTopLevelWorldView().worldEntities()) {
@@ -710,7 +710,7 @@ public class SceneManager {
 			log.error("Reload of an already loaded sub scene?");
 			prevCtx.sceneLoadGroup.cancel();
 			prevCtx.streamingGroup.cancel();
-			clientThread.invoke(prevCtx::free);
+			clientThread.invoke(() -> prevCtx.free(false));
 		}
 
 		var sceneContext = new ZoneSceneContext(client, worldView, scene, plugin.getExpandedMapLoadingChunks(), null);
@@ -735,11 +735,11 @@ public class SceneManager {
 			return;
 
 		Stopwatch sw = Stopwatch.createStarted();
+		ctx.initBuffers();
 		ctx.sceneLoadGroup.complete();
 		ctx.uploadTime = sw.elapsed(TimeUnit.NANOSECONDS);
-		ctx.initMetadata();
-		ctx.isLoading = false;
 		ctx.sceneSwapTime = sw.elapsed(TimeUnit.NANOSECONDS);
+		ctx.isLoading = false;
 		log.debug("swapSubScene time {} WorldView ready: {}", ctx.sceneSwapTime, scene.getWorldViewId());
 	}
 
