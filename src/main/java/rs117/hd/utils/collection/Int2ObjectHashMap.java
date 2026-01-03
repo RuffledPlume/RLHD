@@ -142,15 +142,25 @@ public final class Int2ObjectHashMap<T> implements Iterable<Int2ObjectHashMap.En
 		}
 	}
 
+	public T getOrDefault(Object key, T defaultValue) {
+		return key != null ? getOrDefault(key.hashCode(), defaultValue) : defaultValue;
+	}
+
 	public T getOrDefault(int key, T defaultValue) {
 		int idx = findIndex(key, mask, keys, distances, readCache);
 		return idx >= 0 ? values[idx] : defaultValue;
+	}
+
+	public T get(Object key) {
+		return key != null ? get(key.hashCode()) : null;
 	}
 
 	public T get(int key) {
 		int idx = findIndex(key, mask, keys, distances, readCache);
 		return idx >= 0 ? values[idx] : null;
 	}
+
+	public boolean containsKey(Object key) { return key != null && containsKey(key.hashCode()); }
 
 	public boolean containsKey(int key) {
 		return findIndex(key, mask, keys, distances, readCache) >= 0;
@@ -163,6 +173,8 @@ public final class Int2ObjectHashMap<T> implements Iterable<Int2ObjectHashMap.En
 	public void setValue(int idx, T value) {
 		values[idx] = value;
 	}
+
+	public boolean remove(Object key) { return key != null && remove(key.hashCode()); }
 
 	public boolean remove(int key) {
 		int idx = findIndex(key, mask, keys, distances, readCache);
