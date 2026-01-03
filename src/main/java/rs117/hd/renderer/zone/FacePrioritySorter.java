@@ -94,10 +94,10 @@ final class FacePrioritySorter {
 	) {
 		model.calculateBoundsCylinder();
 		final int diameter = model.getDiameter();
-		final int radius = model.getRadius();
 		if (diameter >= MAX_DIAMETER)
 			return false;
 
+		final int radius = model.getRadius();
 		final int vertexCount = model.getVerticesCount();
 		final float[] verticesX = model.getVerticesX();
 		final float[] verticesY = model.getVerticesY();
@@ -167,18 +167,19 @@ final class FacePrioritySorter {
 				continue;
 			}
 
-			int fz = radius + (distances[v1] + distances[v2] + distances[v3]) / 3;
-			int base = fz * FACES_PER_DISTANCE;
-
-			minFz = Math.min(minFz, fz);
-			maxFz = Math.max(maxFz, fz);
+			final int fz = radius + (distances[v1] + distances[v2] + distances[v3]) / 3;
+			final int base = fz * FACES_PER_DISTANCE;
 
 			if (distanceStamp[fz] != stamp) {
 				distanceStamp[fz] = stamp;
-				distanceFaceCount[fz] = 0;
-			}
+				distanceFaceCount[fz] = 1;
+				distanceToFaces[base] = i;
 
-			distanceToFaces[base + distanceFaceCount[fz]++] = i;
+				minFz = Math.min(minFz, fz);
+				maxFz = Math.max(maxFz, fz);
+			} else {
+				distanceToFaces[base + distanceFaceCount[fz]++] = i;
+			}
 		}
 		unsortedFaces.end();
 
@@ -336,16 +337,17 @@ final class FacePrioritySorter {
 			int fz = ((z * yawCos - x * yawSin) >> 16);
 			fz = ((y * pitchSin + fz * pitchCos) >> 16) + radius;
 
-			minFz = min(minFz, fz);
-			maxFz = max(maxFz, fz);
-
+			final int base = fz * FACES_PER_DISTANCE;
 			if (distanceStamp[fz] != stamp) {
 				distanceStamp[fz] = stamp;
-				distanceFaceCount[fz] = 0;
-			}
+				distanceFaceCount[fz] = 1;
+				distanceToFaces[base] = i;
 
-			int base = fz * FACES_PER_DISTANCE;
-			distanceToFaces[base + distanceFaceCount[fz]++] = i;
+				minFz = min(minFz, fz);
+				maxFz = max(maxFz, fz);
+			} else {
+				distanceToFaces[base + distanceFaceCount[fz]++] = i;
+			}
 		}
 
 		sortedFaces.start();
