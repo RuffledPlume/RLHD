@@ -3,7 +3,6 @@ package rs117.hd.scene.model_overrides;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.annotations.JsonAdapter;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -19,6 +18,7 @@ import rs117.hd.scene.areas.AABB;
 import rs117.hd.scene.materials.Material;
 import rs117.hd.utils.Props;
 import rs117.hd.utils.collection.Int2IntCache;
+import rs117.hd.utils.collection.Int2ObjectHashMap;
 
 import static net.runelite.api.Perspective.*;
 import static rs117.hd.utils.ExpressionParser.asExpression;
@@ -83,7 +83,7 @@ public class ModelOverride
 	@JsonAdapter(AABB.ArrayAdapter.class)
 	public AABB[] hideInAreas = {};
 
-	public Map<Material, ModelOverride> materialOverrides;
+	public Int2ObjectHashMap<ModelOverride> materialOverrides;
 	public ModelOverride[] colorOverrides;
 
 	private JsonElement colors;
@@ -162,14 +162,14 @@ public class ModelOverride
 			tzHaarRecolorType != TzHaarRecolorType.NONE;
 
 		if (materialOverrides != null) {
-			var normalized = new HashMap<Material, ModelOverride>();
-			for (var entry : materialOverrides.entrySet()) {
-				var override = entry.getValue();
+			var normalized = new Int2ObjectHashMap<ModelOverride>();
+			for (var entry : materialOverrides) {
+				var override = entry.value;
 				override.normalize(plugin);
 				if (disableTextures && override.modifiesVanillaTexture)
 					continue;
 				mightHaveTransparency |= override.mightHaveTransparency;
-				normalized.put(entry.getKey(), override);
+				normalized.put(entry.key, override);
 			}
 			if (normalized.isEmpty())
 				normalized = null;

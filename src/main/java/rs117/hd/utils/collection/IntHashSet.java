@@ -68,6 +68,8 @@ public final class IntHashSet implements Iterable<Integer> {
 		}
 	}
 
+	public boolean add(Object key) { return key != null && add(key.hashCode()); }
+
 	public boolean add(int key) {
 		if (size + 1.0 >= keys.length * LOAD_FACTOR)
 			resize();
@@ -106,9 +108,13 @@ public final class IntHashSet implements Iterable<Integer> {
 		}
 	}
 
+	public boolean contains(Object key) {return key != null && contains(key.hashCode()); }
+
 	public boolean contains(int key) {
 		return findIndex(key, mask, keys, distances, readCache) >= 0;
 	}
+
+	public boolean remove(Object key) { return key != null && remove(key.hashCode()); }
 
 	public boolean remove(int key) {
 		int idx = findIndex(key, mask, keys, distances, readCache);
