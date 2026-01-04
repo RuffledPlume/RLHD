@@ -33,7 +33,6 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.api.events.*;
 import net.runelite.api.hooks.*;
-import net.runelite.client.callback.ClientThread;
 import net.runelite.client.callback.RenderCallbackManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.ui.DrawManager;
@@ -95,9 +94,6 @@ public class ZoneRenderer implements Renderer {
 
 	@Inject
 	private Client client;
-
-	@Inject
-	private ClientThread clientThread;
 
 	@Inject
 	private DrawManager drawManager;
@@ -181,7 +177,7 @@ public class ZoneRenderer implements Renderer {
 		}
 	}
 
-	private final DynamicRenderThread[] dynamicRenderThreads = new DynamicRenderThread[4];
+	private final DynamicRenderThread[] dynamicRenderThreads = new DynamicRenderThread[3];
 
 	@Override
 	public boolean supportsGpu(GLCapabilities glCaps) {
@@ -1067,77 +1063,75 @@ public class ZoneRenderer implements Renderer {
 		}
 
 		final int size = m.getFaceCount() * 3 * VAO.VERT_SIZE;
-		synchronized (ctx) {
-			VAO o = ctx.vaoO.get(size, renderThreadId);
-			VAO a = o;
+		VAO o = ctx.vaoO.get(size, renderThreadId);
+		VAO a = o;
 
-			if(o == null)
+		if(o == null)
+			return;
+
+		SortingSlice sortedFaces = null;
+		SortingSlice unsortedFaces = null;
+		int alphaStart = -1;
+
+		final boolean hasAlpha = m.getFaceTransparencies() != null || override.mightHaveTransparency;
+		if (hasAlpha) {
+			a = ctx.vaoA.get(size, renderThreadId);
+			if(a == null)
 				return;
 
-			SortingSlice sortedFaces = null;
-			SortingSlice unsortedFaces = null;
-			int alphaStart = -1;
+			if (zone.inSceneFrustum) {
+				try {
+					sortedFaces = facePrioritySorter.obtainSortingSlice();
+					unsortedFaces = facePrioritySorter.obtainSortingSlice();
 
-			final boolean hasAlpha = m.getFaceTransparencies() != null || override.mightHaveTransparency;
-			if (hasAlpha) {
-				a = ctx.vaoA.get(size, renderThreadId);
-				if(a == null)
-					return;
-
-				if (zone.inSceneFrustum) {
-					try {
-						sortedFaces = facePrioritySorter.obtainSortingSlice();
-						unsortedFaces = facePrioritySorter.obtainSortingSlice();
-
-						facePrioritySorter.sortModelFaces(
-							sortedFaces,
-							unsortedFaces,
-							projection,
-							m,
-							orient, x, y, z);
-					} catch (Exception ex) {
-						log.debug("error sorting entity", ex);
-					}
+					facePrioritySorter.sortModelFaces(
+						sortedFaces,
+						unsortedFaces,
+						projection,
+						m,
+						orient, x, y, z);
+				} catch (Exception ex) {
+					log.debug("error sorting entity", ex);
 				}
-
-				alphaStart = a.vbo.vb.position();
 			}
 
-			try {
-				sceneUploader.uploadTempModel(
-					sortedFaces,
-					unsortedFaces,
-					m,
-					override,
-					HDUtils.getModelPreOrientation(HDUtils.getObjectConfig(tileObject)),
-					orient,
-					x, y, z,
-					o.vbo.vb,
-					a.vbo.vb,
-					o.tboF.getPixelBuffer(),
-					a.tboF.getPixelBuffer()
-				);
-			} catch (Exception ex) {
-				log.debug("error uploading entity", ex);
-			}
+			alphaStart = a.vbo.vb.position();
+		}
 
-			if(sortedFaces != null)
-				sortedFaces.free();
+		try {
+			sceneUploader.uploadTempModel(
+				sortedFaces,
+				unsortedFaces,
+				m,
+				override,
+				HDUtils.getModelPreOrientation(HDUtils.getObjectConfig(tileObject)),
+				orient,
+				x, y, z,
+				o.vbo.vb,
+				a.vbo.vb,
+				o.tboF.getPixelBuffer(),
+				a.tboF.getPixelBuffer()
+			);
+		} catch (Exception ex) {
+			log.debug("error uploading entity", ex);
+		}
 
-			if(unsortedFaces != null)
-				unsortedFaces.free();
+		if(sortedFaces != null)
+			sortedFaces.free();
 
-			facePrioritySorter.reset();
+		if(unsortedFaces != null)
+			unsortedFaces.free();
 
-			if(o != a) {
-				int alphaEnd = a.vbo.vb.position();
-				if (alphaEnd > alphaStart) {
-					// level is checked prior to this callback being run, in order to cull clickboxes, but
-					// tileObject.getPlane()>maxLevel if visbelow is set - lower the object to the max level
-					int plane = Math.min(ctx.maxLevel, tileObject.getPlane());
-					// renderable modelheight is typically not set here because DynamicObject doesn't compute it on the returned model
-					zone.addTempAlphaModel(override, a.vao, a.tboF.getTexId(), alphaStart, alphaEnd, plane, x & 1023, y, z & 1023);
-				}
+		facePrioritySorter.reset();
+
+		if(o != a) {
+			int alphaEnd = a.vbo.vb.position();
+			if (alphaEnd > alphaStart) {
+				// level is checked prior to this callback being run, in order to cull clickboxes, but
+				// tileObject.getPlane()>maxLevel if visbelow is set - lower the object to the max level
+				int plane = Math.min(ctx.maxLevel, tileObject.getPlane());
+				// renderable modelheight is typically not set here because DynamicObject doesn't compute it on the returned model
+				zone.addTempAlphaModel(override, a.vao, a.tboF.getTexId(), alphaStart, alphaEnd, plane, x & 1023, y, z & 1023);
 			}
 		}
 	}
