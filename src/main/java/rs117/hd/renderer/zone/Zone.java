@@ -37,9 +37,6 @@ public class Zone {
 	@Inject
 	private Client client;
 
-	@Inject
-	private FacePrioritySorter facePrioritySorter;
-
 	// Zone vertex format
 	// pos short vec3(x, y, z)
 	// uvw short vec3(u, v, w)
@@ -631,7 +628,7 @@ public class Zone {
 		alphaModels.add(m);
 	}
 
-	void addTempAlphaModel(ModelOverride modelOverride, int vao, int tboF, int startpos, int endpos, int level, int x, int y, int z) {
+	synchronized void addTempAlphaModel(ModelOverride modelOverride, int vao, int tboF, int startpos, int endpos, int level, int x, int y, int z) {
 		AlphaModel m = modelCache.poll();
 		if (m == null)
 			m = new AlphaModel();
@@ -693,6 +690,7 @@ public class Zone {
 	}
 
 	void renderAlpha(
+		FacePrioritySorter facePrioritySorter,
 		CommandBuffer cmd,
 		int zx,
 		int zz,
