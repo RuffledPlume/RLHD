@@ -36,6 +36,9 @@ public class WorldViewContext {
 	private Injector injector;
 
 	@Inject
+	private Client client;
+
+	@Inject
 	private ClientThread clientThread;
 
 	@Inject
@@ -106,7 +109,7 @@ public class WorldViewContext {
 		vboM.unmap();
 
 		for(int i = 0; i < VAO_COUNT; i++) {
-			vaoLists[i] = new VAOList(vboM, eboAlpha);
+			vaoLists[i] = new VAOList(vboM, eboAlpha, client);
 			if(vaoPreAllocate > 0)
 				vaoLists[i].preAllocate(vaoPreAllocate);
 		}
@@ -118,12 +121,8 @@ public class WorldViewContext {
 	}
 
 	VAO getVao(int vaoType, int size) {
-		return getVao(vaoType, size, -1);
-	}
-
-	VAO getVao(int vaoType, int size, int renderThreadId) {
 		assert vaoType >= 0 && vaoType < VAO_COUNT : "Invalid VAO type: " + vaoType;
-		return vaoLists[vaoType].get(size, renderThreadId);
+		return vaoLists[vaoType].get(size);
 	}
 
 	void map() {

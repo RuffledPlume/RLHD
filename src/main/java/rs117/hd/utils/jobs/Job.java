@@ -144,8 +144,9 @@ public abstract class Job {
 	}
 
 	protected abstract void onRun() throws InterruptedException;
-	protected abstract void onCancel();
-	protected abstract void onReleased();
+	protected void onCompletion() {}
+	protected void onCancel() {};
+	protected void onReleased() {};
 
 	public String toString() {
 		return "[" + hashCode() + "|" + getClass().getSimpleName() + "]";

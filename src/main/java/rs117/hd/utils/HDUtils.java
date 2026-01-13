@@ -24,7 +24,11 @@
  */
 package rs117.hd.utils;
 
+import java.awt.Canvas;
+import java.awt.Container;
+import java.awt.Frame;
 import javax.inject.Singleton;
+import javax.swing.JFrame;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import rs117.hd.data.ObjectType;
@@ -449,5 +453,24 @@ public final class HDUtils {
 		float heightB = yVertices[model.getFaceIndices2()[face]];
 		float heightC = yVertices[model.getFaceIndices3()[face]];
 		return heightA == heightB && heightA == heightC;
+	}
+	
+	public static boolean isJFrameMinimized(JFrame f) {
+		return f != null && (f.getExtendedState() & Frame.ICONIFIED) != 0;
+	}
+
+	public static JFrame getJFrame(Canvas canvas) {
+		if (canvas == null) {
+			return null;
+		}
+
+		Container parent = canvas.getParent();
+		while (parent != null) {
+			if (parent instanceof JFrame)
+				return (JFrame) parent;
+			parent = parent.getParent();
+		}
+
+		return null;
 	}
 }

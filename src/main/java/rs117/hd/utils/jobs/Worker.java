@@ -1,8 +1,6 @@
 package rs117.hd.utils.jobs;
 
-import java.util.concurrent.BlockingDeque;
 import java.util.concurrent.ConcurrentLinkedDeque;
-import java.util.concurrent.LinkedBlockingDeque;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -111,7 +109,7 @@ public final class Worker {
 			workerHandleCancel();
 
 			if (handle.item != null && handle.setRunning(this)) {
-				inflight.lazySet(true);
+				inflight.set(true);
 				handle.item.onRun();
 				handle.item.ranToCompletion.set(true);
 			}

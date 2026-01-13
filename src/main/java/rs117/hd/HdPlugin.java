@@ -48,6 +48,7 @@ import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.annotation.Nullable;
 import javax.inject.Inject;
+import javax.swing.JFrame;
 import javax.swing.SwingUtilities;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
@@ -126,6 +127,8 @@ import rs117.hd.utils.ShaderRecompile;
 import static net.runelite.api.Constants.*;
 import static org.lwjgl.opengl.GL33C.*;
 import static rs117.hd.HdPluginConfig.*;
+import static rs117.hd.utils.HDUtils.getJFrame;
+import static rs117.hd.utils.HDUtils.isJFrameMinimized;
 import static rs117.hd.utils.MathUtils.*;
 import static rs117.hd.utils.ResourcePath.path;
 
@@ -387,6 +390,7 @@ public class HdPlugin extends Plugin {
 	public boolean configExpandShadowDraw;
 	public boolean configUseFasterModelHashing;
 	public boolean configZoneStreaming;
+	public boolean configPowerSaving;
 	public boolean configUnlitFaceColors;
 	public boolean configUndoVanillaShading;
 	public boolean configPreserveVanillaNormals;
@@ -411,6 +415,8 @@ public class HdPlugin extends Plugin {
 	public boolean orthographicProjection;
 	public boolean freezeCulling;
 
+	public JFrame clientJFrame;
+
 	@Getter
 	private boolean isActive;
 	private boolean lwjglInitialized;
@@ -418,6 +424,7 @@ public class HdPlugin extends Plugin {
 	public boolean redrawPreviousFrame;
 	public boolean justChangedArea;
 	public Scene skipScene;
+	public int gpuFlags;
 
 	public final ConcurrentHashMap.KeySetView<String, ?> pendingConfigChanges = ConcurrentHashMap.newKeySet();
 
@@ -448,6 +455,10 @@ public class HdPlugin extends Plugin {
 	private double lastFrameClientTime;
 	public float windOffset;
 	public long colorFilterChangedAt;
+
+	public float clientUnfocusedTime;
+	public boolean isClientInFocus = true;
+	public boolean isClientMinimized = false;
 
 	@Provides
 	HdPluginConfig provideConfig(ConfigManager configManager) {
@@ -495,6 +506,7 @@ public class HdPlugin extends Plugin {
 
 				AWTContext.loadNatives();
 				canvas = client.getCanvas();
+				clientJFrame = getJFrame(canvas);
 
 				synchronized (canvas.getTreeLock()) {
 					// Delay plugin startup until the client's canvas is valid
@@ -646,7 +658,7 @@ public class HdPlugin extends Plugin {
 				checkGLErrors();
 
 				client.setDrawCallbacks(renderer);
-				setGpuFlags();
+				initGpuFlags();
 				client.setExpandedMapLoading(getExpandedMapLoadingChunks());
 				// force rebuild of main buffer provider to enable alpha channel
 				client.resizeCanvas();
@@ -682,8 +694,8 @@ public class HdPlugin extends Plugin {
 		});
 	}
 
-	private void setGpuFlags() {
-		int gpuFlags = DrawCallbacks.GPU | renderer.gpuFlags();
+	private void initGpuFlags() {
+		gpuFlags = DrawCallbacks.GPU | renderer.gpuFlags();
 		if (config.removeVertexSnapping())
 			gpuFlags |= DrawCallbacks.NO_VERTEX_SNAPPING;
 		if (configShadingMode.unlitFaceColors)
@@ -1576,6 +1588,7 @@ public class HdPlugin extends Plugin {
 		configExpandShadowDraw = config.expandShadowDraw();
 		configUseFasterModelHashing = config.fasterModelHashing();
 		configZoneStreaming = config.zoneStreaming();
+		configPowerSaving = config.powerSaving();
 		configShadingMode = config.shadingMode();
 		configUnlitFaceColors = configShadingMode.unlitFaceColors;
 		configUndoVanillaShading = configShadingMode.undoVanillaShading;
@@ -1775,7 +1788,7 @@ public class HdPlugin extends Plugin {
 							case KEY_VSYNC_MODE:
 								setupSyncMode();
 								break;
-							case KEY_THREADED_DYNAMIC_UPLOAD:
+							case KEY_THREADED_UPLOAD:
 								reloadGpuFlags = true;
 								break;
 						}
@@ -1785,7 +1798,7 @@ public class HdPlugin extends Plugin {
 						renderer.waitUntilIdle();
 
 					if(reloadGpuFlags)
-						setGpuFlags();
+						initGpuFlags();
 
 					if (reloadTexturesAndMaterials) {
 						materialManager.reload(reloadScene);
@@ -1915,6 +1928,13 @@ public class HdPlugin extends Plugin {
 		}
 		lastFrameTimeMillis = System.currentTimeMillis();
 		lastFrameClientTime = elapsedClientTime;
+		isClientMinimized = isJFrameMinimized(clientJFrame);
+
+		if(!isClientInFocus) {
+			clientUnfocusedTime += deltaTime;
+		} else {
+			clientUnfocusedTime = 0;
+		}
 
 		// The game runs significantly slower with lower planes in Chambers of Xeric
 		var ctx = getSceneContext();
@@ -1936,6 +1956,11 @@ public class HdPlugin extends Plugin {
 			return;
 
 		fishingSpotReplacer.update();
+	}
+
+	@Subscribe
+	public void onFocusChanged(FocusChanged event) {
+		isClientInFocus = event.isFocused();
 	}
 
 	@SuppressWarnings("StatementWithEmptyBody")

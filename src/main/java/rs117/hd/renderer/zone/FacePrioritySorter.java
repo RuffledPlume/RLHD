@@ -36,6 +36,7 @@ import static rs117.hd.utils.MathUtils.*;
 @Slf4j
 final class FacePrioritySorter {
 	private static final int MAX_VERTEX_COUNT = 6500;
+	private static final int MAX_FACE_COUNT = 8192;
 	private static final int MAX_DIAMETER = 6000;
 	private static final int MAX_FACES_PER_PRIORITY = 4000;
 	private static final int PRIORITY_COUNT = 12;
@@ -55,37 +56,9 @@ final class FacePrioritySorter {
 	private final int[] eq11 = new int[MAX_FACES_PER_PRIORITY];
 	private final int[] lt10 = new int[PRIORITY_COUNT];
 
-	private long[] distanceStamp;
-	private char[] distanceFaceCount;
-	private char[] distanceToFaces;
-
-	private int allocatedDiameter;
-	private int facesPerDistance;
-	private long globalStamp = 1;
-
-	private long nextStamp() {
-		if (++globalStamp == Long.MAX_VALUE) {
-			Arrays.fill(distanceStamp, 0);
-			globalStamp = 1;
-		}
-		return globalStamp;
-	}
-
-	private void ensureDistanceCapacity(int diameter, int faceCount) {
-		final int newDiameter = clamp(diameter, allocatedDiameter, MAX_DIAMETER);
-		if (newDiameter <= allocatedDiameter && faceCount <= facesPerDistance)
-			return;
-
-		distanceToFaces = new char[newDiameter * faceCount];
-		if(newDiameter > allocatedDiameter) {
-			distanceFaceCount = new char[newDiameter];
-			distanceStamp = new long[newDiameter];
-			globalStamp = 1;
-		}
-
-		allocatedDiameter = newDiameter;
-		facesPerDistance = faceCount;
-	}
+	private final int[] zsortHead = new int[MAX_DIAMETER];
+	private final int[] zsortTail = new int[MAX_DIAMETER];
+	private final int[] zsortNext = new int[MAX_FACE_COUNT];
 
 	void sortModelFaces(
 		SortedFaces sortedFaces,
@@ -93,23 +66,25 @@ final class FacePrioritySorter {
 		Model model
 	) {
 		final int diameter = model.getDiameter();
-		if (diameter >= MAX_DIAMETER)
+		if (diameter <= 0 || diameter >= MAX_DIAMETER)
 			return;
 
 		final int faceCount = model.getFaceCount();
-		ensureDistanceCapacity(diameter, faceCount);
+		final int radius = model.getRadius();
+
+		sortedFaces.reset();
+		unsortedFaces.reset();
+
+		unsortedFaces.ensureCapacity(faceCount);
+		int minFz = diameter, maxFz = 0;
+
+		Arrays.fill(zsortHead, 0, diameter, -1);
+		Arrays.fill(zsortTail, 0, diameter, -1);
 
 		final int[] indices1 = model.getFaceIndices1();
 		final int[] indices2 = model.getFaceIndices2();
 		final int[] indices3 = model.getFaceIndices3();
 		final int[] faceColors3 = model.getFaceColors3();
-
-		final int radius = model.getRadius();
-		final long stamp = nextStamp();
-
-		unsortedFaces.ensureCapacity(faceCount);
-		int minFz = diameter, maxFz = 0;
-
 		for (int i = 0; i < faceCount; ++i) {
 			if (faceColors3[i] == -2)
 				continue;
@@ -132,21 +107,22 @@ final class FacePrioritySorter {
 				continue;
 			}
 
-			final int fz = (int)((modelProjected[offsetA + 2] + modelProjected[offsetB + 2] + modelProjected[offsetC + 2]) / 3.0f) + radius;
-			if (fz >= allocatedDiameter) {
-				unsortedFaces.reset();
-				return;
-			}
+			final int aZ = (int) modelProjected[offsetA + 2];
+			final int bZ = (int) modelProjected[offsetB + 2];
+			final int cZ = (int) modelProjected[offsetC + 2];
+			final int fz = clamp(radius + (aZ + bZ + cZ) / 3, 0, diameter - 1);
 
-			final int base = fz * facesPerDistance;
-			if (distanceStamp[fz] != stamp) {
-				distanceStamp[fz] = stamp;
-				distanceFaceCount[fz] = 1;
-				distanceToFaces[base] = (char)i;
+			if (zsortTail[fz] == -1) {
+				zsortHead[fz] = zsortTail[fz] = i;
+				zsortNext[i] = -1;
+
 				minFz = min(minFz, fz);
 				maxFz = max(maxFz, fz);
 			} else {
-				distanceToFaces[base + distanceFaceCount[fz]++] = (char)i;
+				int lastFace = zsortTail[fz];
+				zsortNext[lastFace] = i;
+				zsortNext[i] = -1;
+				zsortTail[fz] = i;
 			}
 		}
 
@@ -155,34 +131,23 @@ final class FacePrioritySorter {
 
 		if (priorities == null) {
 			for (int i = maxFz; i >= minFz; --i) {
-				if (i >= distanceStamp.length || distanceStamp[i] != stamp)
-					continue;
-
-				sortedFaces.putFaces(
-					distanceToFaces,
-					i * facesPerDistance,
-					distanceFaceCount[i]
-				);
+				for (int f = zsortHead[i]; f != -1; f = zsortNext[f]) {
+					if(f < faceCount)
+						sortedFaces.putFace(f);
+				}
 			}
 			return;
 		}
 
-		Arrays.fill(numOfPriority, (char) 0);
-		Arrays.fill(lt10, (char) 0);
+		Arrays.fill(numOfPriority, 0);
+		Arrays.fill(lt10, 0);
 
 		for (int i = maxFz; i >= minFz; --i) {
-			if (i >= distanceStamp.length || distanceStamp[i] != stamp)
-				continue;
-
-			final int cnt = distanceFaceCount[i];
-			final int base = i * facesPerDistance;
-
-			for (char f = 0; f < cnt; ++f) {
-				final char face = distanceToFaces[base + f];
-				final int pri = priorities[face];
+			for (int f = zsortHead[i]; f != -1; f = zsortNext[f]) { ;
+				final int pri = priorities[f];
 				final int idx = numOfPriority[pri]++;
 
-				orderedFaces[BASE_PRIORITY_LUT[pri] + idx] = face;
+				orderedFaces[BASE_PRIORITY_LUT[pri] + idx] = f;
 
 				if (pri < 10)
 					lt10[pri] += i;
@@ -252,79 +217,6 @@ final class FacePrioritySorter {
 		}
 	}
 
-	void sortStaticModelFacesWithPriority(
-		Zone.AlphaModel m,
-		int yawCos, int yawSin,
-		int pitchCos, int pitchSin
-	) {
-		final int radius = m.radius;
-		final int diameter = 1 + radius * 2;
-		if (diameter >= MAX_DIAMETER)
-			return;
-
-		final int faceCount = m.packedFaces.length;
-		ensureDistanceCapacity(diameter, faceCount);
-
-		final long stamp = nextStamp();
-		int minFz = diameter, maxFz = 0;
-
-		for (char i = 0; i < faceCount; ++i) {
-			final int packed = m.packedFaces[i];
-			final int x = packed >> 21;
-			final int y = (packed << 11) >> 22;
-			final int z = (packed << 21) >> 21;
-
-			int fz = ((z * yawCos - x * yawSin) >> 16);
-			fz = ((y * pitchSin + fz * pitchCos) >> 16) + radius;
-
-			final int base = fz * facesPerDistance;
-			if (distanceStamp[fz] != stamp) {
-				distanceStamp[fz] = stamp;
-				distanceFaceCount[fz] = 1;
-				distanceToFaces[base] = i;
-				minFz = min(minFz, fz);
-				maxFz = max(maxFz, fz);
-			} else {
-				distanceToFaces[base + distanceFaceCount[fz]++] = i;
-			}
-		}
-
-		final int start = m.startpos / (VERT_SIZE >> 2);
-		final byte[] pri = m.renderPriorities;
-
-		Arrays.fill(numOfPriority, (char) 0);
-		int minPri = PRIORITY_COUNT, maxPri = 0;
-
-		for (int i = maxFz; i >= minFz; --i) {
-			if (i >= distanceStamp.length || distanceStamp[i] != stamp)
-				continue;
-
-			final int cnt = distanceFaceCount[i];
-			final int base = i * facesPerDistance;
-
-			for (char f = 0; f < cnt; ++f) {
-				char face = distanceToFaces[base + f];
-				byte p = pri[face];
-				int offset = numOfPriority[p]++;
-
-				if (offset == 0) {
-					minPri = min(minPri, p);
-					maxPri = max(maxPri, p);
-				}
-
-				orderedFaces[BASE_PRIORITY_LUT[p] + offset] = face;
-			}
-		}
-
-		for (int p = minPri; p <= maxPri; ++p) {
-			final int cnt = numOfPriority[p];
-			final int base = BASE_PRIORITY_LUT[p];
-
-			for (int i = 0; i < cnt; ++i)
-				m.sortedFaces.putFaceIndices(orderedFaces[base + i] * 3 + start);
-		}
-	}
-
 	void sortFarStaticModelFacesByDistance(
 		Zone.AlphaModel m,
 		int yawCos, int yawSin,
@@ -336,19 +228,12 @@ final class FacePrioritySorter {
 			return;
 
 		final int faceCount = m.packedFaces.length;
-		ensureDistanceCapacity(diameter, faceCount);
 
-		final float distFrac = saturate(m.dist / (float) ALPHA_ZSORT_SQ);
-		final int buckets = clamp(
-			ceilPow2((int) ((float) diameter * (1.0f - distFrac))),
-			8,
-			diameter
-		);
+		Arrays.fill(zsortHead, 0, diameter, -1);
+		Arrays.fill(zsortTail, 0, diameter, -1);
 
-		final long stamp = nextStamp();
-		int minBucket = buckets, maxBucket = 0;
-
-		for (char i = 0; i < faceCount; ++i) {
+		int minFz = diameter, maxFz = 0;
+		for (int i = 0; i < faceCount; ++i) {
 			final int packed = m.packedFaces[i];
 			final int x = packed >> 21;
 			final int y = (packed << 11) >> 22;
@@ -357,47 +242,42 @@ final class FacePrioritySorter {
 			int fz = ((z * yawCos - x * yawSin) >> 16);
 			fz = ((y * pitchSin + fz * pitchCos) >> 16) + radius;
 
-			final int bucket = floor(saturate(fz / (float) diameter) * buckets);
-			final int base = bucket * facesPerDistance;
+			if (zsortTail[fz] == -1) {
+				zsortHead[fz] = zsortTail[fz] = i;
+				zsortNext[i] = -1;
 
-			if (distanceStamp[bucket] != stamp) {
-				distanceStamp[bucket] = stamp;
-				distanceFaceCount[bucket] = 1;
-				distanceToFaces[base] = i;
-				minBucket = min(minBucket, bucket);
-				maxBucket = max(maxBucket, bucket);
+				minFz = min(minFz, fz);
+				maxFz = max(maxFz, fz);
 			} else {
-				distanceToFaces[base + distanceFaceCount[bucket]++] = i;
+				int lastFace = zsortTail[fz];
+				zsortNext[lastFace] = i;
+				zsortNext[i] = -1;
+				zsortTail[fz] = i;
 			}
 		}
 
 		final int start = m.startpos / (VERT_SIZE >> 2);
+		for (int i = maxFz; i >= minFz; --i) {
+			for (int f = zsortHead[i]; f != -1; f = zsortNext[f]) {
+				if(m.sortedFacesLen >= m.sortedFaces.length)
+					break;
 
-		for (int b = maxBucket; b >= minBucket; --b) {
-			if (distanceStamp[b] != stamp)
-				continue;
+				if(f >= faceCount)
+					continue;
 
-			final int cnt = distanceFaceCount[b];
-			final int base = b * facesPerDistance;
-
-			for (int i = 0; i < cnt; ++i)
-				m.sortedFaces.putFaceIndices(distanceToFaces[base + i] * 3 + start);
+				final int sortedOffset = m.sortedFacesLen;
+				final int faceStart = f * 3 + start;
+				m.sortedFaces[sortedOffset] = faceStart;
+				m.sortedFaces[sortedOffset + 1] = faceStart + 1;
+				m.sortedFaces[sortedOffset + 2] = faceStart + 2;
+				m.sortedFacesLen += 3;
+			}
 		}
 	}
 
 	public static final class SortedFaces {
-		public int[] facesIndices;
+		public int[] faces = new int[16];
 		public int length;
-		private boolean fixedSize;
-
-		public SortedFaces() {
-			facesIndices = new int[16];
-		}
-
-		public SortedFaces(int capacity) {
-			facesIndices = new int[capacity];
-			fixedSize = true;
-		}
 
 		public SortedFaces reset() {
 			length = 0;
@@ -405,48 +285,19 @@ final class FacePrioritySorter {
 		}
 
 		private SortedFaces ensureCapacity(int count) {
-			if (length + count < facesIndices.length || fixedSize)
-				return this;
-
-			int newCapacity = ceilPow2(length + count);
-			log.debug(
-				"{} Resizing \t{}",
-				this,
-				String.format(
-					"%.2f KB -> %.2f KB",
-					(facesIndices.length * Integer.BYTES) / 1024f,
-					(newCapacity * Integer.BYTES) / 1024f
-				)
-			);
-
-			facesIndices = Arrays.copyOf(facesIndices, newCapacity);
+			if (length + count > faces.length)
+				 faces = Arrays.copyOf(faces, ceilPow2(length + count));
 			return this;
 		}
 
 		private void putFace(int f) {
-			if (length < facesIndices.length)
-				facesIndices[length++] = f;
-		}
-
-		void putFaceIndices(int offset) {
-			if (length + 3 > facesIndices.length)
-				return;
-
-			facesIndices[length++] = offset;
-			facesIndices[length++] = offset + 1;
-			facesIndices[length++] = offset + 2;
+			if (length < faces.length)
+				faces[length++] = f;
 		}
 
 		private void putFaces(int[] indices, int offset, int count) {
 			ensureCapacity(count);
-			System.arraycopy(indices, offset, facesIndices, length, count);
-			length += count;
-		}
-
-		private void putFaces(char[] indices, int offset, int count) {
-			ensureCapacity(count);
-			for (int i = 0; i < count; ++i)
-				facesIndices[length + i] = indices[offset + i];
+			System.arraycopy(indices, offset, faces, length, count);
 			length += count;
 		}
 	}
