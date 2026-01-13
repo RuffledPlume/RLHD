@@ -11,12 +11,12 @@ import java.util.Map;
 import java.util.concurrent.BlockingDeque;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.LinkedBlockingDeque;
+import java.util.function.ToIntFunction;
 import javax.annotation.Nullable;
 import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import rs117.hd.HdPlugin;
-import rs117.hd.renderer.zone.FacePrioritySorter.SortedFaces;
 import rs117.hd.scene.MaterialManager;
 import rs117.hd.scene.SceneContext;
 import rs117.hd.scene.materials.Material;
@@ -94,6 +94,7 @@ public class Zone {
 	int[][] roofEnd;
 
 	final List<AlphaModel> alphaModels = new ArrayList<>(0);
+	final List<AlphaModel> playerModels = new ArrayList<>(0);
 
 	public void initialize(VBO o, VBO a, GLTextureBuffer f, int eboShared) {
 		assert glVao == 0;
@@ -449,7 +450,8 @@ public class Zone {
 		int radius;
 		int[] packedFaces;
 		byte[] renderPriorities;
-		SortedFaces sortedFaces;
+		int[] sortedFaces;
+		int sortedFacesLen;
 
 		int lastDist = -1, lastYaw = -1, lastPitch = -1;
 		int dist;
@@ -458,7 +460,8 @@ public class Zone {
 
 		static final int SKIP = 1; // temporary model is in a closer zone
 		static final int TEMP = 2; // temporary model added to a closer zone
-		static final int SORT_COMPLETED = 4;
+		static final int PLAYER = 4; // temporary model added to draw players within the zone
+		static final int SORT_COMPLETED = 8;
 
 		void setSorted(int yaw, int pitch) {
 			lastYaw = yaw;
@@ -468,6 +471,10 @@ public class Zone {
 
 		boolean isSorted() {
 			return (flags & SORT_COMPLETED) != 0;
+		}
+
+		boolean isPlayer() {
+			return (flags & PLAYER) != 0;
 		}
 
 		boolean isTemp() {
@@ -629,13 +636,13 @@ public class Zone {
 
 		m.renderPriorities = model.getFaceRenderPriorities();
 		m.radius = 2 + (int) Math.sqrt(radius);
-		m.sortedFaces = new SortedFaces(bufferIdx * 3);
+		m.sortedFaces = new int[bufferIdx * 3];
 
 		assert packedFaces.length > 0;
 		// Normally these will be equal, but transparency is used to hide faces in the TzHaar reskin
 		assert bufferIdx <= packedFaces.length : String.format("%d > %d", (int) bufferIdx, packedFaces.length);
 
-		sortedFacesLen += m.sortedFaces.facesIndices.length;
+		sortedFacesLen += m.sortedFaces.length;
 		alphaModels.add(m);
 	}
 
@@ -660,9 +667,35 @@ public class Zone {
 		alphaModels.add(m);
 	}
 
+	synchronized void addPlayerModel(int vao, int tboF, int startpos, int endpos, int level, int x, int y, int z) {
+		AlphaModel m = modelCache.poll();
+		if (m == null)
+			m = new AlphaModel();
+		m.id = -1;
+		m.modelOverride = null;
+		m.startpos = startpos;
+		m.endpos = endpos;
+		m.x = (short) x;
+		m.y = (short) y;
+		m.z = (short) z;
+		m.vao = vao;
+		m.tboF = tboF;
+		m.rid = -1;
+		m.level = (byte) level;
+		m.lx = m.lz = m.ux = m.uz = -1;
+		m.flags = AlphaModel.PLAYER;
+		m.zofx = m.zofz = 0;
+		playerModels.add(m);
+	}
+
 	synchronized void postAlphaPass() {
 		sortedAlphaFacesUpload.waitForCompletion();
 
+		cleanAlphaModels(alphaModels);
+		cleanAlphaModels(playerModels);
+	}
+
+	private void cleanAlphaModels(List<AlphaModel> alphaModels) {
 		for (int i = alphaModels.size() - 1; i >= 0; --i) {
 			AlphaModel m = alphaModels.get(i);
 			if (m.isTemp() || (m.flags & AlphaModel.TEMP) != 0) {
@@ -687,13 +720,20 @@ public class Zone {
 	private static int lastTboF;
 	private static int lastzx, lastzz;
 
-	private int alphaSort_cx, alphaSort_cy, alphaSort_cz;
-	private int alphaSort_zx, alphaSort_zz;
-	private final Comparator<AlphaModel> alphaSortComparator = Comparator.comparingInt((AlphaModel m) -> {
-		final int mx = m.x + ((alphaSort_zx - m.zofx) << 10);
-		final int mz = m.z + ((alphaSort_zz - m.zofz) << 10);
-		return (mx - alphaSort_cx) * (mx - alphaSort_cx) + (m.y - alphaSort_cy) * (m.y - alphaSort_cy) + (mz - alphaSort_cz) * (mz - alphaSort_cz);
-	}).reversed();
+	private static class AlphaSortPredicate implements ToIntFunction<AlphaModel> {
+		int cx, cy, cz;
+		int zx, zz;
+
+		@Override
+		public final int applyAsInt(AlphaModel m) {
+			final int mx = m.x + ((zx - m.zofx) << 10);
+			final int mz = m.z + ((zz - m.zofz) << 10);
+			return (mx - cx) * (mx - cx) + (m.y - cy) * (m.y - cy) + (mz - cz) * (mz - cz);
+		}
+	}
+
+	private final AlphaSortPredicate alphaSortPred = new AlphaSortPredicate();
+	private final Comparator<AlphaModel> alphaSortComparator = Comparator.comparingInt(alphaSortPred).reversed();
 
 	private ByteBuffer eboAlphaMappedBuffer;
 	private IntBuffer eboAlphaAsyncBuffer;
@@ -710,17 +750,26 @@ public class Zone {
 				continue;
 
 			eboAlphaAsyncBuffer.position(m.eboOffset);
-			eboAlphaAsyncBuffer.put(m.sortedFaces.facesIndices, 0, m.sortedFaces.length);
+			eboAlphaAsyncBuffer.put(m.sortedFaces, 0, m.sortedFaces.length);
 		}
 	}
 
 	synchronized void alphaSort(int zx, int zz, Camera camera) {
-		alphaSort_cx = (int) camera.getPositionX();
-		alphaSort_cy = (int) camera.getPositionY();
-		alphaSort_cz = (int) camera.getPositionZ();
-		alphaSort_zx = zx;
-		alphaSort_zz = zz;
+		alphaSortPred.cx = (int) camera.getPositionX();
+		alphaSortPred.cy = (int) camera.getPositionY();
+		alphaSortPred.cz = (int) camera.getPositionZ();
+		alphaSortPred.zx = zx;
+		alphaSortPred.zz = zz;
 		alphaModels.sort(alphaSortComparator);
+	}
+
+	synchronized void playerSort(int zx, int zz, Camera camera) {
+		alphaSortPred.cx = (int) camera.getPositionX();
+		alphaSortPred.cy = (int) camera.getPositionY();
+		alphaSortPred.cz = (int) camera.getPositionZ();
+		alphaSortPred.zx = zx;
+		alphaSortPred.zz = zz;
+		playerModels.sort(alphaSortComparator);
 	}
 
 	void alphaStaticModelSort(StaticAlphaSortingJob job) {
@@ -734,6 +783,36 @@ public class Zone {
 			m.dist = dist;
 			job.addAlphaModel(m);
 		}
+	}
+
+	void renderPlayers(
+		CommandBuffer cmd,
+		int zx,
+		int zz,
+		WorldViewContext ctx
+	) {
+		if (playerModels.isEmpty())
+			return;
+
+		drawIdx = 0;
+
+		//noinspection ForLoopReplaceableByForEach
+		for (int i = 0; i < playerModels.size(); i++) {
+			final AlphaModel m = playerModels.get(i);
+
+			if (lastVao != m.vao || lastTboF != m.tboF || lastzx != (zx - m.zofx) || lastzz != (zz - m.zofz))
+				flush(cmd);
+
+			lastVao = m.vao;
+			lastTboF = m.tboF;
+			lastzx = zx - m.zofx;
+			lastzz = zz - m.zofz;
+			lastDrawMode = TEMP;
+
+			pushRange(m.startpos, m.endpos);
+		}
+
+		flush(cmd);
 	}
 
 	void renderAlpha(
@@ -757,9 +836,9 @@ public class Zone {
 			hiddenRoofIds = Collections.emptySet();
 		}
 
-		cmd.DepthMask(false);
-
 		drawIdx = 0;
+
+		cmd.DepthMask(false);
 
 		boolean shouldQueueUpload = false;
 		//noinspection ForLoopReplaceableByForEach
@@ -817,6 +896,7 @@ public class Zone {
 			sortedAlphaFacesUpload.queue();
 
 		flush(cmd);
+
 		cmd.DepthMask(true);
 	}
 
@@ -880,7 +960,7 @@ public class Zone {
 						int zx2 = (centerX >> 10) + offset;
 						int zz2 = (centerZ >> 10) + offset;
 						if (zx2 >= 0 && zx2 < zones.length && zz2 >= 0 && zz2 < zones[0].length) {
-							if(zones[zx2][zz2].inSceneFrustum) {
+							if(zones[zx2][zz2].inSceneFrustum && zones[zx2][zz2].initialized) {
 								max = distance;
 								closestZoneX = centerX >> 10;
 								closestZoneZ = centerZ >> 10;

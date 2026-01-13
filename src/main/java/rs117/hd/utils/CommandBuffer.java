@@ -56,6 +56,10 @@ public class CommandBuffer {
 		this.frameTimer = frameTimer;
 	}
 
+	public boolean isEmpty() {
+		return writeHead == 0;
+	}
+
 	private void ensureCapacity(int numLongs) {
 		if (writeHead + numLongs >= cmd.length)
 			cmd = Arrays.copyOf(cmd, cmd.length * 2);
@@ -225,6 +229,15 @@ public class CommandBuffer {
 		ensureCapacity(2);
 		cmd[writeHead++] = GL_TOGGLE_TYPE;
 		cmd[writeHead++] = (enabled ? 1L : 0) << 32 | capability & INT_MASK;
+	}
+
+	public void append(CommandBuffer other) {
+		if(other.isEmpty())
+			return;
+
+		ensureCapacity(other.writeHead);
+		System.arraycopy(other.cmd, 0, cmd, writeHead, other.writeHead);
+		writeHead += other.writeHead;
 	}
 
 	public void execute() {

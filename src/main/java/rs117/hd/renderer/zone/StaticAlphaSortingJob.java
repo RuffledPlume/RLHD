@@ -3,6 +3,8 @@ package rs117.hd.renderer.zone;
 import java.util.Arrays;
 import java.util.concurrent.atomic.AtomicIntegerArray;
 import lombok.RequiredArgsConstructor;
+import rs117.hd.overlays.FrameTimer;
+import rs117.hd.overlays.Timer;
 import rs117.hd.renderer.zone.Zone.AlphaModel;
 import rs117.hd.utils.Camera;
 import rs117.hd.utils.jobs.Job;
@@ -14,6 +16,8 @@ import static rs117.hd.utils.MathUtils.*;
 @RequiredArgsConstructor
 public final class StaticAlphaSortingJob extends Job {
 	private static final int DIST_THRESHOLD = 4096 * 4096;
+
+	private FrameTimer frameTimer;
 
 	private final FacePrioritySorter staticSorter;
 
@@ -42,6 +46,8 @@ public final class StaticAlphaSortingJob extends Job {
 	}
 
 	public void queue(Camera camera) {
+		if(frameTimer == null)
+			frameTimer = getInjector().getInstance(FrameTimer.class);
 		yaw = camera.getFixedYaw();
 		yawSin = SINE[yaw];
 		yawCos = COSINE[yaw];
@@ -57,6 +63,7 @@ public final class StaticAlphaSortingJob extends Job {
 
 	@Override
 	protected void onRun() {
+		long start = System.nanoTime();
 		synchronized (staticSorter) {
 			for (int i = 0; i < size; i++) {
 				if (!states.compareAndSet(i, 0, 1))
@@ -64,18 +71,19 @@ public final class StaticAlphaSortingJob extends Job {
 				processModel(staticSorter, models[i]);
 			}
 		}
+		frameTimer.add(Timer.STATIC_ALPHA_SORT, System.nanoTime() - start);
 	}
 
 	private void processModel(FacePrioritySorter sorter, AlphaModel m) {
 		if (m.renderPriorities == null || m.modelOverride.disablePrioritySorting) {
 			if(m.lastYaw != yaw || m.lastPitch != pitch || m.lastDist == -1 || abs(m.lastDist - m.dist) > DIST_THRESHOLD) {
 				m.lastDist = m.dist;
-				m.sortedFaces.reset();
+				m.sortedFacesLen = 0;
 				sorter.sortFarStaticModelFacesByDistance(m, yawCos, yawSin, pitchCos, pitchSin);
 			}
 		} else {
 			if(m.lastYaw != yaw || m.lastPitch != pitch) {
-				m.sortedFaces.reset();
+				m.sortedFacesLen = 0;
 				sorter.sortStaticModelFacesWithPriority(m, yawCos, yawSin, pitchCos, pitchSin);
 			}
 		}

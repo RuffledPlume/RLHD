@@ -49,7 +49,6 @@ import rs117.hd.utils.HDUtils;
 import rs117.hd.utils.ModelHash;
 import rs117.hd.utils.buffer.GpuIntBuffer;
 
-import static java.lang.System.arraycopy;
 import static net.runelite.api.Constants.*;
 import static net.runelite.api.Perspective.*;
 import static rs117.hd.scene.tile_overrides.TileOverride.NONE;
@@ -127,7 +126,6 @@ public class SceneUploader {
 
 	private final float[] modelLocal = new float[MAX_VERTEX_COUNT * 3];
 	private final int[] modelLocalI = new int[MAX_VERTEX_COUNT * 3];
-	private final int[] modelLocalN = new int[MAX_VERTEX_COUNT * 3];
 
 	private final float[] projected = new float[4];
 
@@ -1662,15 +1660,9 @@ public class SceneUploader {
 		final float[] verticesY = model.getVerticesY();
 		final float[] verticesZ = model.getVerticesZ();
 
-		final int[] vertexNormalsX = model.getVertexNormalsX();
-		final int[] vertexNormalsY = model.getVertexNormalsY();
-		final int[] vertexNormalsZ = model.getVertexNormalsZ();
-		final boolean modelHasNormals = vertexNormalsX != null && vertexNormalsY != null && vertexNormalsZ != null;
-
 		final float[] modelLocal = this.modelLocal;
 		final float[] projected = this.projected;
 		final int[] modelLocalI = this.modelLocalI;
-		final int[] modelLocalN = this.modelLocalN;
 
 		// Identity orient, will result in no rotation
 		float orientSinf = 0;
@@ -1682,8 +1674,8 @@ public class SceneUploader {
 			orientCosf = COSINE[orientation] / 65536f;
 		}
 
-		final int zero = (int) proj.project(x, y, z)[2];
-		boolean shouldSort = modelProjected != null && zero > -50;
+		final int zero = (int) proj.project(x, y, z, projected)[2];
+		boolean shouldSort = modelProjected != null;
 		for (int v = 0, vertexOffset = 0; v < vertexCount; ++v) {
 			float vertexX = verticesX[v];
 			float vertexY = verticesY[v];
@@ -1699,10 +1691,12 @@ public class SceneUploader {
 
 			if(shouldSort) {
 				proj.project(vertexX, vertexY, vertexZ, projected);
-				modelProjected[vertexOffset] = projected[0] / projected[2];
-				modelProjected[vertexOffset + 1] = projected[1] / projected[2];
-				modelProjected[vertexOffset + 2] = projected[2] - zero;
 				shouldSort = projected[2] >= 50;
+				if(shouldSort) {
+					modelProjected[vertexOffset] = projected[0] / projected[2];
+					modelProjected[vertexOffset + 1] = projected[1] / projected[2];
+					modelProjected[vertexOffset + 2] = projected[2] - zero;
+				}
 			}
 
 			if(localSpace) {
@@ -1713,63 +1707,22 @@ public class SceneUploader {
 
 			modelLocal[vertexOffset] = vertexX;
 			modelLocalI[vertexOffset] = Float.floatToIntBits(vertexX);
-			if(modelHasNormals) modelLocalN[vertexOffset] = vertexNormalsX[v];
 			vertexOffset++;
 
 			modelLocal[vertexOffset] = vertexY;
 			modelLocalI[vertexOffset] = Float.floatToIntBits(vertexY);
-			if(modelHasNormals) modelLocalN[vertexOffset] = vertexNormalsY[v];
 			vertexOffset++;
 
 			modelLocal[vertexOffset] = vertexZ;
 			modelLocalI[vertexOffset] = Float.floatToIntBits(vertexZ);
-			if(modelHasNormals) modelLocalN[vertexOffset] = vertexNormalsZ[v];
 			vertexOffset++;
 		}
 
 		return shouldSort;
 	}
 
-	public final void uploadTempModel(
-		SceneUploader baseSceneUploader,
-		FacePrioritySorter.SortedFaces sortedFaces,
-		Model model,
-		ModelOverride modelOverride,
-		int preOrientation,
-		int orientation,
-		boolean isShadow,
-		IntBuffer opaqueBuffer,
-		IntBuffer alphaBuffer,
-		IntBuffer opaqueTexBuffer,
-		IntBuffer alphaTexBuffer
-	) {
-		uploadTempModel(baseSceneUploader.modelLocal, baseSceneUploader.modelLocalN,
-			sortedFaces, model, modelOverride, preOrientation, orientation, isShadow,
-			opaqueBuffer, alphaBuffer, opaqueTexBuffer, alphaTexBuffer
-		);
-	}
-
-	public final void uploadTempModel(
-		FacePrioritySorter.SortedFaces sortedFaces,
-		Model model,
-		ModelOverride modelOverride,
-		int preOrientation,
-		int orientation,
-		boolean isShadow,
-		IntBuffer opaqueBuffer,
-		IntBuffer alphaBuffer,
-		IntBuffer opaqueTexBuffer,
-		IntBuffer alphaTexBuffer
-	) {
-		uploadTempModel(modelLocal, modelLocalN,
-			sortedFaces, model, modelOverride, preOrientation, orientation, isShadow,
-			opaqueBuffer, alphaBuffer, opaqueTexBuffer, alphaTexBuffer
-		);
-	}
-
 	// temp draw
-	private void uploadTempModel(
-		float[] modelLocal, int[] modelLocalN,
+	public void uploadTempModel(
 		FacePrioritySorter.SortedFaces sortedFaces,
 		Model model,
 		ModelOverride modelOverride,
@@ -1793,6 +1746,10 @@ public class SceneUploader {
 		final int[] color1s = model.getFaceColors1();
 		final int[] color2s = model.getFaceColors2();
 		final int[] color3s = model.getFaceColors3();
+
+		final int[] xVertexNormals = model.getVertexNormalsX();
+		final int[] yVertexNormals = model.getVertexNormalsY();
+		final int[] zVertexNormals = model.getVertexNormalsZ();
 
 		final short[] faceTextures = model.getFaceTextures();
 		final byte[] textureFaces = model.getTextureFaces();
@@ -1833,7 +1790,7 @@ public class SceneUploader {
 
 		final int faceCount = hasSortedIndices ? sortedFaces.length : triangleCount;
 		for (int f = 0; f < faceCount; ++f) {
-			final int face = hasSortedIndices ? sortedFaces.facesIndices[f] : f;
+			final int face = hasSortedIndices ? sortedFaces.faces[f] : f;
 			if(face == -1)
 				break;
 
@@ -1917,27 +1874,21 @@ public class SceneUploader {
 
 			if(!isShadow) {
 				final boolean shouldRotateNormals;
-				final boolean shouldCalculateFaceNormal;
+				boolean shouldCalculateFaceNormal;
 				if (!modelHasNormals || faceOverride.flatNormals || (!plugin.configPreserveVanillaNormals && color3s[face] == -1)) {
 					shouldRotateNormals = false;
 					shouldCalculateFaceNormal = true;
 				} else {
 					shouldRotateNormals = orientation != 0;
-					if (vertexOffsetA + 3 == vertexOffsetB && vertexOffsetB + 3 == vertexOffsetC) {
-						arraycopy(modelLocalN, vertexOffsetA, faceNormals, 0, 9);
-					} else {
-						arraycopy(modelLocalN, vertexOffsetA, faceNormals, 0, 3);
-						if (vertexOffsetB + 3 == vertexOffsetC) {
-							arraycopy(modelLocalN, vertexOffsetB, faceNormals, 3, 6);
-						} else {
-							arraycopy(modelLocalN, vertexOffsetB, faceNormals, 3, 3);
-							arraycopy(modelLocalN, vertexOffsetC, faceNormals, 6, 3);
-						}
-					}
-					shouldCalculateFaceNormal =
-						faceNormals[0] == 0 && faceNormals[1] == 0 && faceNormals[2] == 0 &&
-						faceNormals[3] == 0 && faceNormals[4] == 0 && faceNormals[5] == 0 &&
-						faceNormals[6] == 0 && faceNormals[7] == 0 && faceNormals[8] == 0;
+					shouldCalculateFaceNormal = (modelNormals[0] = xVertexNormals[triangleA]) == 0;
+					shouldCalculateFaceNormal &= (modelNormals[1] = yVertexNormals[triangleA]) == 0;
+					shouldCalculateFaceNormal &= (modelNormals[2] = zVertexNormals[triangleA]) == 0;
+					shouldCalculateFaceNormal &= (modelNormals[3] = xVertexNormals[triangleB]) == 0;
+					shouldCalculateFaceNormal &= (modelNormals[4] = yVertexNormals[triangleB]) == 0;
+					shouldCalculateFaceNormal &= (modelNormals[5] = zVertexNormals[triangleB]) == 0;
+					shouldCalculateFaceNormal &= (modelNormals[6] = xVertexNormals[triangleC]) == 0;
+					shouldCalculateFaceNormal &= (modelNormals[7] = yVertexNormals[triangleC]) == 0;
+					shouldCalculateFaceNormal &= (modelNormals[8] = zVertexNormals[triangleC]) == 0;
 				}
 
 				if(shouldCalculateFaceNormal) {
@@ -1955,7 +1906,7 @@ public class SceneUploader {
 					color3 = undoVanillaShading(color3, plugin.configLegacyGreyColors, faceNormals[6], faceNormals[7], faceNormals[8]);
 				}
 
-				if (shouldRotateNormals)
+				if (shouldRotateNormals && !shouldCalculateFaceNormal)
 					rotateNormalsFloat(faceNormals, orientSinf, orientCosf);
 			}
 

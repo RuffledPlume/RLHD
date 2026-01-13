@@ -2,10 +2,13 @@ package rs117.hd.renderer.zone;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
+import java.util.concurrent.ConcurrentLinkedDeque;
 import javax.annotation.Nonnull;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import net.runelite.api.*;
 import rs117.hd.utils.CommandBuffer;
 import rs117.hd.utils.buffer.GLTextureBuffer;
 
@@ -28,15 +31,16 @@ class VAO {
 	// dummy sceneOffset ivec2 for macOS workaround
 	static final int METADATA_SIZE = 12;
 
+	final VAOList list;
 	final VBO vbo;
 	final GLTextureBuffer tboF;
 	int vao;
 	boolean used;
-	int renderThreadId;
 
-	VAO(int size) {
-		vbo = new VBO(size);
-		tboF = new GLTextureBuffer("Textured Faces", GL_DYNAMIC_DRAW);
+	VAO(VAOList list, int size) {
+		this.list = list;
+		this.vbo = new VBO(size);
+		this.tboF = new GLTextureBuffer("Textured Faces", GL_DYNAMIC_DRAW);
 	}
 
 	void initialize(int ebo, @Nonnull VBO vboMetadata) {
@@ -112,6 +116,9 @@ class VAO {
 	}
 
 	void draw(CommandBuffer cmd) {
+		if(!used)
+			return;
+
 		cmd.BindVertexArray(vao);
 		cmd.BindTextureUnit(GL_TEXTURE_BUFFER, tboF.getTexId(), TEXTURE_UNIT_TEXTURED_FACES);
 
@@ -135,10 +142,13 @@ class VAO {
 		}
 	}
 
+	void unlock() {
+		list.available.add(this);
+	}
+
 	void reset() {
 		off = 0;
 		used = false;
-		renderThreadId = -1;
 	}
 
 	@Slf4j
@@ -148,20 +158,23 @@ class VAO {
 		private static final int VAO_SIZE = (int) (4 * MiB);
 		private static final int TBO_SIZE = ceil(VAO_SIZE / (3f * VERT_SIZE)) * 9 * Integer.BYTES;
 
-		private final List<VAO> vaos = new ArrayList<>();
+		private final List<VAO> vaos = Collections.synchronizedList(new ArrayList<>());
+		private final ConcurrentLinkedDeque<VAO> available = new ConcurrentLinkedDeque<>();
 		private final VBO vboMetadata;
 		private final int eboAlpha;
+		private final Client client;
 
 		void preAllocate(int count) {
 			for (int i = 0; i < count; i++) {
-				VAO newVao = new VAO(VAO_SIZE);
-				newVao.initialize(eboAlpha, vboMetadata);;
+				VAO newVao = new VAO(this, VAO_SIZE);
+				newVao.initialize(eboAlpha, vboMetadata);
 				vaos.add(newVao);
 			}
 			log.debug("Pre-allocated {} VAO(s)", count);
 		}
 
-		synchronized void map() {
+		void map() {
+			available.clear();
 			for (VAO vao : vaos) {
 				if(vao.vao == 0)
 					vao.initialize(eboAlpha, vboMetadata);
@@ -171,43 +184,46 @@ class VAO {
 					vao.tboF.map();
 				}
 
+				if(vao.vbo.mapped)
+					available.add(vao);
+
 				vao.reset();
 			}
 		}
 
-		synchronized VAO get(int size, int renderThreadId) {
+		synchronized VAO get(int size) {
 			assert size <= VAO_SIZE;
 
-			for(VAO vao : vaos) {
-				if (!vao.vbo.mapped || (vao.used && vao.renderThreadId != renderThreadId))
-					continue; // only use VAOs which have already been mapped
-
-				int rem = vao.vbo.vb.remaining() * Integer.BYTES;
+			// Recycles VAO if sufficient space is available, otherwise creates a new one
+			// We don't re-add if there isn't enough space for the current model, to avoid checking the same VAO each time
+			VAO vao;
+			while ((vao = available.pop()) != null) {
+				final int rem = vao.vbo.vb.remaining() * Integer.BYTES;
 				if (size <= rem) {
 					vao.used = true;
-					vao.renderThreadId = renderThreadId;
 					return vao;
 				}
 			}
 
-			VAO vao = new VAO(VAO_SIZE);
-			vaos.add(new VAO(VAO_SIZE));
-
-			if(renderThreadId >= 0)
+			vao = new VAO(this, VAO_SIZE);
+			if(!client.isClientThread()) {
+				vaos.add(vao);
 				return null; // Render Thread cant allocate or map, so we'll add the VAO so it'll be available next time around
+			}
 
 			vao.used = true;
 			vao.initialize(eboAlpha, vboMetadata);
 			vao.vbo.map();
 			vao.tboF.map();
+			vaos.add(vao);
 			log.debug("Allocated VAO {} request {}", vao.vao, size);
 			return vao;
 		}
 
-		synchronized void unmap() {
+		void unmap() {
 			// Unmap all VAOs which have been used so they can be drawn safely
 			for (VAO vao : vaos) {
-				if (vao.used) {
+				if (vao.used && vao.vbo.mapped) {
 					vao.vbo.unmap();
 					vao.tboF.unmap();
 				}
