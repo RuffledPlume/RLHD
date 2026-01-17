@@ -179,7 +179,9 @@ class VAO {
 				if(vao.vao == 0)
 					vao.initialize(eboAlpha, vboMetadata);
 
-				if(!vao.vbo.mapped) {
+				// Ignore VAOs if they we're used previously, since they might still be in use by the GPU
+				// IE If we're GPU Bottleneck'd then mapping an inuse buffer with Syncronization flag will result in us blocking
+				if(!vao.vbo.mapped && !vao.used) {
 					vao.vbo.map();
 					vao.tboF.map();
 				}
