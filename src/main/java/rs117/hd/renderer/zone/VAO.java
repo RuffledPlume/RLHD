@@ -197,7 +197,7 @@ class VAO {
 			// Recycles VAO if sufficient space is available, otherwise creates a new one
 			// We don't re-add if there isn't enough space for the current model, to avoid checking the same VAO each time
 			VAO vao;
-			while ((vao = available.pop()) != null) {
+			while ((vao = available.poll()) != null) {
 				final int rem = vao.vbo.vb.remaining() * Integer.BYTES;
 				if (size <= rem) {
 					vao.used = true;

@@ -37,35 +37,35 @@ public final class AsyncCachedModel extends Job implements Model  {
 
 	private long hash;
 
-	private final FieldCacheStatus<?>[] cachedFields = new FieldCacheStatus<?>[21];
+	private final CachedArrayField<?>[] cachedFields = new CachedArrayField<?>[21];
 
-	private final FieldCacheStatus<float[]> verticesX = addField(float[]::new, 0);
-	private final FieldCacheStatus<float[]> verticesY = addField(float[]::new, 1);
-	private final FieldCacheStatus<float[]> verticesZ = addField(float[]::new, 2);
+	private final CachedArrayField<float[]> verticesX = addField(float[]::new, 0);
+	private final CachedArrayField<float[]> verticesY = addField(float[]::new, 1);
+	private final CachedArrayField<float[]> verticesZ = addField(float[]::new, 2);
 
-	private final FieldCacheStatus<int[]> faceIndices1 = addField(int[]::new, 3);
-	private final FieldCacheStatus<int[]> faceIndices2 = addField(int[]::new, 4);
-	private final FieldCacheStatus<int[]> faceIndices3 = addField(int[]::new, 5);
+	private final CachedArrayField<int[]> faceIndices1 = addField(int[]::new, 3);
+	private final CachedArrayField<int[]> faceIndices2 = addField(int[]::new, 4);
+	private final CachedArrayField<int[]> faceIndices3 = addField(int[]::new, 5);
 
-	private final FieldCacheStatus<int[]> faceColors1 = addField(int[]::new, 6);
-	private final FieldCacheStatus<int[]> faceColors2 = addField(int[]::new, 7);
-	private final FieldCacheStatus<int[]> faceColors3 = addField(int[]::new, 8);
+	private final CachedArrayField<int[]> faceColors1 = addField(int[]::new, 6);
+	private final CachedArrayField<int[]> faceColors2 = addField(int[]::new, 7);
+	private final CachedArrayField<int[]> faceColors3 = addField(int[]::new, 8);
 
-	private final FieldCacheStatus<short[]> unlitFaceColors = addField(short[]::new, 9);
-	private final FieldCacheStatus<short[]> faceTextures = addField(short[]::new, 10);
+	private final CachedArrayField<short[]> unlitFaceColors = addField(short[]::new, 9);
+	private final CachedArrayField<short[]> faceTextures = addField(short[]::new, 10);
 
-	private final FieldCacheStatus<byte[]> faceRenderPriorities = addField(byte[]::new, 11);
-	private final FieldCacheStatus<byte[]> faceTransparencies = addField(byte[]::new, 12);
-	private final FieldCacheStatus<byte[]> faceBias = addField(byte[]::new, 13);
-	private final FieldCacheStatus<byte[]> textureFaces = addField(byte[]::new, 14);
+	private final CachedArrayField<byte[]> faceRenderPriorities = addField(byte[]::new, 11);
+	private final CachedArrayField<byte[]> faceTransparencies = addField(byte[]::new, 12);
+	private final CachedArrayField<byte[]> faceBias = addField(byte[]::new, 13);
+	private final CachedArrayField<byte[]> textureFaces = addField(byte[]::new, 14);
 
-	private final FieldCacheStatus<int[]> texIndices1 = addField(int[]::new, 15);
-	private final FieldCacheStatus<int[]> texIndices2 = addField(int[]::new, 16);
-	private final FieldCacheStatus<int[]> texIndices3 = addField(int[]::new, 17);
+	private final CachedArrayField<int[]> texIndices1 = addField(int[]::new, 15);
+	private final CachedArrayField<int[]> texIndices2 = addField(int[]::new, 16);
+	private final CachedArrayField<int[]> texIndices3 = addField(int[]::new, 17);
 
-	private final FieldCacheStatus<int[]> vertexNormalsX = addField(int[]::new, 18);
-	private final FieldCacheStatus<int[]> vertexNormalsY = addField(int[]::new, 19);
-	private final FieldCacheStatus<int[]> vertexNormalsZ = addField(int[]::new, 20);
+	private final CachedArrayField<int[]> vertexNormalsX = addField(int[]::new, 18);
+	private final CachedArrayField<int[]> vertexNormalsY = addField(int[]::new, 19);
+	private final CachedArrayField<int[]> vertexNormalsZ = addField(int[]::new, 20);
 
 	// Job Data
 	private final AsyncUploadData asyncData;
@@ -75,8 +75,8 @@ public final class AsyncCachedModel extends Job implements Model  {
 		this.asyncData = asyncData;
 	}
 
-	private <T> FieldCacheStatus<T> addField(ArraySupplier<T> supplier, int fieldIdx) {
-		FieldCacheStatus<T> newField = new FieldCacheStatus<>(supplier);
+	private <T> CachedArrayField<T> addField(ArraySupplier<T> supplier, int fieldIdx) {
+		CachedArrayField<T> newField = new CachedArrayField<>(supplier);
 		cachedFields[fieldIdx] = newField;
 		return newField;
 	}
@@ -145,7 +145,7 @@ public final class AsyncCachedModel extends Job implements Model  {
 	public short[] getFaceTextures() { return faceTextures.getValue(); }
 
 	public void queue(@Nonnull Model model, UploadModelFunc func) {
-		for (FieldCacheStatus<?> cachedField : cachedFields)
+		for (CachedArrayField<?> cachedField : cachedFields)
 			cachedField.setStatus(false);
 		uploadFunc = func;
 
@@ -375,7 +375,7 @@ public final class AsyncCachedModel extends Job implements Model  {
 	}
 
 	@RequiredArgsConstructor
-	private static final class FieldCacheStatus<T> {
+	private static final class CachedArrayField<T> {
 		private volatile boolean cached = false;
 		private volatile Thread waiter;
 		private final ArraySupplier<T> supplier;
