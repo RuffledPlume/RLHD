@@ -94,9 +94,7 @@ public class WorldViewContext {
 				zones[x][z] = injector.getInstance(Zone.class);
 	}
 
-	void initBuffers() { initBuffers(-1); }
-
-	void initBuffers(int vaoPreAllocate) {
+	void initBuffers(int vaoCount) {
 		if (vboM != null)
 			return;
 
@@ -110,8 +108,7 @@ public class WorldViewContext {
 
 		for(int i = 0; i < VAO_COUNT; i++) {
 			vaoLists[i] = new VAOList(vboM, eboAlpha, client);
-			if(vaoPreAllocate > 0)
-				vaoLists[i].preAllocate(vaoPreAllocate);
+			vaoLists[i].allocate(vaoCount);
 		}
 	}
 

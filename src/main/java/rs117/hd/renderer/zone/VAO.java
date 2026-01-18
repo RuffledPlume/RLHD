@@ -5,6 +5,8 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.LockSupport;
 import javax.annotation.Nonnull;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -144,6 +146,9 @@ class VAO {
 
 	void unlock() {
 		list.available.add(this);
+		list.inflight.decrementAndGet();
+		if(list.waiter != null)
+			LockSupport.unpark(list.waiter);
 	}
 
 	void reset() {
@@ -155,29 +160,41 @@ class VAO {
 	@RequiredArgsConstructor
 	static class VAOList {
 		// this needs to be larger than the largest single model
-		private static final int VAO_SIZE = (int) (4 * MiB);
+		private static final int VAO_SIZE = (int) (8 * MiB);
 		private static final int TBO_SIZE = ceil(VAO_SIZE / (3f * VERT_SIZE)) * 9 * Integer.BYTES;
 
 		private final List<VAO> vaos = Collections.synchronizedList(new ArrayList<>());
 		private final ConcurrentLinkedDeque<VAO> available = new ConcurrentLinkedDeque<>();
+		private final AtomicInteger requiredSize = new AtomicInteger();
+		private final AtomicInteger inflight = new AtomicInteger();
 		private final VBO vboMetadata;
 		private final int eboAlpha;
 		private final Client client;
 
-		void preAllocate(int count) {
+		private Thread waiter;
+
+		void allocate(int count) {
 			for (int i = 0; i < count; i++) {
 				VAO newVao = new VAO(this, VAO_SIZE);
 				newVao.initialize(eboAlpha, vboMetadata);
 				vaos.add(newVao);
 			}
-			log.debug("Pre-allocated {} VAO(s)", count);
+			log.debug("Allocated {} VAO(s)", count);
 		}
 
 		void map() {
 			available.clear();
+			inflight.set(0);
+			if(requiredSize.get() > 0) {
+				int vertexCount = requiredSize.getAndSet(0) * VERT_SIZE;
+				int vaoCount = ceil((float)(vertexCount / (double)VAO_SIZE));
+				allocate(vaoCount);
+			}
 			for (VAO vao : vaos) {
-				if(vao.vao == 0)
+				if(vao.vao == 0) {
 					vao.initialize(eboAlpha, vboMetadata);
+					log.debug("Allocated VAO {} request {}", vao.vao, vao.vbo.size);
+				}
 
 				if(!vao.vbo.mapped) {
 					vao.vbo.map();
@@ -194,6 +211,13 @@ class VAO {
 		synchronized VAO get(int size) {
 			assert size <= VAO_SIZE;
 
+			if(available.isEmpty() && inflight.get() > 0 && !client.isClientThread()) {
+				waiter = Thread.currentThread();
+				while (available.isEmpty() && inflight.get() > 0)
+					LockSupport.parkNanos(1000L);
+				waiter = null;
+			}
+
 			// Recycles VAO if sufficient space is available, otherwise creates a new one
 			// We don't re-add if there isn't enough space for the current model, to avoid checking the same VAO each time
 			VAO vao;
@@ -201,16 +225,17 @@ class VAO {
 				final int rem = vao.vbo.vb.remaining() * Integer.BYTES;
 				if (size <= rem) {
 					vao.used = true;
+					inflight.incrementAndGet();
 					return vao;
 				}
 			}
 
-			vao = new VAO(this, VAO_SIZE);
 			if(!client.isClientThread()) {
-				vaos.add(vao);
+				requiredSize.addAndGet(size);
 				return null; // Render Thread cant allocate or map, so we'll add the VAO so it'll be available next time around
 			}
 
+			vao = new VAO(this, VAO_SIZE);
 			vao.used = true;
 			vao.initialize(eboAlpha, vboMetadata);
 			vao.vbo.map();

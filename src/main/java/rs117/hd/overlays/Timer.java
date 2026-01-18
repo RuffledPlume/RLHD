@@ -11,12 +11,6 @@ import static rs117.hd.overlays.FrameTimer.GPU_TIMER;
 @RequiredArgsConstructor
 public enum Timer {
 	// CPU Timers
-	DRAW_FRAME,
-	DRAW_SCENE,
-	DRAW_RENDERABLE,
-	DRAW_TEMP,
-	DRAW_DYNAMIC,
-	DRAW_TILED_LIGHTING,
 	GET_MODEL,
 	VISIBILITY_CHECK,
 	CLICKBOX_CHECK,
@@ -37,6 +31,18 @@ public enum Timer {
 	EXECUTE_COMMAND_BUFFER,
 	MAP_UI_BUFFER("Map UI Buffer"),
 	COPY_UI("Copy UI"),
+
+	// Zone Renderer Draw Callbacks
+	DRAW_FRAME,
+	DRAW_SCENE,
+	DRAW_RENDERABLE,
+	DRAW_TEMP,
+	DRAW_DYNAMIC,
+	DRAW_TILED_LIGHTING,
+	DRAW_PRESCENE,
+	DRAW_PASS,
+	DRAW_POSTSCENE,
+	DRAW,
 
 	// Async Timers
 	COPY_UI_ASYNC(ASYNC_TIMER, "Copy UI Async"),
