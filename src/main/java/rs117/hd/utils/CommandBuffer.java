@@ -5,6 +5,7 @@ import java.util.Arrays;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.lwjgl.system.MemoryStack;
+import rs117.hd.opengl.GLFence;
 import rs117.hd.opengl.shader.ShaderProgram;
 import rs117.hd.overlays.FrameTimer;
 import rs117.hd.overlays.Timer;
@@ -36,6 +37,7 @@ public class CommandBuffer {
 	private static final int GL_USE_PROGRAM = 12;
 
 	private static final int GL_TOGGLE_TYPE = 13; // Combined glEnable & glDisable
+	private static final int GL_FENCE_SYNC = 14;
 
 	private static final long INT_MASK = 0xFFFF_FFFFL;
 	private static final int DRAW_MODE_MASK = 0xF;
@@ -53,7 +55,6 @@ public class CommandBuffer {
 
 	public CommandBuffer(RenderState renderState) {
 		this.renderState = renderState;
-		this.frameTimer = frameTimer;
 	}
 
 	public boolean isEmpty() {
@@ -68,6 +69,12 @@ public class CommandBuffer {
 	public void BindVertexArray(int vao) {
 		ensureCapacity(1);
 		cmd[writeHead++] = GL_BIND_VERTEX_ARRAY_TYPE & 0xFF | (long) vao << 8;
+	}
+
+	public void FenceSync(GLFence fence, int condition) {
+		ensureCapacity(2);
+		cmd[writeHead++] = GL_FENCE_SYNC & 0xFF | (long)condition << 8;
+		cmd[writeHead++] = writeObject(fence);
 	}
 
 	public void BindElementsArray(int ebo) {
@@ -304,6 +311,12 @@ public class CommandBuffer {
 						} else {
 							renderState.disable.set(capability);
 						}
+						break;
+					}
+					case GL_FENCE_SYNC: {
+						int condition = (int) (data >> 8);
+						GLFence fence = (GLFence) objects[(int)cmd[readHead++]];
+						fence.handle = glFenceSync(condition, 0);
 						break;
 					}
 					case GL_DRAW_ARRAYS_TYPE: {

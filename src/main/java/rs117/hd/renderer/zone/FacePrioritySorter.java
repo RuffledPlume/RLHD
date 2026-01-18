@@ -69,7 +69,7 @@ final class FacePrioritySorter {
 		if (diameter <= 0 || diameter >= MAX_DIAMETER)
 			return;
 
-		final int faceCount = model.getFaceCount();
+		final int faceCount = unsortedFaces.length;
 		final int radius = model.getRadius();
 
 		sortedFaces.reset();
@@ -84,28 +84,26 @@ final class FacePrioritySorter {
 		final int[] indices1 = model.getFaceIndices1();
 		final int[] indices2 = model.getFaceIndices2();
 		final int[] indices3 = model.getFaceIndices3();
-		final int[] faceColors3 = model.getFaceColors3();
-		for (int i = 0; i < faceCount; ++i) {
-			if (faceColors3[i] == -2)
-				continue;
-
-			final int offsetA = indices1[i] * 3;
+		for (int i = faceCount - 1; i >= 0; --i) {
+			final int f = unsortedFaces.faces[i];
+			
+			final int offsetA = indices1[f] * 3;
 			final float aX = modelProjected[offsetA];
 			final float aY = modelProjected[offsetA + 1];
 
-			final int offsetB = indices2[i] * 3;
+			final int offsetB = indices2[f] * 3;
 			final float bX = modelProjected[offsetB];
 			final float bY = modelProjected[offsetB + 1];
 
-			final int offsetC = indices3[i] * 3;
+			final int offsetC = indices3[f] * 3;
 			final float cX = modelProjected[offsetC];
 			final float cY = modelProjected[offsetC + 1];
 
 			// Back-face culling
-			if ((aX - bX) * (cY - bY) - (cX - bX) * (aY - bY) <= 0) {
-				unsortedFaces.putFace(i);
+			if ((aX - bX) * (cY - bY) - (cX - bX) * (aY - bY) <= 0)
 				continue;
-			}
+
+			unsortedFaces.removeAtSwap(i);
 
 			final int aZ = (int) modelProjected[offsetA + 2];
 			final int bZ = (int) modelProjected[offsetB + 2];
@@ -113,16 +111,16 @@ final class FacePrioritySorter {
 			final int fz = clamp(radius + (aZ + bZ + cZ) / 3, 0, diameter - 1);
 
 			if (zsortTail[fz] == -1) {
-				zsortHead[fz] = zsortTail[fz] = i;
-				zsortNext[i] = -1;
+				zsortHead[fz] = zsortTail[fz] = f;
+				zsortNext[f] = -1;
 
 				minFz = min(minFz, fz);
 				maxFz = max(maxFz, fz);
 			} else {
 				int lastFace = zsortTail[fz];
-				zsortNext[lastFace] = i;
-				zsortNext[i] = -1;
-				zsortTail[fz] = i;
+				zsortNext[lastFace] = f;
+				zsortNext[f] = -1;
+				zsortTail[fz] = f;
 			}
 		}
 
@@ -284,21 +282,34 @@ final class FacePrioritySorter {
 			return this;
 		}
 
-		private SortedFaces ensureCapacity(int count) {
+		public SortedFaces ensureCapacity(int count) {
 			if (length + count > faces.length)
-				 faces = Arrays.copyOf(faces, ceilPow2(length + count));
+				faces = Arrays.copyOf(faces, ceilPow2(length + count));
 			return this;
 		}
 
-		private void putFace(int f) {
+		public void putFace(int f) {
 			if (length < faces.length)
 				faces[length++] = f;
 		}
 
-		private void putFaces(int[] indices, int offset, int count) {
+		public void putFaces(int[] indices, int offset, int count) {
 			ensureCapacity(count);
 			System.arraycopy(indices, offset, faces, length, count);
 			length += count;
+		}
+
+		public void removeAt(int idx) {
+			if (idx < 0 || idx >= length)
+				return;
+			System.arraycopy(faces, idx + 1, faces, idx, length - idx - 1);
+			length--;
+		}
+
+		public void removeAtSwap(int idx) {
+			if (idx < 0 || idx >= length)
+				return;
+			faces[idx] = faces[--length];
 		}
 	}
 }

@@ -1970,14 +1970,15 @@ public class HdPlugin extends Plugin {
 		// @formatter:on
 	}
 
-	public static void checkGLErrors() {
+	public static boolean checkGLErrors() {
 		if (SKIP_GL_ERROR_CHECKS)
-			return;
+			return false;
 
+		boolean hasGLError = false;
 		while (true) {
 			int err = glGetError();
 			if (err == GL_NO_ERROR)
-				return;
+				return hasGLError;
 
 			String errStr;
 			switch (err) {
@@ -2005,6 +2006,7 @@ public class HdPlugin extends Plugin {
 			}
 
 			log.debug("glGetError:", new Exception(errStr));
+			hasGLError = true;
 		}
 	}
 

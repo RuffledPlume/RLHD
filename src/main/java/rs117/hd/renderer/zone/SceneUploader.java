@@ -24,7 +24,6 @@
  */
 package rs117.hd.renderer.zone;
 
-import java.nio.IntBuffer;
 import java.util.HashSet;
 import java.util.Set;
 import javax.inject.Inject;
@@ -32,6 +31,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.client.callback.RenderCallbackManager;
 import rs117.hd.HdPlugin;
+import rs117.hd.renderer.zone.FacePrioritySorter.SortedFaces;
 import rs117.hd.scene.GamevalManager;
 import rs117.hd.scene.MaterialManager;
 import rs117.hd.scene.ModelOverrideManager;
@@ -175,9 +175,9 @@ public class SceneUploader {
 	}
 
 	public void uploadZone(ZoneSceneContext ctx, Zone zone, int mzx, int mzz) {
-		var vb = zone.vboO != null ? new GpuIntBuffer(zone.vboO.vb) : null;
-		var ab = zone.vboA != null ? new GpuIntBuffer(zone.vboA.vb) : null;
-		var fb = zone.tboF != null ? new GpuIntBuffer(zone.tboF.getPixelBuffer()) : null;
+		var vb = zone.vboO != null ? new GpuIntBuffer(zone.vboO.getIntView()) : null;
+		var ab = zone.vboA != null ? new GpuIntBuffer(zone.vboA.getIntView()) : null;
+		var fb = zone.tboF != null ? new GpuIntBuffer(zone.tboF.getIntView()) : null;
 		assert fb != null;
 
 		roofIds.clear();
@@ -209,7 +209,7 @@ public class SceneUploader {
 			}
 
 			if (zone.vboO != null) {
-				int pos = zone.vboO.vb.position();
+				int pos = zone.vboO.getIntView().position();
 				zone.levelOffsets[z] = pos;
 			}
 		}
@@ -237,11 +237,11 @@ public class SceneUploader {
 
 		// upload the roofs and save their positions
 		for (int id : roofIds) {
-			int pos = zone.vboO != null ? zone.vboO.vb.position() : 0;
+			int pos = zone.vboO != null ? zone.vboO.getIntView().position() : 0;
 
 			uploadZoneLevelRoof(ctx, zone, mzx, mzz, level, id, visbelow, vb, ab, fb);
 
-			int endpos = zone.vboO != null ? zone.vboO.vb.position() : 0;
+			int endpos = zone.vboO != null ? zone.vboO.getIntView().position() : 0;
 
 			if (endpos > pos) {
 				zone.rids[level][ridx] = id;
@@ -700,7 +700,7 @@ public class SceneUploader {
 		if (modelOverride.hide)
 			return;
 
-		int alphaStart = zone.vboA != null ? zone.vboA.vb.position() : 0;
+		int alphaStart = zone.vboA != null ? zone.vboA.getIntView().position() : 0;
 		try {
 			uploadStaticModel(
 				ctx, tile, model, modelOverride, uuid,
@@ -725,7 +725,7 @@ public class SceneUploader {
 			);
 		}
 
-		int alphaEnd = zone.vboA != null ? zone.vboA.vb.position() : 0;
+		int alphaEnd = zone.vboA != null ? zone.vboA.getIntView().position() : 0;
 		if (alphaEnd > alphaStart) {
 			if (lx > -1) {
 				lx -= basex >> 7;
@@ -1653,7 +1653,7 @@ public class SceneUploader {
 		return len;
 	}
 
-	public boolean transformModelVertices(Projection proj, float[] modelProjected, boolean localSpace, Model model, int x, int y, int z, int orientation) {
+	public boolean preprocessTempModel(Projection proj, float[] modelProjected, SortedFaces faces, ModelOverride modelOverride, Model model, int x, int y, int z, int orientation) {
 		final int vertexCount = model.getVerticesCount();
 
 		final float[] verticesX = model.getVerticesX();
@@ -1699,12 +1699,6 @@ public class SceneUploader {
 				}
 			}
 
-			if(localSpace) {
-				vertexX -= x;
-				vertexY -= y;
-				vertexZ -= z;
-			}
-
 			modelLocal[vertexOffset] = vertexX;
 			modelLocalI[vertexOffset] = Float.floatToIntBits(vertexX);
 			vertexOffset++;
@@ -1718,25 +1712,45 @@ public class SceneUploader {
 			vertexOffset++;
 		}
 
+		final int triangleCount = model.getFaceCount();
+		final int[] color3s = model.getFaceColors3();
+		final byte[] transparencies = model.getFaceTransparencies();
+
+		faces.ensureCapacity(triangleCount);
+
+		for(int f = 0; f < triangleCount; f++) {
+			int transparency = transparencies != null ? transparencies[f] & 0xFF : 0;
+			if (transparency == 255)
+				continue;
+
+			int color3 = color3s[f];
+			if (color3 == -2)
+				continue;
+
+			// Hide fake shadows or lighting that is often baked into models by making the fake shadow transparent
+			if (plugin.configHideFakeShadows && modelOverride.hideVanillaShadows && HDUtils.isBakedGroundShading(model, f))
+				continue;
+
+			faces.putFace(f);
+		}
+
 		return shouldSort;
 	}
 
 	// temp draw
 	public void uploadTempModel(
-		FacePrioritySorter.SortedFaces sortedFaces,
+		SortedFaces faces,
 		Model model,
 		ModelOverride modelOverride,
 		int preOrientation,
 		int orientation,
 		boolean isShadow,
-		IntBuffer opaqueBuffer,
-		IntBuffer alphaBuffer,
-		IntBuffer opaqueTexBuffer,
-		IntBuffer alphaTexBuffer
+		VAO.VAOView opaqueView,
+		VAO.VAOView alphaView
 	) {
 		if(writeCache == null)
 			writeCache = new VertexWriteCache.Collection();
-		writeCache.setOutputBuffers(opaqueBuffer, alphaBuffer, opaqueTexBuffer, alphaTexBuffer);
+		writeCache.setOutputBuffers(opaqueView.vbo, alphaView.vbo, opaqueView.tbo, alphaView.tbo);
 
 		final int[] indices1 = model.getFaceIndices1();
 		final int[] indices2 = model.getFaceIndices2();
@@ -1758,10 +1772,8 @@ public class SceneUploader {
 		final byte[] transparencies = model.getFaceTransparencies();
 		final int[] faceNormals = isShadow ? EMPTY_NORMALS : modelNormals;
 
-		final int triangleCount = model.getFaceCount();
 		final boolean hasBias = bias != null;
 		final boolean hasTransparency = transparencies != null;
-		final boolean hasSortedIndices = sortedFaces != null;
 		final boolean modelHasNormals = model.getVertexNormalsX() != null && model.getVertexNormalsY() != null && model.getVertexNormalsZ() != null;
 
 		final byte overrideAmount = model.getOverrideAmount();
@@ -1784,33 +1796,20 @@ public class SceneUploader {
 
 		final Material baseMaterial = modelOverride.baseMaterial;
 		final Material textureMaterial = modelOverride.textureMaterial;
+		final int faceCount = faces.length;
 
-		final int faceCount = hasSortedIndices ? sortedFaces.length : triangleCount;
 		for (int f = 0; f < faceCount; ++f) {
-			final int face = hasSortedIndices ? sortedFaces.faces[f] : f;
-			if(face == -1)
-				break;
-
-			int transparency = hasTransparency ? transparencies[face] & 0xFF : 0;
-			if (hasTransparency && transparency == 255)
-				continue;
-
-			int color3 = color3s[face];
-			if (color3 == -2)
-				continue;
-
-			// Hide fake shadows or lighting that is often baked into models by making the fake shadow transparent
-			if (plugin.configHideFakeShadows && modelOverride.hideVanillaShadows && HDUtils.isBakedGroundShading(model, face))
-				continue;
-
+			final int face = faces.faces[f];
 			int color1 = color1s[face];
 			int color2 = color2s[face];
+			int color3 = color3s[face];
 
 			if (unlitFaceColors != null)
 				color1 = color2 = color3 = unlitFaceColors[face] & 0xFFFF;
 			else if(color3 == -1)
 				color2 = color3 = color1;
 
+			final int transparency = hasTransparency ? transparencies[face] & 0xFF : 0;
 			final int textureFace = textureFaces != null ? textureFaces[face] : -1;
 			final int textureId = isVanillaTextured ? faceTextures[face] : -1;
 			UvType uvType = UvType.GEOMETRY;
@@ -1918,6 +1917,10 @@ public class SceneUploader {
 				hasBias ? bias[face] & 0xFF : 0;
 			final int packedAlphaBiasHsl = transparency << 24 | depthBias << 16;
 			final boolean hasAlpha = material.hasTransparency || transparency != 0;
+
+			color1 |= packedAlphaBiasHsl;
+			color2 |= packedAlphaBiasHsl;
+			color3 |= packedAlphaBiasHsl;
 
 			final VertexWriteCache vb, tb;
 			if (writeCache.useAlphaBuffer && hasAlpha) {

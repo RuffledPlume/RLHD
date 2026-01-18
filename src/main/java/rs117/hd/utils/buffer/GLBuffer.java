@@ -27,13 +27,19 @@ package rs117.hd.utils.buffer;
 import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
+import lombok.Getter;
 import lombok.RequiredArgsConstructor;
+import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.lwjgl.opengl.*;
-import rs117.hd.HdPlugin;
 import rs117.hd.utils.HDUtils;
 
 import static org.lwjgl.opengl.GL33C.*;
+import static org.lwjgl.opengl.GL44.GL_CLIENT_STORAGE_BIT;
+import static org.lwjgl.opengl.GL44.GL_MAP_COHERENT_BIT;
+import static org.lwjgl.opengl.GL44.GL_MAP_PERSISTENT_BIT;
+import static org.lwjgl.opengl.GL44.glBufferStorage;
+import static rs117.hd.HdPlugin.GL_CAPS;
 import static rs117.hd.HdPlugin.checkGLErrors;
 import static rs117.hd.utils.MathUtils.*;
 
@@ -48,6 +54,29 @@ public class GLBuffer
 	public int id;
 	public long size;
 
+	@Setter
+	private boolean wantsPersistent;
+	@Setter
+	private boolean wantsClientStorage;
+	@Getter
+	private long writtenBytes;
+	@Getter
+	private boolean persistent;
+	@Getter
+	private boolean mapped;
+	@Getter
+	private int mappedFlags;
+	@Getter
+	private IntBuffer intView;
+	@Getter
+	private FloatBuffer floatView;
+	@Getter
+	private ByteBuffer mappedBuffer;
+
+	public static boolean supportsPersistentBuffers() {
+		return GL_CAPS.GL_ARB_buffer_storage;
+	}
+
 	public void initialize() {
 		initialize(0);
 	}
@@ -61,23 +90,26 @@ public class GLBuffer
 	}
 
 	public void destroy() {
-		size = 0;
+		if(mapped)
+			unmap();
 
 		if (id != 0) {
 			glDeleteBuffers(id);
 			id = 0;
 		}
+
+		size = 0;
 	}
 
-	public void ensureCapacity(long numBytes) {
-		ensureCapacity(0, numBytes);
+	public boolean ensureCapacity(long numBytes) {
+		return ensureCapacity(0, numBytes);
 	}
 
-	public void ensureCapacity(long byteOffset, long numBytes) {
+	public boolean ensureCapacity(long byteOffset, long numBytes) {
 		numBytes += byteOffset;
 		if (numBytes <= size) {
 			glBindBuffer(target, id);
-			return;
+			return false;
 		}
 
 		numBytes = HDUtils.ceilPow2(numBytes);
@@ -90,27 +122,51 @@ public class GLBuffer
 			);
 		}
 
-		if (byteOffset > 0) {
-			// Create a new buffer and copy the old data to it
-			int oldBuffer = id;
+		final boolean wasMapped = mapped;
+		if (wasMapped) unmap();
+
+		int oldBuffer = id;
+		if (byteOffset > 0)
 			id = glGenBuffers();
-			glBindBuffer(target, id);
+
+		glBindBuffer(target, id);
+
+		if(supportsPersistentBuffers() && wantsPersistent) {
+			glBufferStorage(target, numBytes, GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_COHERENT_BIT | (wantsClientStorage ? GL_CLIENT_STORAGE_BIT : 0));
+
+			mappedBuffer = glMapBufferRange(target, 0, numBytes, GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT | GL_MAP_UNSYNCHRONIZED_BIT);
+			if(mappedBuffer != null) {
+				intView = mappedBuffer.asIntBuffer();
+				floatView = mappedBuffer.asFloatBuffer();
+				persistent = true;
+				mapped = true;
+			}
+		}
+
+		if(!persistent)
 			glBufferData(target, numBytes, usage);
 
+		if (byteOffset > 0) {
 			glBindBuffer(GL_COPY_READ_BUFFER, oldBuffer);
 			glCopyBufferSubData(GL_COPY_READ_BUFFER, target, 0, 0, byteOffset);
 			glDeleteBuffers(oldBuffer);
-		} else {
-			glBindBuffer(target, id);
-			glBufferData(target, numBytes, usage);
 		}
 
 		size = numBytes;
 
-		if (log.isDebugEnabled() && HdPlugin.GL_CAPS.OpenGL43) {
+		if (log.isDebugEnabled() && GL_CAPS.OpenGL43) {
 			GL43C.glObjectLabel(GL43C.GL_BUFFER, id, name);
-			checkGLErrors();
+			if(checkGLErrors())
+				log.error("Errors encountered on buffer {} offset: {} size: {} mapped: {} persistent: {}", name, byteOffset, numBytes, mapped,
+					persistent
+				);
 		}
+
+		// If was mapped, re-mapp without GL_MAP_INVALIDATE_BUFFER_BIT, since we may have previously written data
+		if(wasMapped && !persistent)
+			map(mappedFlags & ~(GL_MAP_INVALIDATE_BUFFER_BIT), (int)getWrittenBytes(), size);
+
+		return true;
 	}
 
 	public void upload(ByteBuffer data) {
@@ -120,7 +176,12 @@ public class GLBuffer
 	public void upload(ByteBuffer data, long byteOffset) {
 		long numBytes = data.remaining();
 		ensureCapacity(byteOffset, numBytes);
-		glBufferSubData(target, byteOffset, data);
+		if(persistent) {
+			mappedBuffer.position((int)byteOffset);
+			mappedBuffer.put(data);
+		} else {
+			glBufferSubData(target, byteOffset, data);
+		}
 	}
 
 	public void upload(IntBuffer data) {
@@ -130,7 +191,12 @@ public class GLBuffer
 	public void upload(IntBuffer data, long byteOffset) {
 		long numBytes = 4L * data.remaining();
 		ensureCapacity(byteOffset, numBytes);
-		glBufferSubData(target, byteOffset, data);
+		if(persistent) {
+			intView.position((int)(byteOffset / 4));
+			intView.put(data);
+		} else {
+			glBufferSubData(target, byteOffset, data);
+		}
 	}
 
 	public void upload(FloatBuffer data) {
@@ -140,7 +206,12 @@ public class GLBuffer
 	public void upload(FloatBuffer data, long byteOffset) {
 		long numBytes = 4L * data.remaining();
 		ensureCapacity(byteOffset, numBytes);
-		glBufferSubData(target, byteOffset, data);
+		if(persistent) {
+			floatView.position((int)(byteOffset / 4));
+			floatView.put(data);
+		} else {
+			glBufferSubData(target, byteOffset, data);
+		}
 	}
 
 	public void upload(GpuIntBuffer data) {
@@ -157,5 +228,88 @@ public class GLBuffer
 
 	public void upload(GpuFloatBuffer data, long byteOffset) {
 		upload(data.getBuffer(), byteOffset);
+	}
+
+	public GLBuffer map(int flags) {
+		return map(flags, 0, size);
+	}
+
+	public void copyTo(GLBuffer dst, long srcOffsetBytes, long dstOffsetBytes, long numBytes) {
+		if (numBytes <= 0)
+			return;
+
+		dst.ensureCapacity(dstOffsetBytes + numBytes);
+
+		if (GL_CAPS.OpenGL45 ) {
+			GL45.glCopyNamedBufferSubData(id, dst.id, srcOffsetBytes, dstOffsetBytes, numBytes);
+		} else {
+			glBindBuffer(GL_COPY_READ_BUFFER, id);
+			glBindBuffer(GL_COPY_WRITE_BUFFER, dst.id);
+			glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, srcOffsetBytes, dstOffsetBytes, numBytes);
+			glBindBuffer(GL_COPY_READ_BUFFER, 0);
+			glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+		}
+	}
+
+	public GLBuffer map(int flags, int byteOffset, long size) {
+		if(persistent) {
+			mappedBuffer.position(byteOffset);
+			intView.position(byteOffset / Integer.BYTES);
+			floatView.position(byteOffset / Integer.BYTES);
+			return this;
+		}
+
+		assert !mapped;
+		glBindBuffer(target, id);
+
+		ByteBuffer buf;
+		mappedFlags = flags;
+		if (usage != GL_STATIC_DRAW) {
+			mappedFlags |= GL_MAP_FLUSH_EXPLICIT_BIT;
+			buf = glMapBufferRange(
+				target,
+				0,
+				size,
+				mappedFlags,
+				mappedBuffer
+			);
+		} else {
+			int access = (mappedFlags & (GL_MAP_WRITE_BIT | GL_MAP_READ_BIT)) != 0 ? GL_READ_WRITE : (mappedFlags & GL_MAP_WRITE_BIT) != 0 ? GL_WRITE_ONLY : GL_READ_ONLY;
+			buf = glMapBuffer(target, access, mappedBuffer);
+		}
+		if (buf == null) {
+			checkGLErrors();
+			throw new RuntimeException("unable to map GL buffer " + id + " offset " + byteOffset + " size " + size);
+		}
+		if (buf != mappedBuffer) {
+			mappedBuffer = buf;
+			intView = mappedBuffer.asIntBuffer();
+			floatView = mappedBuffer.asFloatBuffer();
+		}
+		mappedBuffer.position(byteOffset);
+		intView.position(byteOffset / Integer.BYTES);
+		floatView.position(byteOffset / Integer.BYTES);
+		glBindBuffer(target, 0);
+		mapped = true;
+		return this;
+	}
+
+	public void unmap() {
+		assert mapped;
+		writtenBytes = mappedBuffer.position();
+		writtenBytes = max(writtenBytes, intView.position() * (long)Integer.BYTES);
+		writtenBytes = max(writtenBytes, floatView.position() * (long)Integer.BYTES);
+
+		glBindBuffer(target, id);
+
+		if (usage != GL_STATIC_DRAW && (mappedFlags & GL_MAP_FLUSH_EXPLICIT_BIT) != 0)
+			glFlushMappedBufferRange(target, 0, writtenBytes);
+
+		if(!persistent) {
+			glUnmapBuffer(target);
+			mapped = false;
+		}
+
+		glBindBuffer(target, 0);
 	}
 }

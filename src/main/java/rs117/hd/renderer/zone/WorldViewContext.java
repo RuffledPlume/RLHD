@@ -13,21 +13,23 @@ import net.runelite.api.*;
 import net.runelite.client.callback.ClientThread;
 import rs117.hd.opengl.uniforms.UBOWorldViews;
 import rs117.hd.opengl.uniforms.UBOWorldViews.WorldViewStruct;
-import rs117.hd.renderer.zone.VAO.VAOList;
 import rs117.hd.utils.Camera;
+import rs117.hd.utils.CommandBuffer;
+import rs117.hd.utils.buffer.GLBuffer;
 import rs117.hd.utils.jobs.JobGroup;
 
 import static org.lwjgl.opengl.GL33C.*;
 import static rs117.hd.renderer.zone.SceneManager.NUM_ZONES;
-import static rs117.hd.renderer.zone.ZoneRenderer.eboAlpha;
 
 @Slf4j
 public class WorldViewContext {
+	private static final int VAO_BUFFER_COUNT = 3;
+
 	public static final int VAO_OPAQUE = 0;
 	public static final int VAO_ALPHA = 1;
-	public static final int VAO_PLAYER = 3;
-	public static final int VAO_SHADOW = 4;
-	public static final int VAO_COUNT = 5;
+	public static final int VAO_PLAYER = 2;
+	public static final int VAO_SHADOW = 3;
+	public static final int VAO_COUNT = 4;
 
 	public static final int ALPHA_ZSORT = 8192;
 	public static final int ALPHA_ZSORT_SQ = ALPHA_ZSORT * ALPHA_ZSORT;
@@ -50,7 +52,7 @@ public class WorldViewContext {
 	WorldViewStruct uboWorldViewStruct;
 	ZoneSceneContext sceneContext;
 	Zone[][] zones;
-	VBO vboM;
+	GLBuffer vboM;
 	boolean isLoading = true;
 
 	int minLevel, level, maxLevel;
@@ -61,8 +63,9 @@ public class WorldViewContext {
 
 	StaticAlphaSortingJob staticAlphaSortingJob;
 
-	final VAOList[] vaoLists = new VAOList[VAO_COUNT];
+	final VAO[][] vaos = new VAO[VAO_BUFFER_COUNT][VAO_COUNT];
 
+	private int frame;
 	public long loadTime;
 	public long uploadTime;
 	public long sceneSwapTime;
@@ -94,53 +97,42 @@ public class WorldViewContext {
 				zones[x][z] = injector.getInstance(Zone.class);
 	}
 
-	void initBuffers(int vaoCount) {
+	void initBuffers() {
 		if (vboM != null)
 			return;
 
-		vboM = new VBO(VAO.METADATA_SIZE);
-		vboM.initialize(GL_STATIC_DRAW);
-		vboM.map();
-		vboM.vb
+		vboM = new GLBuffer("WorldViewMetadata", GL_ARRAY_BUFFER, GL_DYNAMIC_DRAW);
+		vboM.initialize(VAO.METADATA_SIZE);
+		vboM.map(GL_MAP_WRITE_BIT)
+			.getIntView()
 			.put(uboWorldViewStruct == null ? 0 : uboWorldViewStruct.worldViewIdx + 1)
 			.put(0).put(0); // dummy scene offset for macOS
 		vboM.unmap();
 
-		for(int i = 0; i < VAO_COUNT; i++) {
-			vaoLists[i] = new VAOList(vboM, eboAlpha, client);
-			vaoLists[i].allocate(vaoCount);
+		for(int i = 0; i < VAO_COUNT; i ++) {
+			for(int k = 0; k < VAO_BUFFER_COUNT; k++) {
+				vaos[k][i] = new VAO();
+				vaos[k][i].initialize(vboM);
+			}
 		}
-	}
-
-	VAOList getVaoList(int vaoType) {
-		assert vaoType >= 0 && vaoType < VAO_COUNT : "Invalid VAO type: " + vaoType;
-		return vaoLists[vaoType];
-	}
-
-	VAO getVao(int vaoType, int size) {
-		assert vaoType >= 0 && vaoType < VAO_COUNT : "Invalid VAO type: " + vaoType;
-		return vaoLists[vaoType].get(size);
 	}
 
 	void map() {
-		for(int i = 0; i < VAO_COUNT; i++) {
-			if(vaoLists[i] != null)
-				vaoLists[i].map();
-		}
+		frame++;
+		for(int i = 0; i < VAO_COUNT; i ++)
+			vaos[frame % VAO_BUFFER_COUNT][i].map();
 	}
 
-	void addRange() {
-		for(int i = 0; i < VAO_COUNT; i++) {
-			if(vaoLists[i] != null)
-				vaoLists[i].addRange();
-		}
+	VAO.VAOView beginDraw(int type, int faces) {
+		return vaos[frame % VAO_BUFFER_COUNT][type].beginDraw(faces);
 	}
 
-	void unmap() {
-		for(int i = 0; i < VAO_COUNT; i++) {
-			if(vaoLists[i] != null)
-				vaoLists[i].unmap();
-		}
+	void drawAll(int type, CommandBuffer cmd) {
+		vaos[frame % VAO_BUFFER_COUNT][type].draw(cmd);
+	}
+
+	void unmap(int type, boolean coalesce) {
+		vaos[frame % VAO_BUFFER_COUNT][type].unmap(coalesce);
 	}
 
 	void sortStaticAlphaModels(FacePrioritySorter facePrioritySorter, Camera camera) {
@@ -285,9 +277,10 @@ public class WorldViewContext {
 			uboWorldViewStruct.free();
 		uboWorldViewStruct = null;
 
-		for(int i = 0; i < VAO_COUNT; i++) {
-			if(vaoLists[i] != null)
-				vaoLists[i].free();
+		for(int i = 0; i < VAO_COUNT; i ++) {
+			for (int k = 0; k < VAO_BUFFER_COUNT; k++) {
+				vaos[k][i].destroy();
+			}
 		}
 
 		for (int x = 0; x < sizeX; ++x)

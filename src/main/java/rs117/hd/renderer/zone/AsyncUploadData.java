@@ -16,6 +16,8 @@ public class AsyncUploadData {
 	@Inject
 	FacePrioritySorter facePrioritySorter;
 
+	public final int uploadThreadId;
+
 	public final ReentrantLock syncLock = new ReentrantLock();
 	public final FacePrioritySorter.SortedFaces sortedFaces = new FacePrioritySorter.SortedFaces();
 	public final FacePrioritySorter.SortedFaces unsortedFaces = new FacePrioritySorter.SortedFaces();
@@ -23,7 +25,8 @@ public class AsyncUploadData {
 	private final AsyncCachedModel[] models;
 	public final ConcurrentLinkedDeque<AsyncCachedModel> freeModels = new ConcurrentLinkedDeque<>();
 
-	AsyncUploadData(boolean createModelCache, Injector injector) {
+	AsyncUploadData(int uploadThreadId, boolean createModelCache, Injector injector) {
+		this.uploadThreadId = uploadThreadId;
 		if(createModelCache) {
 			models = new AsyncCachedModel[BUFFER_COUNT];
 			for (int i = 0; i < BUFFER_COUNT; i++) {

@@ -24,6 +24,7 @@ import rs117.hd.scene.model_overrides.ModelOverride;
 import rs117.hd.utils.Camera;
 import rs117.hd.utils.CommandBuffer;
 import rs117.hd.utils.HDUtils;
+import rs117.hd.utils.buffer.GLBuffer;
 import rs117.hd.utils.buffer.GLTextureBuffer;
 import rs117.hd.utils.jobs.GenericJob;
 
@@ -58,7 +59,7 @@ public class Zone {
 
 	public static final int LEVEL_WATER_SURFACE = 4;
 
-	public static final BlockingDeque<VBO> VBO_PENDING_DELETION = new LinkedBlockingDeque<>();
+	public static final BlockingDeque<GLBuffer> VBO_PENDING_DELETION = new LinkedBlockingDeque<>();
 	public static final BlockingDeque<Integer> VAO_PENDING_DELETION = new LinkedBlockingDeque<>();
 
 	public int glVao;
@@ -71,7 +72,7 @@ public class Zone {
 
 	public int sizeO, sizeA, sizeF;
 	@Nullable
-	public VBO vboO, vboA, vboM;
+	public GLBuffer vboO, vboA, vboM;
 	public GLTextureBuffer tboF;
 
 	public boolean initialized; // whether the zone vao and vbos are ready
@@ -96,25 +97,25 @@ public class Zone {
 	final List<AlphaModel> alphaModels = new ArrayList<>(0);
 	final List<AlphaModel> playerModels = new ArrayList<>(0);
 
-	public void initialize(VBO o, VBO a, GLTextureBuffer f, int eboShared) {
+	public void initialize(GLBuffer o, GLBuffer a, GLTextureBuffer f, int eboShared) {
 		assert glVao == 0;
 		assert glVaoA == 0;
 		if (o == null && a == null || f == null)
 			return;
 
-		vboM = new VBO(METADATA_SIZE);
-		vboM.initialize(GL_STATIC_DRAW);
+		vboM = new GLBuffer("ZoneMetadata", GL_ARRAY_BUFFER, GL_DYNAMIC_DRAW);
+		vboM.initialize(METADATA_SIZE);
 
 		if (o != null) {
 			vboO = o;
 			glVao = glGenVertexArrays();
-			setupVao(glVao, o.bufId, vboM.bufId, eboShared);
+			setupVao(glVao, o.id, vboM.id, eboShared);
 		}
 
 		if (a != null) {
 			vboA = a;
 			glVaoA = glGenVertexArrays();
-			setupVao(glVaoA, a.bufId, vboM.bufId, eboShared);
+			setupVao(glVaoA, a.id, vboM.id, eboShared);
 		}
 
 		tboF = f;
@@ -193,7 +194,7 @@ public class Zone {
 
 	public static void processPendingDeletions() {
 		int leakCount = 0;
-		VBO vbo;
+		GLBuffer vbo;
 		while ((vbo = VBO_PENDING_DELETION.poll()) != null) {
 			vbo.destroy();
 			leakCount++;
@@ -251,11 +252,11 @@ public class Zone {
 			tboF.unmap();
 
 		if (vboO != null) {
-			this.bufLen = vboO.len / (VERT_SIZE / 4);
+			this.bufLen = (int)(vboO.getWrittenBytes() / VERT_SIZE);
 		}
 
 		if (vboA != null) {
-			this.bufLenA = vboA.len / (VERT_SIZE / 4);
+			this.bufLenA = (int)(vboA.getWrittenBytes() / VERT_SIZE);
 		}
 	}
 
@@ -307,10 +308,10 @@ public class Zone {
 		int baseX = (mx - (sceneContext.sceneOffset >> 3)) << 10;
 		int baseZ = (mz - (sceneContext.sceneOffset >> 3)) << 10;
 
-		vboM.map();
-		vboM.vb.put(viewContext.uboWorldViewStruct != null ? viewContext.uboWorldViewStruct.worldViewIdx + 1 : 0);
-		vboM.vb.put(baseX);
-		vboM.vb.put(baseZ);
+		vboM.map(GL_MAP_WRITE_BIT).getIntView()
+			.put(viewContext.uboWorldViewStruct != null ? viewContext.uboWorldViewStruct.worldViewIdx + 1 : 0)
+			.put(baseX)
+			.put(baseZ);
 		vboM.unmap();
 	}
 

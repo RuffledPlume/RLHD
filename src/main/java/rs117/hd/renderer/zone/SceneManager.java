@@ -20,7 +20,6 @@ import net.runelite.api.*;
 import net.runelite.client.callback.ClientThread;
 import rs117.hd.HdPlugin;
 import rs117.hd.HdPluginConfig;
-import rs117.hd.config.ThreadingMode;
 import rs117.hd.opengl.uniforms.UBOWorldViews;
 import rs117.hd.overlays.FrameTimer;
 import rs117.hd.overlays.Timer;
@@ -36,7 +35,6 @@ import rs117.hd.utils.jobs.GenericJob;
 
 import static net.runelite.api.Constants.*;
 import static net.runelite.api.Perspective.SCENE_SIZE;
-import static rs117.hd.HdPlugin.PROCESSOR_COUNT;
 import static rs117.hd.HdPlugin.checkGLErrors;
 import static rs117.hd.utils.MathUtils.*;
 
@@ -679,7 +677,7 @@ public class SceneManager {
 		nextSceneContext = null;
 
 		if (isFirst) {
-			root.initBuffers(ceil(PROCESSOR_COUNT * ThreadingMode.HIGH.threadRatio));
+			root.initBuffers();
 
 			// Load all pre-existing sub scenes on the first scene load
 			for (WorldEntity subEntity : client.getTopLevelWorldView().worldEntities()) {
@@ -739,7 +737,7 @@ public class SceneManager {
 		Stopwatch sw = Stopwatch.createStarted();
 		ctx.sceneLoadGroup.complete();
 		ctx.uploadTime = sw.elapsed(TimeUnit.NANOSECONDS);
-		ctx.initBuffers(1);
+		ctx.initBuffers();
 		ctx.isLoading = false;
 		ctx.sceneSwapTime = sw.elapsed(TimeUnit.NANOSECONDS);
 		log.debug("swapSubScene time {} WorldView ready: {}", ctx.sceneSwapTime, scene.getWorldViewId());
