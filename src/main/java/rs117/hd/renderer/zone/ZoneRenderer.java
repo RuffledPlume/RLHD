@@ -765,10 +765,12 @@ public class ZoneRenderer implements Renderer {
 
 		// Space out GL calls on Apple, to minimize stalls from the command queue filling up
 		if (APPLE) {
+			frameTimer.begin(Timer.DRAW_SUBMIT);
 			WorldViewContext root = sceneManager.getRoot();
 			if(root != null)
 				root.unmap();
 			directionalShadowPass();
+			frameTimer.end(Timer.DRAW_SUBMIT);
 		}
 		shouldRenderScene = true;
 
@@ -1577,7 +1579,7 @@ public class ZoneRenderer implements Renderer {
 			return;
 		}
 
-		frameTimer.begin(Timer.DRAW);
+		frameTimer.begin(Timer.DRAW_SUBMIT);
 		if (shouldRenderScene) {
 			WorldViewContext root = sceneManager.getRoot();
 			if(root != null)
@@ -1621,7 +1623,7 @@ public class ZoneRenderer implements Renderer {
 		}
 
 		plugin.drawUi(overlayColor);
-		frameTimer.end(Timer.DRAW);
+		frameTimer.end(Timer.DRAW_SUBMIT);
 
 		jobSystem.processPendingClientCallbacks();
 
