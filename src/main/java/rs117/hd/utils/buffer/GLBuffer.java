@@ -190,7 +190,7 @@ public class GLBuffer
 			glBufferData(target, numBytes, usage);
 
 		if (id != oldBuffer && oldBuffer != 0 && byteOffset > 0) {
-			copyTo(oldBuffer, id, 0, 0, size);
+			copyRangeTo(oldBuffer, id, 0, 0, size);
 			glDeleteBuffers(oldBuffer);
 		}
 
@@ -303,72 +303,110 @@ public class GLBuffer
 			return;
 
 		dst.ensureCapacity(dstOffsetBytes + numBytes);
-		copyTo(id, dst.id, srcOffsetBytes, dstOffsetBytes, numBytes);
+		copyRangeTo(id, dst.id, srcOffsetBytes, dstOffsetBytes, numBytes);
 	}
 
-	private static void copyTo(int srcId, int dstId, long srcOffsetBytes, long dstOffsetBytes, long numBytes) {
-		assert srcOffsetBytes >= 0 && dstOffsetBytes >= 0 && numBytes >= 0;
+	public void copyMultiTo(GLBuffer dst, long[] srcOffsetBytes, long[] dstOffsetBytes, long[] numBytes, int count) {
+		long totalNumBytes = 0;
+		for(int i = 0; i < count; i++)
+			totalNumBytes = max(dstOffsetBytes[i] + numBytes[i], 0L);
+
+		if (totalNumBytes <= 0)
+			return;
+
+		dst.ensureCapacity(totalNumBytes);
+		copyRangesTo(id, dst.id, srcOffsetBytes, dstOffsetBytes, numBytes, count);
+	}
+
+
+	private static void copyRangeTo(int srcId, int dstId, long srcOffsetBytes, long dstOffsetBytes, long numBytes) {
+		copyRangesTo(srcId, dstId, new long[] { srcOffsetBytes }, new long[] { dstOffsetBytes }, new long[] { numBytes }, 1);
+	}
+
+	private static void copyRangesTo(
+		int srcId,
+		int dstId,
+		long[] srcOffsetBytes,
+		long[] dstOffsetBytes,
+		long[] numBytes,
+		int count
+	) {
 		glBindBuffer(GL_COPY_READ_BUFFER, srcId);
 		glBindBuffer(GL_COPY_WRITE_BUFFER, dstId);
 
 		if(!GL_CAPS.GL_ARB_copy_buffer) {
-			final ByteBuffer src;
-			final ByteBuffer dst;
+			long srcMapStart = Long.MAX_VALUE;
+			long srcMapEnd = 0;
+			long dstMapStart = Long.MAX_VALUE;
+			long dstMapEnd = 0;
+
+			for (int i = 0; i < count; i++) {
+				srcMapStart = min(srcMapStart, srcOffsetBytes[i]);
+				srcMapEnd = max(srcMapEnd, srcOffsetBytes[i] + numBytes[i]);
+
+				dstMapStart = min(dstMapStart, dstOffsetBytes[i]);
+				dstMapEnd = max(dstMapEnd, dstOffsetBytes[i] + numBytes[i]);
+			}
+
+			long srcMapSize = srcMapEnd - srcMapStart;
+			long dstMapSize = dstMapEnd - dstMapStart;
+
+			ByteBuffer src = null;
+			ByteBuffer dst = null;
 			try {
 				src = glMapBufferRange(
 					GL_COPY_READ_BUFFER,
-					srcOffsetBytes,
-					numBytes,
+					srcMapStart,
+					srcMapSize,
 					GL_MAP_READ_BIT
 				);
 
 				if (src == null) {
-					long size = glGetBufferParameteri64(GL_COPY_READ_BUFFER, GL_BUFFER_SIZE);
-					log.error(
-						"Failed to map SRC buffer {} (size: {}) offset: {} size: {}",
-						srcId, size, srcOffsetBytes, numBytes
-					);
+					log.error("Failed to map SRC buffer {}", srcId);
 					return;
 				}
 
 				dst = glMapBufferRange(
 					GL_COPY_WRITE_BUFFER,
-					dstOffsetBytes,
-					numBytes,
+					dstMapStart,
+					dstMapSize,
 					GL_MAP_WRITE_BIT
 				);
 
 				if (dst == null) {
-					long size = glGetBufferParameteri64(GL_COPY_WRITE_BUFFER, GL_BUFFER_SIZE);
-					log.error(
-						"Failed to map DST buffer {} (size: {}) offset: {} size: {}",
-						dstId, size, dstOffsetBytes, numBytes
-					);
+					log.error("Failed to map DST buffer {}", dstId);
 					return;
 				}
 
-				dst.put(src);
+				for (int i = 0; i < count; i++) {
+					int srcPos = (int) (srcOffsetBytes[i] - srcMapStart);
+					int dstPos = (int) (dstOffsetBytes[i] - dstMapStart);
+					int len = (int) numBytes[i];
+
+					src.clear();
+					src.position(srcPos);
+					src.limit(srcPos + len);
+
+					dst.clear();
+					dst.position(dstPos);
+					dst.put(src);
+				}
 			} finally {
-				glUnmapBuffer(GL_COPY_READ_BUFFER);
-				glUnmapBuffer(GL_COPY_WRITE_BUFFER);
+				if (src != null)
+					glUnmapBuffer(GL_COPY_READ_BUFFER);
+				if (dst != null)
+					glUnmapBuffer(GL_COPY_WRITE_BUFFER);
 			}
 		} else {
-			glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, srcOffsetBytes, dstOffsetBytes, numBytes);
+			for (int i = 0; i < count; i++) {
+				glCopyBufferSubData(GL_COPY_READ_BUFFER, GL_COPY_WRITE_BUFFER, srcOffsetBytes[i], dstOffsetBytes[i], numBytes[i]);
+			}
 		}
 
 		if (checkGLErrors()) {
 			long srcSizeBytes = glGetBufferParameteri64(GL_COPY_READ_BUFFER, GL_BUFFER_SIZE);
 			long dstSizeBytes = glGetBufferParameteri64(GL_COPY_WRITE_BUFFER, GL_BUFFER_SIZE);
-			log.error(
-				"Errors encountered on buffer src: {} srcOffset: {} srcSize: {} dst: {} dstOffset: {} dstSize: {} copyBytes: {}",
-				srcId,
-				srcOffsetBytes,
-				srcSizeBytes,
-				dstId,
-				dstOffsetBytes,
-				dstSizeBytes,
-				numBytes
-			);
+			log.error("Errors copying buffers src:{} dst:{} srcSize:{} dstSize:{}", srcId, dstId, srcSizeBytes, dstSizeBytes );
 		}
 
 		glBindBuffer(GL_COPY_READ_BUFFER, 0);

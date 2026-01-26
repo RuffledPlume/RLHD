@@ -55,6 +55,10 @@ class VAO {
 	private int[] drawCounts = new int[16];
 	private int drawRangeCount;
 
+	private long[] srcCopyOffsets = new long[16];
+	private long[] dstCopyOffsets = new long[16];
+	private long[] CopyNumBytes = new long[16];
+
 	VAO(String name, boolean useStagingBuffer) {
 		if(useStagingBuffer) {
 			this.vboRender = new GLBuffer("VAO::VBO::" + name, GL_ARRAY_BUFFER, GL_STREAM_DRAW, 0);
@@ -141,13 +145,20 @@ class VAO {
 				if(!vboRender.ensureCapacity(vboWrittenBytes))
 					vboRender.ophan();
 				if (drawRangeCount > 1 && coalesce) {
+					if(srcCopyOffsets.length < drawRangeCount) {
+						srcCopyOffsets = new long[drawRangeCount];
+						dstCopyOffsets = new long[drawRangeCount];
+						CopyNumBytes = new long[drawRangeCount];
+					}
+
 					long destOffset = 0;
 					for (int i = 0; i < drawRangeCount; i++) {
-						long srcPos = drawOffsets[i] * (long) VERT_SIZE;
-						long length = drawCounts[i] * (long) VERT_SIZE;
-						vboStaging.copyTo(vboRender, srcPos, destOffset, length);
-						destOffset += length;
+						srcCopyOffsets[i] = drawOffsets[i] * (long) VERT_SIZE;
+						dstCopyOffsets[i] = destOffset;
+						CopyNumBytes[i] = drawCounts[i] * (long) VERT_SIZE;
+						destOffset += CopyNumBytes[i];
 					}
+					vboStaging.copyMultiTo(vboRender, srcCopyOffsets, dstCopyOffsets, CopyNumBytes, drawRangeCount);
 
 					drawOffsets[0] = 0;
 					drawCounts[0] = (int) (destOffset / VERT_SIZE);
