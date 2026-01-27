@@ -27,7 +27,6 @@ package rs117.hd.renderer.zone;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
@@ -42,7 +41,6 @@ import rs117.hd.HdPluginConfig;
 import rs117.hd.config.ColorFilter;
 import rs117.hd.config.DynamicLights;
 import rs117.hd.config.ShadowMode;
-import rs117.hd.config.ThreadingMode;
 import rs117.hd.opengl.shader.SceneShaderProgram;
 import rs117.hd.opengl.shader.ShaderException;
 import rs117.hd.opengl.shader.ShaderIncludes;
@@ -52,21 +50,16 @@ import rs117.hd.opengl.uniforms.UBOWorldViews;
 import rs117.hd.overlays.FrameTimer;
 import rs117.hd.overlays.Timer;
 import rs117.hd.renderer.Renderer;
-import rs117.hd.renderer.zone.VAO.VAOView;
 import rs117.hd.scene.EnvironmentManager;
 import rs117.hd.scene.LightManager;
-import rs117.hd.scene.ModelOverrideManager;
 import rs117.hd.scene.ProceduralGenerator;
 import rs117.hd.scene.SceneContext;
 import rs117.hd.scene.lights.Light;
-import rs117.hd.scene.model_overrides.ModelOverride;
 import rs117.hd.utils.Camera;
 import rs117.hd.utils.ColorUtils;
 import rs117.hd.utils.CommandBuffer;
 import rs117.hd.utils.HDUtils;
 import rs117.hd.utils.Mat4;
-import rs117.hd.utils.ModelHash;
-import rs117.hd.utils.PrimitiveIntArray;
 import rs117.hd.utils.RenderState;
 import rs117.hd.utils.ShadowCasterVolume;
 import rs117.hd.utils.buffer.GLBuffer;
@@ -81,11 +74,8 @@ import static org.lwjgl.opengl.GL40.GL_DRAW_INDIRECT_BUFFER;
 import static rs117.hd.HdPlugin.COLOR_FILTER_FADE_DURATION;
 import static rs117.hd.HdPlugin.NEAR_PLANE;
 import static rs117.hd.HdPlugin.ORTHOGRAPHIC_ZOOM;
-import static rs117.hd.HdPlugin.PROCESSOR_COUNT;
 import static rs117.hd.HdPlugin.checkGLErrors;
-import static rs117.hd.renderer.zone.WorldViewContext.VAO_ALPHA;
 import static rs117.hd.renderer.zone.WorldViewContext.VAO_OPAQUE;
-import static rs117.hd.renderer.zone.WorldViewContext.VAO_PLAYER;
 import static rs117.hd.renderer.zone.WorldViewContext.VAO_SHADOW;
 import static rs117.hd.utils.Mat4.clipFrustumToDistance;
 import static rs117.hd.utils.MathUtils.*;
@@ -93,8 +83,6 @@ import static rs117.hd.utils.buffer.GLBuffer.MAP_WRITE;
 
 @Slf4j
 public class ZoneRenderer implements Renderer {
-	private static final int RL_RENDER_THREADS = 2;
-
 	private static int TEXTURE_UNIT_COUNT = HdPlugin.TEXTURE_UNIT_COUNT;
 	public static final int TEXTURE_UNIT_TEXTURED_FACES = GL_TEXTURE0 + TEXTURE_UNIT_COUNT++;
 
@@ -123,19 +111,16 @@ public class ZoneRenderer implements Renderer {
 	private EnvironmentManager environmentManager;
 
 	@Inject
-	private ModelOverrideManager modelOverrideManager;
-
-	@Inject
 	private SceneManager sceneManager;
 
 	@Inject
-	private SceneUploader clientSceneUploader;
+	private ModelStreamingManager modelStreamingManager;
 
 	@Inject
 	private FacePrioritySorter asyncZoneFacePrioritySorter;
 
 	@Inject
-	private FacePrioritySorter clientFacePrioritySorter;
+	private FacePrioritySorter facePrioritySorter;
 
 	@Inject
 	private FrameTimer frameTimer;
@@ -155,23 +140,16 @@ public class ZoneRenderer implements Renderer {
 	@Inject
 	private UBOWorldViews uboWorldViews;
 
-	private final PrimitiveIntArray clientVisibleFaces = new PrimitiveIntArray();
-	private final PrimitiveIntArray clientCulledFaces = new PrimitiveIntArray();
-
-	private final Camera sceneCamera = new Camera();
-	private final Camera directionalCamera = new Camera().setOrthographic(true);
-	private final ShadowCasterVolume directionalShadowCasterVolume = new ShadowCasterVolume(directionalCamera);
+	public final Camera sceneCamera = new Camera();
+	public final Camera directionalCamera = new Camera().setOrthographic(true);
+	public final ShadowCasterVolume directionalShadowCasterVolume = new ShadowCasterVolume(directionalCamera);
 
 	private final int[] worldPos = new int[3];
 
-	private final RenderState renderState = new RenderState();
-	private final CommandBuffer playerCmd = new CommandBuffer(renderState);
-	private final CommandBuffer sceneCmd = new CommandBuffer(renderState);
-	private final CommandBuffer directionalCmd = new CommandBuffer(renderState);
-
-	private int[][] asyncDynamicWorldPos;
-	private AsyncUploadData[] asyncUploadPool;
-	private int lastAsyncUploadIdx;
+	public final RenderState renderState = new RenderState();
+	public final CommandBuffer playerCmd = new CommandBuffer(renderState);
+	public final CommandBuffer sceneCmd = new CommandBuffer(renderState);
+	public final CommandBuffer directionalCmd = new CommandBuffer(renderState);
 
 	public static int indirectDrawCmds;
 	public static GpuIntBuffer indirectDrawCmdsStaging;
@@ -182,7 +160,6 @@ public class ZoneRenderer implements Renderer {
 
 	private boolean sceneFboValid;
 	private boolean shouldRenderScene;
-	private boolean disabledRenderThreads;
 
 	@Override
 	public boolean supportsGpu(GLCapabilities glCaps) {
@@ -193,24 +170,8 @@ public class ZoneRenderer implements Renderer {
 	public int gpuFlags() {
 		int flags = DrawCallbacks.ZBUF |
 					DrawCallbacks.ZBUF_ZONE_FRUSTUM_CHECK |
-					DrawCallbacks.NORMALS;
-
-		asyncUploadPool = null;
-
-		ThreadingMode threadingMode = config.threadedUpload();
-		if(threadingMode != ThreadingMode.DISABLED && PROCESSOR_COUNT > 1) {
-			int threadCount = (int) (PROCESSOR_COUNT * threadingMode.threadRatio);
-			// RENDER_THREADS will act as suppliers into the Job System, so this will be 2 + Client Suppliers
-			flags |= DrawCallbacks.RENDER_THREADS(RL_RENDER_THREADS);
-
-			asyncDynamicWorldPos = new int[RL_RENDER_THREADS][3];
-			asyncUploadPool = new AsyncUploadData[threadCount];
-			for(int i = 0; i < asyncUploadPool.length; i++) {
-				if(asyncUploadPool[i] == null)
-					asyncUploadPool[i] = new AsyncUploadData(8, plugin.getInjector());
-			}
-		}
-
+					DrawCallbacks.NORMALS |
+					modelStreamingManager.gpuFlags();
 		return flags;
 	}
 
@@ -376,6 +337,7 @@ public class ZoneRenderer implements Renderer {
 
 						frameTimer.begin(Timer.UPDATE_SCENE);
 						sceneManager.update();
+						modelStreamingManager.update();
 						frameTimer.end(Timer.UPDATE_SCENE);
 					} catch (Exception ex) {
 						log.error("Error while updating environment or lights:", ex);
@@ -652,18 +614,6 @@ public class ZoneRenderer implements Renderer {
 		directionalCmd.reset();
 		renderState.reset();
 
-		if(asyncUploadPool != null) {
-			if(plugin.isPowerSaving) {
-				if(!disabledRenderThreads) {
-					disabledRenderThreads = true;
-					client.setGpuFlags(plugin.gpuFlags & ~DrawCallbacks.RENDER_THREADS(RL_RENDER_THREADS));
-				}
-			} else if(disabledRenderThreads) {
-				disabledRenderThreads = false;
-				client.setGpuFlags(plugin.gpuFlags);
-			}
-		}
-
 		int totalSortedFaces = sceneManager.getRoot().getSortedAlphaCount();
 
 		WorldView wv = client.getTopLevelWorldView();
@@ -916,7 +866,7 @@ public class ZoneRenderer implements Renderer {
 		if (renderWater)
 			z.renderOpaqueLevel(sceneCmd, Zone.LEVEL_WATER_SURFACE);
 
-		ensureAsyncUploadsComplete(z);
+		modelStreamingManager.ensureAsyncUploadsComplete(z);
 
 		final boolean hasAlpha = z.sizeA != 0 || !z.alphaModels.isEmpty();
 		if (!hasAlpha)
@@ -934,7 +884,7 @@ public class ZoneRenderer implements Renderer {
 		}
 
 		if (!sceneManager.isRoot(ctx) || z.inSceneFrustum)
-			z.renderAlpha(sceneCmd, zx - offset, zz - offset, level, ctx, clientFacePrioritySorter, false);
+			z.renderAlpha(sceneCmd, zx - offset, zz - offset, level, ctx, facePrioritySorter, false);
 
 		checkGLErrors();
 	}
@@ -956,7 +906,7 @@ public class ZoneRenderer implements Renderer {
 
 				break;
 			case DrawCallbacks.PASS_ALPHA:
-				ensureAsyncUploadsComplete(null);
+				modelStreamingManager.ensureAsyncUploadsComplete(null);
 
 				ctx.unmap();
 
@@ -1007,495 +957,13 @@ public class ZoneRenderer implements Renderer {
 	}
 
 	@Override
-	public void drawDynamic(
-		int renderThreadId,
-		Projection projection,
-		Scene scene,
-		TileObject tileObject,
-		Renderable r,
-		Model m,
-		int orient,
-		int x,
-		int y,
-		int z
-	) {
-		long start = System.nanoTime();
-		try {
-			WorldViewContext ctx = sceneManager.getContext(scene);
-			if (ctx == null || ctx.isLoading || !renderCallbackManager.drawObject(scene, tileObject))
-				return;
-
-			int offset = ctx.sceneContext.sceneOffset >> 3;
-			int zx = (x >> 10) + offset;
-			int zz = (z >> 10) + offset;
-			Zone zone = ctx.zones[zx][zz];
-
-			if (sceneManager.isRoot(ctx)) {
-				// Cull based on detail draw distance
-				float squaredDistance = sceneCamera.squaredDistanceTo(x, y, z);
-				int detailDrawDistanceTiles = plugin.configDetailDrawDistance * LOCAL_TILE_SIZE;
-				if (squaredDistance > detailDrawDistanceTiles * detailDrawDistanceTiles)
-					return;
-
-				// Hide everything outside the current area if area hiding is enabled
-				if (ctx.sceneContext.currentArea != null) {
-					var base = ctx.sceneContext.sceneBase;
-					assert base != null;
-					boolean inArea = ctx.sceneContext.currentArea.containsPoint(
-						base[0] + (x >> Perspective.LOCAL_COORD_BITS),
-						base[1] + (z >> Perspective.LOCAL_COORD_BITS),
-						base[2] + client.getTopLevelWorldView().getPlane()
-					);
-					if (!inArea)
-						return;
-				}
-
-				if (!zone.initialized)
-					return;
-			}
-
-			int[] worldPos = renderThreadId > 0 ? asyncDynamicWorldPos[renderThreadId] : this.worldPos;
-			ctx.sceneContext.localToWorld(tileObject.getLocalLocation(), tileObject.getPlane(), worldPos);
-			int uuid = ModelHash.generateUuid(client, tileObject.getHash(), r);
-			ModelOverride modelOverride = modelOverrideManager.getOverride(uuid, worldPos);
-			if (modelOverride.hide)
-				return;
-
-			m.calculateBoundsCylinder();
-
-			final int modelCalcification = sceneManager.isRoot(ctx) ? sceneCamera.classifySphere(x, y, z, m.getRadius()) : 1;
-			if (sceneManager.isRoot(ctx)) {
-				// Additional Culling checks to help reduce dynamic object perf impact when off screen
-				if (!zone.inSceneFrustum && zone.inShadowFrustum && !modelOverride.castShadows)
-					return;
-
-				if (zone.inSceneFrustum && !modelOverride.castShadows && modelCalcification == -1)
-					return;
-
-				if (!zone.inSceneFrustum && zone.inShadowFrustum && modelOverride.castShadows &&
-					!directionalShadowCasterVolume.intersectsPoint(x, y, z))
-					return;
-			}
-
-			final int preOrientation = HDUtils.getModelPreOrientation(HDUtils.getObjectConfig(tileObject));
-			final boolean hasAlpha = m.getFaceTransparencies() != null || modelOverride.mightHaveTransparency;
-
-			final AsyncCachedModel asyncModelCache = obtainAvailableAsyncCachedModel(renderThreadId >= 0);
-			if(asyncModelCache != null) {
-				// Fast path, buffer the model into the job queue to unblock rl internals
-				asyncModelCache.queue(m, hasAlpha ? zone : null,
-					(sceneUploader, facePrioritySorter, visibleFaces, culledFaces, cachedModel) -> {
-						final long asyncStart = System.nanoTime();
-						drawDynamicAsync(
-							sceneUploader,
-							facePrioritySorter,
-							visibleFaces,
-							culledFaces,
-							ctx,
-							projection,
-							tileObject,
-							modelOverride,
-							cachedModel,
-							zone,
-							modelCalcification == 0,
-							hasAlpha,
-							preOrientation, orient,
-							x, y, z
-						);
-						frameTimer.add(Timer.DRAW_DYNAMIC_ASYNC, System.nanoTime() - asyncStart);
-					});
-				return;
-			}
-
-			if(renderThreadId >= 0)
-				return;
-
-			drawDynamicAsync(
-				clientSceneUploader,
-				clientFacePrioritySorter,
-				clientVisibleFaces,
-				clientCulledFaces,
-				ctx,
-				projection,
-				tileObject,
-				modelOverride,
-				m,
-				zone,
-				modelCalcification == 0,
-				hasAlpha,
-				preOrientation, orient,
-				x, y, z
-			);
-		}catch (Exception e) {
-			log.error("Error drawing dynamic object", e);
-		} finally {
-			frameTimer.add(renderThreadId == -1 ? Timer.DRAW_DYNAMIC : Timer.DRAW_DYNAMIC_ASYNC, System.nanoTime() - start);
-		}
-	}
-
-	private void drawDynamicAsync(
-		SceneUploader sceneUploader,
-		FacePrioritySorter facePrioritySorter,
-		PrimitiveIntArray visibleFaces,
-		PrimitiveIntArray culledFaces,
-		WorldViewContext ctx,
-		Projection projection,
-		TileObject tileObject,
-		ModelOverride modelOverride,
-		Model m,
-		Zone zone,
-		boolean isModelPartiallyVisible,
-		boolean hasAlpha,
-		int preOrientation,
-		int orient,
-		int x,
-		int y,
-		int z
-	) {
-		try {
-			boolean shouldSort = hasAlpha && (!sceneManager.isRoot(ctx) || zone.inSceneFrustum);
-			shouldSort &= sceneUploader.preprocessTempModel(
-				projection,
-				plugin.cameraFrustum,
-				shouldSort ? facePrioritySorter.faceDistances : null,
-				visibleFaces,
-				culledFaces,
-				isModelPartiallyVisible,
-				m,
-				x,
-				y,
-				z,
-				orient
-			);
-
-			if (shouldSort)
-				facePrioritySorter.sortModelFaces(visibleFaces, m);
-
-			if (culledFaces.length > 0 && (!sceneManager.isRoot(ctx) || zone.inShadowFrustum)) {
-				final VAOView shadowView = ctx.beginDraw(VAO_SHADOW, culledFaces.length);
-				sceneUploader.uploadTempModel(
-					culledFaces,
-					m,
-					modelOverride,
-					preOrientation,
-					orient,
-					true,
-					shadowView,
-					shadowView
-				);
-				shadowView.end();
-			}
-
-			if(visibleFaces.length > 0) {
-				final VAOView opaqueView = ctx.beginDraw(VAO_OPAQUE, visibleFaces.length);
-				final VAOView alphaView = hasAlpha ? ctx.beginDraw(VAO_ALPHA, visibleFaces.length) : opaqueView;
-
-				sceneUploader.uploadTempModel(
-					visibleFaces,
-					m,
-					modelOverride,
-					preOrientation,
-					orient,
-					false,
-					opaqueView,
-					alphaView
-				);
-
-				opaqueView.end();
-				if (opaqueView != alphaView) {
-					alphaView.end();
-					if (alphaView.getEndOffset() > alphaView.getStartOffset()) {
-						// level is checked prior to this callback being run, in order to cull clickboxes, but
-						// tileObject.getPlane()>maxLevel if visbelow is set - lower the object to the max level
-						int plane = Math.min(ctx.maxLevel, tileObject.getPlane());
-						// renderable modelheight is typically not set here because DynamicObject doesn't compute it on the returned model
-						zone.addTempAlphaModel(
-							modelOverride,
-							alphaView.vao,
-							alphaView.tboTexId,
-							alphaView.getStartOffset(),
-							alphaView.getEndOffset(),
-							plane,
-							x & 1023,
-							y,
-							z & 1023
-						);
-					}
-				}
-			}
-		}catch (Exception e) {
-			log.error("Error rendering dynamic object", e);
-		}
-	}
-
-	private void ensureAsyncUploadsComplete(Zone zone) {
-		if(asyncUploadPool == null)
-			return;
-
-		frameTimer.begin(Timer.MODEL_UPLOAD_COMPLETE);
-		if(zone != null) {
-			AsyncCachedModel model;
-			while ((model = zone.pendingModelJobs.poll()) != null)
-				waitOnModelUpload(model);
-		} else {
-			for (AsyncUploadData asyncData : asyncUploadPool) {
-				for(int i = 0; i < asyncData.models.length; i++)
-					waitOnModelUpload(asyncData.models[i]);
-			}
-		}
-		frameTimer.end(Timer.MODEL_UPLOAD_COMPLETE);
-	}
-
-	private void waitOnModelUpload(AsyncCachedModel model) {
-		if(model.isQueued() && model.canStart() && model.processing.compareAndSet(false, true)) {
-			clientVisibleFaces.reset();
-			clientCulledFaces.reset();
-			model.uploadFunc.upload(
-				clientSceneUploader,
-				clientFacePrioritySorter,
-				clientVisibleFaces,
-				clientCulledFaces,
-				model);
-			return;
-		}
-
-		model.waitForCompletion();
-	}
-
-	private AsyncCachedModel obtainAvailableAsyncCachedModel(boolean shouldBlock) {
-		if(asyncUploadPool == null || disabledRenderThreads)
-			return null;
-
-		final long TIME_OUT = shouldBlock ? TimeUnit.MILLISECONDS.toNanos(10) : TimeUnit.MICROSECONDS.toNanos(5);
-		final int len = asyncUploadPool.length;
-		final int offset = lastAsyncUploadIdx;
-		final long start = System.nanoTime();
-		while (true) {
-			for (int i = 0; i < len; i++) {
-				final int idx = (offset + i) % len;
-				final AsyncUploadData data = asyncUploadPool[idx];
-
-				if(data.freeModelsCount.get() > 0) {
-					AsyncCachedModel model = data.freeModels.poll();
-					if (model != null) {
-						lastAsyncUploadIdx = (idx + 1) % len;
-						data.freeModelsCount.decrementAndGet();
-						return model;
-					}
-				}
-			}
-			if(System.nanoTime() - start > TIME_OUT)
-				return null;
-
-			Thread.yield();
-		}
+	public void drawDynamic(int renderThreadId, Projection projection, Scene scene, TileObject tileObject, Renderable r, Model m, int orient, int x, int y, int z) {
+		modelStreamingManager.drawDynamic(renderThreadId, projection, scene, tileObject, r, m, orient, x, y, z);
 	}
 
 	@Override
 	public void drawTemp(Projection worldProjection, Scene scene, GameObject gameObject, Model m, int orientation, int x, int y, int z) {
-		try (var ignored = frameTimer.begin(Timer.DRAW_TEMP)) {
-			WorldViewContext ctx = sceneManager.getContext(scene);
-			if (ctx == null || ctx.isLoading || !renderCallbackManager.drawObject(scene, gameObject))
-				return;
-
-			ctx.sceneContext.localToWorld(gameObject.getLocalLocation(), gameObject.getPlane(), worldPos);
-			// Hide everything outside the current area if area hiding is enabled
-			if (ctx.sceneContext.currentArea != null && scene.getWorldViewId() == -1) {
-				var base = ctx.sceneContext.sceneBase;
-				assert base != null;
-				boolean inArea = ctx.sceneContext.currentArea.containsPoint(
-					base[0] + (x >> Perspective.LOCAL_COORD_BITS),
-					base[1] + (z >> Perspective.LOCAL_COORD_BITS),
-					base[2] + client.getTopLevelWorldView().getPlane()
-				);
-				if (!inArea)
-					return;
-			}
-			Renderable renderable = gameObject.getRenderable();
-			int uuid = ModelHash.generateUuid(client, gameObject.getHash(), renderable);
-
-			ModelOverride modelOverride = modelOverrideManager.getOverride(uuid, worldPos);
-			if (modelOverride.hide)
-				return;
-
-			int offset = ctx.sceneContext.sceneOffset >> 3;
-			int zx = (gameObject.getX() >> 10) + offset;
-			int zz = (gameObject.getY() >> 10) + offset;
-			Zone zone = ctx.zones[zx][zz];
-
-			m.calculateBoundsCylinder();
-
-			final int modelCalcification = sceneManager.isRoot(ctx) ? sceneCamera.classifySphere(x, y, z, m.getRadius()) : 1;
-			if (sceneManager.isRoot(ctx)) {
-				// Additional Culling checks to help reduce dynamic object perf impact when off screen
-				if (!zone.inSceneFrustum && zone.inShadowFrustum && !modelOverride.castShadows)
-					return;
-
-				if (zone.inSceneFrustum && !modelOverride.castShadows && modelCalcification == -1)
-					return;
-
-				if (!zone.inSceneFrustum && zone.inShadowFrustum && modelOverride.castShadows &&
-					!directionalShadowCasterVolume.intersectsPoint(x, y, z))
-					return;
-			}
-
-			final boolean hasAlpha = m.getFaceTransparencies() != null || modelOverride.mightHaveTransparency;
-			final AsyncCachedModel asyncModelCache = obtainAvailableAsyncCachedModel(false);
-			if (asyncModelCache != null) {
-				asyncModelCache.queue(m, hasAlpha ? zone : null,
-					(sceneUploader, facePrioritySorter, visibleFaces, culledFaces, cachedModel) -> {
-						final long asyncStart = System.nanoTime();
-						drawTempAsync(
-							sceneUploader,
-							facePrioritySorter,
-							visibleFaces,
-							culledFaces,
-							worldProjection,
-							ctx,
-							gameObject,
-							renderable,
-							modelOverride,
-							zone,
-							cachedModel,
-							modelCalcification == 0,
-							hasAlpha,
-							orientation, x, y, z
-						);
-						frameTimer.add(Timer.DRAW_TEMP_ASYNC, System.nanoTime() - asyncStart);
-					}
-				);
-				return;
-			}
-
-			try {
-				drawTempAsync(
-					clientSceneUploader,
-					clientFacePrioritySorter,
-					clientVisibleFaces,
-					clientCulledFaces,
-					worldProjection,
-					ctx,
-					gameObject,
-					renderable,
-					modelOverride,
-					zone,
-					m,
-					hasAlpha,
-					modelCalcification == 0,
-					orientation, x, y, z
-				);
-			} catch (Exception e) {
-				log.error("Error drawing temp object", e);
-			}
-		}
-	}
-
-	private void drawTempAsync(
-		SceneUploader sceneUploader,
-		FacePrioritySorter facePrioritySorter,
-		PrimitiveIntArray visibleFaces,
-		PrimitiveIntArray culledFaces,
-		Projection worldProjection,
-		WorldViewContext ctx,
-		GameObject gameObject,
-		Renderable renderable,
-		ModelOverride modelOverride,
-		Zone zone,
-		Model m,
-		boolean isModelPartiallyVisible,
-		boolean hasAlpha,
-		int orientation, int x, int y, int z) {
-
-		boolean shouldSort = (hasAlpha || renderable instanceof Player) && (!sceneManager.isRoot(ctx) || zone.inSceneFrustum);
-		shouldSort &= sceneUploader.preprocessTempModel(
-			worldProjection,
-			plugin.cameraFrustum,
-			shouldSort ? facePrioritySorter.faceDistances : null,
-			visibleFaces,
-			culledFaces,
-			isModelPartiallyVisible,
-			m,
-			x,
-			y,
-			z,
-			orientation
-		);
-
-		final int preOrientation = HDUtils.getModelPreOrientation(gameObject.getConfig());
-		if (shouldSort)
-			facePrioritySorter.sortModelFaces(visibleFaces, m);
-
-		if (culledFaces.length > 0 && (!sceneManager.isRoot(ctx) || zone.inShadowFrustum)) {
-			final VAOView shadowView = ctx.beginDraw(VAO_SHADOW, culledFaces.length);
-			sceneUploader.uploadTempModel(
-				culledFaces,
-				m,
-				modelOverride,
-				preOrientation,
-				orientation,
-				true,
-				shadowView,
-				shadowView
-			);
-			shadowView.end();
-		}
-
-
-		if(visibleFaces.length > 0) {
-			// opaque player faces have their own vao and are drawn in a separate pass from normal opaque faces
-			// because they are not depth tested. transparent player faces don't need their own vao because normal
-			// transparent faces are already not depth tested
-			final VAOView opaqueView = ctx.beginDraw(renderable instanceof Player ? VAO_PLAYER : VAO_OPAQUE, visibleFaces.length);
-			final VAOView alphaView = hasAlpha ? ctx.beginDraw(VAO_ALPHA, visibleFaces.length) : opaqueView;
-
-			sceneUploader.uploadTempModel(
-				visibleFaces,
-				m,
-				modelOverride,
-				preOrientation,
-				orientation,
-				false,
-				opaqueView,
-				alphaView
-			);
-
-			opaqueView.end();
-			if (renderable instanceof Player) {
-				if (opaqueView.getEndOffset() > opaqueView.getStartOffset()) {
-					// Fix rendering projectiles from boats with hide roofs enabled
-					int plane = Math.min(ctx.maxLevel, gameObject.getPlane());
-					zone.addPlayerModel(
-						opaqueView.vao,
-						opaqueView.tboTexId,
-						opaqueView.getStartOffset(),
-						opaqueView.getEndOffset(),
-						plane,
-						x & 1023,
-						y - renderable.getModelHeight() /* to render players over locs */,
-						z & 1023
-					);
-				}
-			}
-
-			if (opaqueView != alphaView) {
-				alphaView.end();
-				if (alphaView.getEndOffset() > alphaView.getStartOffset()) {
-					// Fix rendering projectiles from boats with hide roofs enabled
-					int plane = Math.min(ctx.maxLevel, gameObject.getPlane());
-					zone.addTempAlphaModel(
-						modelOverride,
-						alphaView.vao,
-						alphaView.tboTexId,
-						alphaView.getStartOffset(),
-						alphaView.getEndOffset(),
-						plane,
-						x & 1023,
-						y - renderable.getModelHeight() /* to render players over locs */,
-						z & 1023
-					);
-				}
-			}
-		}
+		modelStreamingManager.drawTemp(worldProjection, scene, gameObject, m, orientation, x, y, z);
 	}
 
 	@Override
