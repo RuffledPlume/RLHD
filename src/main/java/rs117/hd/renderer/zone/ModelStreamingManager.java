@@ -107,100 +107,98 @@ public class ModelStreamingManager {
 	}
 
 	public void drawTemp(Projection worldProjection, Scene scene, GameObject gameObject, Model m, int orientation, int x, int y, int z) {
-		try (var ignored = frameTimer.begin(Timer.DRAW_TEMP)) {
-			WorldViewContext ctx = sceneManager.getContext(scene);
-			if (ctx == null || ctx.isLoading || !renderCallbackManager.drawObject(scene, gameObject))
+		WorldViewContext ctx = sceneManager.getContext(scene);
+		if (ctx == null || ctx.isLoading || !renderCallbackManager.drawObject(scene, gameObject))
+			return;
+
+		ctx.sceneContext.localToWorld(gameObject.getLocalLocation(), gameObject.getPlane(), worldPos);
+		// Hide everything outside the current area if area hiding is enabled
+		if (ctx.sceneContext.currentArea != null && scene.getWorldViewId() == -1) {
+			var base = ctx.sceneContext.sceneBase;
+			assert base != null;
+			boolean inArea = ctx.sceneContext.currentArea.containsPoint(
+				base[0] + (x >> Perspective.LOCAL_COORD_BITS),
+				base[1] + (z >> Perspective.LOCAL_COORD_BITS),
+				base[2] + client.getTopLevelWorldView().getPlane()
+			);
+			if (!inArea)
+				return;
+		}
+		Renderable renderable = gameObject.getRenderable();
+		int uuid = ModelHash.generateUuid(client, gameObject.getHash(), renderable);
+
+		ModelOverride modelOverride = modelOverrideManager.getOverride(uuid, worldPos);
+		if (modelOverride.hide)
+			return;
+
+		int offset = ctx.sceneContext.sceneOffset >> 3;
+		int zx = (gameObject.getX() >> 10) + offset;
+		int zz = (gameObject.getY() >> 10) + offset;
+		Zone zone = ctx.zones[zx][zz];
+
+		m.calculateBoundsCylinder();
+
+		final int modelCalcification = sceneManager.isRoot(ctx) ? renderer.sceneCamera.classifySphere(x, y, z, m.getRadius()) : 1;
+		if (sceneManager.isRoot(ctx)) {
+			// Additional Culling checks to help reduce dynamic object perf impact when off screen
+			if (!zone.inSceneFrustum && zone.inShadowFrustum && !modelOverride.castShadows)
 				return;
 
-			ctx.sceneContext.localToWorld(gameObject.getLocalLocation(), gameObject.getPlane(), worldPos);
-			// Hide everything outside the current area if area hiding is enabled
-			if (ctx.sceneContext.currentArea != null && scene.getWorldViewId() == -1) {
-				var base = ctx.sceneContext.sceneBase;
-				assert base != null;
-				boolean inArea = ctx.sceneContext.currentArea.containsPoint(
-					base[0] + (x >> Perspective.LOCAL_COORD_BITS),
-					base[1] + (z >> Perspective.LOCAL_COORD_BITS),
-					base[2] + client.getTopLevelWorldView().getPlane()
-				);
-				if (!inArea)
-					return;
-			}
-			Renderable renderable = gameObject.getRenderable();
-			int uuid = ModelHash.generateUuid(client, gameObject.getHash(), renderable);
-
-			ModelOverride modelOverride = modelOverrideManager.getOverride(uuid, worldPos);
-			if (modelOverride.hide)
+			if (zone.inSceneFrustum && !modelOverride.castShadows && modelCalcification == -1)
 				return;
 
-			int offset = ctx.sceneContext.sceneOffset >> 3;
-			int zx = (gameObject.getX() >> 10) + offset;
-			int zz = (gameObject.getY() >> 10) + offset;
-			Zone zone = ctx.zones[zx][zz];
-
-			m.calculateBoundsCylinder();
-
-			final int modelCalcification = sceneManager.isRoot(ctx) ? renderer.sceneCamera.classifySphere(x, y, z, m.getRadius()) : 1;
-			if (sceneManager.isRoot(ctx)) {
-				// Additional Culling checks to help reduce dynamic object perf impact when off screen
-				if (!zone.inSceneFrustum && zone.inShadowFrustum && !modelOverride.castShadows)
-					return;
-
-				if (zone.inSceneFrustum && !modelOverride.castShadows && modelCalcification == -1)
-					return;
-
-				if (!zone.inSceneFrustum && zone.inShadowFrustum && modelOverride.castShadows &&
-					!renderer.directionalShadowCasterVolume.intersectsPoint(x, y, z))
-					return;
-			}
-
-			final boolean hasAlpha = m.getFaceTransparencies() != null || modelOverride.mightHaveTransparency;
-			final AsyncCachedModel asyncModelCache = obtainAvailableAsyncCachedModel(false);
-			if (asyncModelCache != null) {
-				asyncModelCache.queue(m, hasAlpha ? zone : null,
-					(sceneUploader, facePrioritySorter, visibleFaces, culledFaces, cachedModel) -> {
-						final long asyncStart = System.nanoTime();
-						drawTempAsync(
-							sceneUploader,
-							facePrioritySorter,
-							visibleFaces,
-							culledFaces,
-							worldProjection,
-							ctx,
-							gameObject,
-							renderable,
-							modelOverride,
-							zone,
-							cachedModel,
-							modelCalcification == 0,
-							hasAlpha,
-							orientation, x, y, z
-						);
-						frameTimer.add(Timer.DRAW_TEMP_ASYNC, System.nanoTime() - asyncStart);
-					}
-				);
+			if (!zone.inSceneFrustum && zone.inShadowFrustum && modelOverride.castShadows &&
+				!renderer.directionalShadowCasterVolume.intersectsPoint(x, y, z))
 				return;
-			}
+		}
 
-			try {
-				drawTempAsync(
-					sceneUploader,
-					facePrioritySorter,
-					clientVisibleFaces,
-					clientCulledFaces,
-					worldProjection,
-					ctx,
-					gameObject,
-					renderable,
-					modelOverride,
-					zone,
-					m,
-					hasAlpha,
-					modelCalcification == 0,
-					orientation, x, y, z
-				);
-			} catch (Exception e) {
-				log.error("Error drawing temp object", e);
-			}
+		final boolean hasAlpha = m.getFaceTransparencies() != null || modelOverride.mightHaveTransparency;
+		final AsyncCachedModel asyncModelCache = obtainAvailableAsyncCachedModel(false);
+		if (asyncModelCache != null) {
+			asyncModelCache.queue(m, hasAlpha ? zone : null,
+				(sceneUploader, facePrioritySorter, visibleFaces, culledFaces, cachedModel) -> {
+					final long asyncStart = System.nanoTime();
+					drawTempAsync(
+						sceneUploader,
+						facePrioritySorter,
+						visibleFaces,
+						culledFaces,
+						worldProjection,
+						ctx,
+						gameObject,
+						renderable,
+						modelOverride,
+						zone,
+						cachedModel,
+						modelCalcification == 0,
+						hasAlpha,
+						orientation, x, y, z
+					);
+					frameTimer.add(Timer.DRAW_TEMP_ASYNC, System.nanoTime() - asyncStart);
+				}
+			);
+			return;
+		}
+
+		try {
+			drawTempAsync(
+				sceneUploader,
+				facePrioritySorter,
+				clientVisibleFaces,
+				clientCulledFaces,
+				worldProjection,
+				ctx,
+				gameObject,
+				renderable,
+				modelOverride,
+				zone,
+				m,
+				hasAlpha,
+				modelCalcification == 0,
+				orientation, x, y, z
+			);
+		} catch (Exception e) {
+			log.error("Error drawing temp object", e);
 		}
 	}
 
@@ -324,118 +322,111 @@ public class ModelStreamingManager {
 		int y,
 		int z
 	) {
-		long start = System.nanoTime();
-		try {
-			WorldViewContext ctx = sceneManager.getContext(scene);
-			if (ctx == null || ctx.isLoading || !renderCallbackManager.drawObject(scene, tileObject))
+		WorldViewContext ctx = sceneManager.getContext(scene);
+		if (ctx == null || ctx.isLoading || !renderCallbackManager.drawObject(scene, tileObject))
+			return;
+
+		int offset = ctx.sceneContext.sceneOffset >> 3;
+		int zx = (x >> 10) + offset;
+		int zz = (z >> 10) + offset;
+		Zone zone = ctx.zones[zx][zz];
+
+		if (sceneManager.isRoot(ctx)) {
+			// Cull based on detail draw distance
+			float squaredDistance = renderer.sceneCamera.squaredDistanceTo(x, y, z);
+			int detailDrawDistanceTiles = plugin.configDetailDrawDistance * LOCAL_TILE_SIZE;
+			if (squaredDistance > detailDrawDistanceTiles * detailDrawDistanceTiles)
 				return;
 
-			int offset = ctx.sceneContext.sceneOffset >> 3;
-			int zx = (x >> 10) + offset;
-			int zz = (z >> 10) + offset;
-			Zone zone = ctx.zones[zx][zz];
-
-			if (sceneManager.isRoot(ctx)) {
-				// Cull based on detail draw distance
-				float squaredDistance = renderer.sceneCamera.squaredDistanceTo(x, y, z);
-				int detailDrawDistanceTiles = plugin.configDetailDrawDistance * LOCAL_TILE_SIZE;
-				if (squaredDistance > detailDrawDistanceTiles * detailDrawDistanceTiles)
-					return;
-
-				// Hide everything outside the current area if area hiding is enabled
-				if (ctx.sceneContext.currentArea != null) {
-					var base = ctx.sceneContext.sceneBase;
-					assert base != null;
-					boolean inArea = ctx.sceneContext.currentArea.containsPoint(
-						base[0] + (x >> Perspective.LOCAL_COORD_BITS),
-						base[1] + (z >> Perspective.LOCAL_COORD_BITS),
-						base[2] + client.getTopLevelWorldView().getPlane()
-					);
-					if (!inArea)
-						return;
-				}
-
-				if (!zone.initialized)
+			// Hide everything outside the current area if area hiding is enabled
+			if (ctx.sceneContext.currentArea != null) {
+				var base = ctx.sceneContext.sceneBase;
+				assert base != null;
+				boolean inArea = ctx.sceneContext.currentArea.containsPoint(
+					base[0] + (x >> Perspective.LOCAL_COORD_BITS),
+					base[1] + (z >> Perspective.LOCAL_COORD_BITS),
+					base[2] + client.getTopLevelWorldView().getPlane()
+				);
+				if (!inArea)
 					return;
 			}
 
-			int[] worldPos = renderThreadId > 0 ? asyncDynamicWorldPos[renderThreadId] : this.worldPos;
-			ctx.sceneContext.localToWorld(tileObject.getLocalLocation(), tileObject.getPlane(), worldPos);
-			int uuid = ModelHash.generateUuid(client, tileObject.getHash(), r);
-			ModelOverride modelOverride = modelOverrideManager.getOverride(uuid, worldPos);
-			if (modelOverride.hide)
+			if (!zone.initialized)
 				return;
-
-			m.calculateBoundsCylinder();
-
-			final int modelCalcification = sceneManager.isRoot(ctx) ? renderer.sceneCamera.classifySphere(x, y, z, m.getRadius()) : 1;
-			if (sceneManager.isRoot(ctx)) {
-				// Additional Culling checks to help reduce dynamic object perf impact when off screen
-				if (!zone.inSceneFrustum && zone.inShadowFrustum && !modelOverride.castShadows)
-					return;
-
-				if (zone.inSceneFrustum && !modelOverride.castShadows && modelCalcification == -1)
-					return;
-
-				if (!zone.inSceneFrustum && zone.inShadowFrustum && modelOverride.castShadows &&
-					!renderer.directionalShadowCasterVolume.intersectsPoint(x, y, z))
-					return;
-			}
-
-			final int preOrientation = HDUtils.getModelPreOrientation(HDUtils.getObjectConfig(tileObject));
-			final boolean hasAlpha = m.getFaceTransparencies() != null || modelOverride.mightHaveTransparency;
-
-			final AsyncCachedModel asyncModelCache = obtainAvailableAsyncCachedModel(renderThreadId >= 0);
-			if(asyncModelCache != null) {
-				// Fast path, buffer the model into the job queue to unblock rl internals
-				asyncModelCache.queue(m, hasAlpha ? zone : null,
-					(sceneUploader, facePrioritySorter, visibleFaces, culledFaces, cachedModel) -> {
-						final long asyncStart = System.nanoTime();
-						drawDynamicAsync(
-							sceneUploader,
-							facePrioritySorter,
-							visibleFaces,
-							culledFaces,
-							ctx,
-							projection,
-							tileObject,
-							modelOverride,
-							cachedModel,
-							zone,
-							modelCalcification == 0,
-							hasAlpha,
-							preOrientation, orient,
-							x, y, z
-						);
-						frameTimer.add(Timer.DRAW_DYNAMIC_ASYNC, System.nanoTime() - asyncStart);
-					});
-				return;
-			}
-
-			if(renderThreadId >= 0)
-				return;
-
-			drawDynamicAsync(
-				sceneUploader,
-				facePrioritySorter,
-				clientVisibleFaces,
-				clientCulledFaces,
-				ctx,
-				projection,
-				tileObject,
-				modelOverride,
-				m,
-				zone,
-				modelCalcification == 0,
-				hasAlpha,
-				preOrientation, orient,
-				x, y, z
-			);
-		}catch (Exception e) {
-			log.error("Error drawing dynamic object", e);
-		} finally {
-			frameTimer.add(renderThreadId == -1 ? Timer.DRAW_DYNAMIC : Timer.DRAW_DYNAMIC_ASYNC, System.nanoTime() - start);
 		}
+
+		int[] worldPos = renderThreadId > 0 ? asyncDynamicWorldPos[renderThreadId] : this.worldPos;
+		ctx.sceneContext.localToWorld(tileObject.getLocalLocation(), tileObject.getPlane(), worldPos);
+		int uuid = ModelHash.generateUuid(client, tileObject.getHash(), r);
+		ModelOverride modelOverride = modelOverrideManager.getOverride(uuid, worldPos);
+		if (modelOverride.hide)
+			return;
+
+		m.calculateBoundsCylinder();
+
+		final int modelCalcification = sceneManager.isRoot(ctx) ? renderer.sceneCamera.classifySphere(x, y, z, m.getRadius()) : 1;
+		if (sceneManager.isRoot(ctx)) {
+			// Additional Culling checks to help reduce dynamic object perf impact when off screen
+			if (!zone.inSceneFrustum && zone.inShadowFrustum && !modelOverride.castShadows)
+				return;
+
+			if (zone.inSceneFrustum && !modelOverride.castShadows && modelCalcification == -1)
+				return;
+
+			if (!zone.inSceneFrustum && zone.inShadowFrustum && modelOverride.castShadows &&
+				!renderer.directionalShadowCasterVolume.intersectsPoint(x, y, z))
+				return;
+		}
+
+		final int preOrientation = HDUtils.getModelPreOrientation(HDUtils.getObjectConfig(tileObject));
+		final boolean hasAlpha = m.getFaceTransparencies() != null || modelOverride.mightHaveTransparency;
+
+		final AsyncCachedModel asyncModelCache = obtainAvailableAsyncCachedModel(renderThreadId >= 0);
+		if(asyncModelCache != null) {
+			// Fast path, buffer the model into the job queue to unblock rl internals
+			asyncModelCache.queue(m, hasAlpha ? zone : null,
+				(sceneUploader, facePrioritySorter, visibleFaces, culledFaces, cachedModel) -> {
+					final long asyncStart = System.nanoTime();
+					drawDynamicAsync(
+						sceneUploader,
+						facePrioritySorter,
+						visibleFaces,
+						culledFaces,
+						ctx,
+						projection,
+						tileObject,
+						modelOverride,
+						cachedModel,
+						zone,
+						modelCalcification == 0,
+						hasAlpha,
+						preOrientation, orient,
+						x, y, z
+					);
+					frameTimer.add(Timer.DRAW_DYNAMIC_ASYNC, System.nanoTime() - asyncStart);
+				});
+			return;
+		}
+
+		if(renderThreadId >= 0)
+			return;
+
+		drawDynamicAsync(
+			sceneUploader,
+			facePrioritySorter,
+			clientVisibleFaces,
+			clientCulledFaces,
+			ctx,
+			projection,
+			tileObject,
+			modelOverride,
+			m,
+			zone,
+			modelCalcification == 0,
+			hasAlpha,
+			preOrientation, orient,
+			x, y, z
+		);
 	}
 
 	private void drawDynamicAsync(
