@@ -28,8 +28,6 @@ import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
 import lombok.extern.slf4j.Slf4j;
-import org.lwjgl.opengl.*;
-import rs117.hd.HdPlugin;
 import rs117.hd.utils.HDUtils;
 
 import static org.lwjgl.opengl.GL33C.*;
@@ -37,7 +35,6 @@ import static org.lwjgl.opengl.GL44.GL_CLIENT_STORAGE_BIT;
 import static org.lwjgl.opengl.GL44.GL_DYNAMIC_STORAGE_BIT;
 import static org.lwjgl.opengl.GL44.GL_MAP_PERSISTENT_BIT;
 import static org.lwjgl.opengl.GL44.glBufferStorage;
-import static org.lwjgl.opengl.GL45.glCopyNamedBufferSubData;
 import static rs117.hd.HdPlugin.GL_CAPS;
 import static rs117.hd.HdPlugin.checkGLErrors;
 import static rs117.hd.utils.MathUtils.*;
@@ -189,17 +186,17 @@ public class GLBuffer
 		if(!isPersistent())
 			glBufferData(target, numBytes, usage);
 
+		if (log.isDebugEnabled() && GL_CAPS.OpenGL43) {
+			checkGLErrors(() -> String.format("Errors encountered on buffer %s offset: %dl size: %dl mapped: %s persistent: %s", name, byteOffset, size, isMapped(), isPersistent()));
+			//GL43C.glObjectLabel(GL43C.GL_BUFFER, id, name);
+		}
+
 		if (id != oldBuffer && oldBuffer != 0 && byteOffset > 0) {
-			copyRangeTo(oldBuffer, id, 0, 0, size);
+			//copyRangeTo(oldBuffer, id, 0, 0, size);
 			glDeleteBuffers(oldBuffer);
 		}
 
 		size = numBytes;
-
-		if (log.isDebugEnabled() && GL_CAPS.OpenGL43) {
-			GL43C.glObjectLabel(GL43C.GL_BUFFER, id, name);
-			checkGLErrors(() -> String.format("Errors encountered on buffer %s offset: %dl size: %dl mapped: %s persistent: %s", name, byteOffset, size, isMapped(), isPersistent()));
-		}
 
 		// If was mapped, re-mapp without GL_MAP_INVALIDATE_BUFFER_BIT, since we may have previously written data
 		if(wasMapped && !isPersistent())

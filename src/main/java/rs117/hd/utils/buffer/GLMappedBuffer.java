@@ -3,7 +3,6 @@ package rs117.hd.utils.buffer;
 import java.nio.ByteBuffer;
 import java.nio.FloatBuffer;
 import java.nio.IntBuffer;
-import java.util.ArrayDeque;
 import lombok.Getter;
 
 import static org.lwjgl.opengl.GL15.GL_STATIC_DRAW;
@@ -15,6 +14,7 @@ import static org.lwjgl.opengl.GL30.GL_MAP_READ_BIT;
 import static org.lwjgl.opengl.GL30.GL_MAP_WRITE_BIT;
 import static org.lwjgl.opengl.GL30.glFlushMappedBufferRange;
 import static org.lwjgl.opengl.GL30.glMapBufferRange;
+import static rs117.hd.HdPlugin.checkGLErrors;
 import static rs117.hd.utils.buffer.GLBuffer.MAP_READ;
 import static rs117.hd.utils.buffer.GLBuffer.MAP_WRITE;
 
@@ -100,6 +100,7 @@ public final class GLMappedBuffer {
 		mapped = true;
 
 		glBindBuffer(owner.target, 0);
+		checkGLErrors(() -> "Mapping Buffer: " + owner.name + " Size: " + owner.size);
 		return this;
 	}
 

@@ -246,7 +246,7 @@ public class ZoneRenderer implements Renderer {
 		int minLevel, int level, int maxLevel, Set<Integer> hideRoofIds
 	) {
 		WorldViewContext ctx = sceneManager.getContext(scene);
-		if (ctx == null || ctx.isLoading)
+		if (ctx == null || (!sceneManager.isRoot(ctx) && ctx.isLoading))
 			return;
 
 		frameTimer.begin(Timer.DRAW_PRESCENE);
@@ -629,7 +629,7 @@ public class ZoneRenderer implements Renderer {
 		jobSystem.processPendingClientCallbacks();
 
 		WorldViewContext ctx = sceneManager.getContext(scene);
-		if(ctx == null || ctx.isLoading)
+		if (ctx == null || (!sceneManager.isRoot(ctx) && ctx.isLoading))
 			return;
 
 		frameTimer.begin(Timer.DRAW_POSTSCENE);
@@ -828,7 +828,7 @@ public class ZoneRenderer implements Renderer {
 		jobSystem.processPendingClientCallbacks();
 
 		WorldViewContext ctx = sceneManager.getContext(scene);
-		if (ctx == null || ctx.isLoading)
+		if (ctx == null || (!sceneManager.isRoot(ctx) && ctx.isLoading))
 			return;
 
 		Zone z = ctx.zones[zx][zz];
@@ -849,7 +849,7 @@ public class ZoneRenderer implements Renderer {
 	@Override
 	public void drawZoneAlpha(Projection entityProjection, Scene scene, int level, int zx, int zz) {
 		final WorldViewContext ctx = sceneManager.getContext(scene);
-		if (ctx == null || ctx.isLoading)
+		if (ctx == null || (!sceneManager.isRoot(ctx) && ctx.isLoading))
 			return;
 
 		final Zone z = ctx.zones[zx][zz];
@@ -886,7 +886,7 @@ public class ZoneRenderer implements Renderer {
 	@Override
 	public void drawPass(Projection projection, Scene scene, int pass) {
 		WorldViewContext ctx = sceneManager.getContext(scene);
-		if (ctx == null || ctx.isLoading)
+		if (ctx == null || (!sceneManager.isRoot(ctx) && ctx.isLoading))
 			return;
 
 		frameTimer.begin(Timer.DRAW_PASS);
