@@ -6,6 +6,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
+import net.runelite.api.*;
 import rs117.hd.utils.PrimitiveIntArray;
 
 @Slf4j
@@ -15,6 +16,9 @@ public class AsyncUploadData {
 
 	@Inject
 	FacePrioritySorter facePrioritySorter;
+
+	@Inject
+	Client client;
 
 	public final ReentrantLock syncLock = new ReentrantLock();
 	public final PrimitiveIntArray visibleFaces = new PrimitiveIntArray();
@@ -32,10 +36,5 @@ public class AsyncUploadData {
 		}
 		freeModelsCount.set(bufferCount);
 		injector.injectMembers(this);
-	}
-
-	public void waitForCompletion() {
-		for(int i = 0; i < models.length; i++)
-			models[i].waitForCompletion();
 	}
 }

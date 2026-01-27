@@ -155,8 +155,8 @@ public class ZoneRenderer implements Renderer {
 	@Inject
 	private UBOWorldViews uboWorldViews;
 
-	private final PrimitiveIntArray clientSortedFaces = new PrimitiveIntArray();
-	private final PrimitiveIntArray clientUnsortedFaces = new PrimitiveIntArray();
+	private final PrimitiveIntArray clientVisibleFaces = new PrimitiveIntArray();
+	private final PrimitiveIntArray clientCulledFaces = new PrimitiveIntArray();
 
 	private final Camera sceneCamera = new Camera();
 	private final Camera directionalCamera = new Camera().setOrthographic(true);
@@ -1084,18 +1084,18 @@ public class ZoneRenderer implements Renderer {
 			if(asyncModelCache != null) {
 				// Fast path, buffer the model into the job queue to unblock rl internals
 				asyncModelCache.queue(m, hasAlpha ? zone : null,
-					(asyncData, bufferedModel) -> {
+					(sceneUploader, facePrioritySorter, visibleFaces, culledFaces, cachedModel) -> {
 						final long asyncStart = System.nanoTime();
 						drawDynamicAsync(
-							asyncData.sceneUploader,
-							asyncData.facePrioritySorter,
-							asyncData.visibleFaces,
-							asyncData.culledFaces,
+							sceneUploader,
+							facePrioritySorter,
+							visibleFaces,
+							culledFaces,
 							ctx,
 							projection,
 							tileObject,
 							modelOverride,
-							bufferedModel,
+							cachedModel,
 							zone,
 							modelCalcification == 0,
 							hasAlpha,
@@ -1113,8 +1113,8 @@ public class ZoneRenderer implements Renderer {
 			drawDynamicAsync(
 				clientSceneUploader,
 				clientFacePrioritySorter,
-				clientSortedFaces,
-				clientUnsortedFaces,
+				clientVisibleFaces,
+				clientCulledFaces,
 				ctx,
 				projection,
 				tileObject,
@@ -1236,12 +1236,30 @@ public class ZoneRenderer implements Renderer {
 		if(zone != null) {
 			AsyncCachedModel model;
 			while ((model = zone.pendingModelJobs.poll()) != null)
-				model.waitForCompletion();
+				waitOnModelUpload(model);
 		} else {
-			for (AsyncUploadData asyncData : asyncUploadPool)
-				asyncData.waitForCompletion();
+			for (AsyncUploadData asyncData : asyncUploadPool) {
+				for(int i = 0; i < asyncData.models.length; i++)
+					waitOnModelUpload(asyncData.models[i]);
+			}
 		}
 		frameTimer.end(Timer.MODEL_UPLOAD_COMPLETE);
+	}
+
+	private void waitOnModelUpload(AsyncCachedModel model) {
+		if(model.isQueued() && model.canStart() && model.processing.compareAndSet(false, true)) {
+			clientVisibleFaces.reset();
+			clientCulledFaces.reset();
+			model.uploadFunc.upload(
+				clientSceneUploader,
+				clientFacePrioritySorter,
+				clientVisibleFaces,
+				clientCulledFaces,
+				model);
+			return;
+		}
+
+		model.waitForCompletion();
 	}
 
 	private AsyncCachedModel obtainAvailableAsyncCachedModel(boolean shouldBlock) {
@@ -1325,25 +1343,25 @@ public class ZoneRenderer implements Renderer {
 			final AsyncCachedModel asyncModelCache = obtainAvailableAsyncCachedModel(false);
 			if (asyncModelCache != null) {
 				asyncModelCache.queue(m, hasAlpha ? zone : null,
-					(asyncData, bufferedModel) -> {
-						long start = System.nanoTime();
+					(sceneUploader, facePrioritySorter, visibleFaces, culledFaces, cachedModel) -> {
+						final long asyncStart = System.nanoTime();
 						drawTempAsync(
-							asyncData.sceneUploader,
-							asyncData.facePrioritySorter,
-							asyncData.visibleFaces,
-							asyncData.culledFaces,
+							sceneUploader,
+							facePrioritySorter,
+							visibleFaces,
+							culledFaces,
 							worldProjection,
 							ctx,
 							gameObject,
 							renderable,
 							modelOverride,
 							zone,
-							bufferedModel,
+							cachedModel,
 							modelCalcification == 0,
 							hasAlpha,
 							orientation, x, y, z
 						);
-						frameTimer.add(Timer.DRAW_TEMP_ASYNC, System.nanoTime() - start);
+						frameTimer.add(Timer.DRAW_TEMP_ASYNC, System.nanoTime() - asyncStart);
 					}
 				);
 				return;
@@ -1353,8 +1371,8 @@ public class ZoneRenderer implements Renderer {
 				drawTempAsync(
 					clientSceneUploader,
 					clientFacePrioritySorter,
-					clientSortedFaces,
-					clientUnsortedFaces,
+					clientVisibleFaces,
+					clientCulledFaces,
 					worldProjection,
 					ctx,
 					gameObject,

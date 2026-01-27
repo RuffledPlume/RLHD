@@ -1,12 +1,14 @@
 package rs117.hd.renderer.zone;
 
 import java.lang.reflect.Array;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.LockSupport;
 import javax.annotation.Nonnull;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
+import rs117.hd.utils.PrimitiveIntArray;
 import rs117.hd.utils.jobs.Job;
 
 import static java.lang.System.arraycopy;
@@ -70,7 +72,8 @@ public final class AsyncCachedModel extends Job implements Model  {
 
 	// Job Data
 	private final AsyncUploadData asyncData;
-	private UploadModelFunc uploadFunc;
+	public final AtomicBoolean processing = new AtomicBoolean(false);
+	public UploadModelFunc uploadFunc;
 
 	@Getter
 	private Zone zone;
@@ -157,6 +160,7 @@ public final class AsyncCachedModel extends Job implements Model  {
 	public void queue(@Nonnull Model model, Zone zone, UploadModelFunc uploadFunc) {
 		this.zone = zone;
 		this.uploadFunc = uploadFunc;
+		processing.set(false);
 		for (CachedArrayField<?> cachedField : cachedFields)
 			cachedField.setStatus(false);
 
@@ -225,9 +229,12 @@ public final class AsyncCachedModel extends Job implements Model  {
 
 	@Override
 	protected boolean canStart() {
+		if(processing.get()) // Work has been stollen so pop it off the queue
+			return true;
+
 		// Check if the first grabbed field is cached before allowing this model to be processed
 		if(verticesX.cached && verticesY.cached && verticesZ.cached && faceIndices1.cached && faceIndices2.cached && faceIndices3.cached && faceColors3.cached)
-			return asyncData.syncLock.tryLock();
+			return asyncData.client.isClientThread() || asyncData.syncLock.tryLock();
 
 		return false;
 	}
@@ -235,17 +242,20 @@ public final class AsyncCachedModel extends Job implements Model  {
 	@Override
 	protected void onRun()  {
 		try {
-			if(!asyncData.syncLock.isHeldByCurrentThread())
-				asyncData.syncLock.lock(); // For saftey, but it should never be hit
+			if(!processing.compareAndSet(false, true))
+				return; // Client thread has stolen this job
+
 			asyncData.visibleFaces.reset();
 			asyncData.culledFaces.reset();
-			uploadFunc.upload(asyncData, this);
+			uploadFunc.upload(asyncData.sceneUploader, asyncData.facePrioritySorter, asyncData.visibleFaces, asyncData.culledFaces, this);
 		} catch (Exception e) {
 			log.error("Error drawing temp object", e);
 		} finally {
 			if(zone != null)
 				zone.pendingModelJobs.remove(this);
-			asyncData.syncLock.unlock();
+
+			if(asyncData.syncLock.isHeldByCurrentThread())
+				asyncData.syncLock.unlock();
 		}
 	}
 
@@ -393,7 +403,7 @@ public final class AsyncCachedModel extends Job implements Model  {
 
 	@FunctionalInterface
 	public interface UploadModelFunc {
-		void upload(AsyncUploadData asyncData, AsyncCachedModel model);
+		void upload(SceneUploader sceneUploader, FacePrioritySorter facePrioritySorter, PrimitiveIntArray visibleFaces, PrimitiveIntArray culledFaces, Model model);
 	}
 
 	@FunctionalInterface
