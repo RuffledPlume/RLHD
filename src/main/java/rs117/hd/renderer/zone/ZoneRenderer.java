@@ -441,7 +441,6 @@ public class ZoneRenderer implements Renderer {
 				plugin.uboGlobal.viewMatrix.set(plugin.viewMatrix);
 				plugin.uboGlobal.projectionMatrix.set(plugin.viewProjMatrix);
 				plugin.uboGlobal.invProjectionMatrix.set(plugin.invViewProjMatrix);
-				plugin.uboGlobal.pointLightsCount.set(ctx.sceneContext.numVisibleLights);
 				plugin.uboGlobal.upload();
 			}
 		}
@@ -479,39 +478,8 @@ public class ZoneRenderer implements Renderer {
 
 			plugin.uboLights.upload();
 			plugin.uboLightsCulling.upload();
+			plugin.uboGlobal.pointLightsCount.set(ctx.sceneContext.numVisibleLights);
 			frameTimer.end(Timer.UPDATE_LIGHTS);
-
-			// Perform tiled lighting culling before the compute memory barrier, so it's performed asynchronously
-			if (plugin.configTiledLighting) {
-				plugin.updateTiledLightingFbo();
-				assert plugin.fboTiledLighting != 0;
-
-				frameTimer.begin(Timer.DRAW_TILED_LIGHTING);
-				frameTimer.begin(Timer.RENDER_TILED_LIGHTING);
-
-				renderState.framebuffer.set(GL_FRAMEBUFFER, plugin.fboTiledLighting);
-				renderState.viewport.set(0, 0, plugin.tiledLightingResolution[0], plugin.tiledLightingResolution[1]);
-				renderState.vao.set(plugin.vaoTri);
-
-				if (plugin.tiledLightingImageStoreProgram.isValid()) {
-					renderState.program.set(plugin.tiledLightingImageStoreProgram);
-					renderState.drawBuffer.set(GL_NONE);
-					renderState.apply();
-					glDrawArrays(GL_TRIANGLES, 0, 3);
-				} else {
-					renderState.drawBuffer.set(GL_COLOR_ATTACHMENT0);
-					int layerCount = plugin.configDynamicLights.getTiledLightingLayers();
-					for (int layer = 0; layer < layerCount; layer++) {
-						renderState.program.set(plugin.tiledLightingShaderPrograms.get(layer));
-						renderState.framebufferTextureLayer.set(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, plugin.texTiledLighting, 0, layer);
-						renderState.apply();
-						glDrawArrays(GL_TRIANGLES, 0, 3);
-					}
-				}
-
-				frameTimer.end(Timer.RENDER_TILED_LIGHTING);
-				frameTimer.end(Timer.DRAW_TILED_LIGHTING);
-			}
 		}
 
 		// Upon logging in, the client will draw some frames with zero geometry before it hides the login screen
@@ -582,7 +550,6 @@ public class ZoneRenderer implements Renderer {
 			0);
 
 		// Lights & lightning
-		plugin.uboGlobal.pointLightsCount.set(ctx.sceneContext.numVisibleLights);
 		plugin.uboGlobal.lightningBrightness.set(environmentManager.getLightningBrightness());
 
 		plugin.uboGlobal.saturation.set(config.saturation() / 100f);
@@ -674,6 +641,40 @@ public class ZoneRenderer implements Renderer {
 //		frameTimer.end(Timer.COMPUTE);
 
 		checkGLErrors();
+	}
+
+	private void tiledlightingPass(){
+		if(!plugin.configTiledLighting || plugin.configDynamicLights == DynamicLights.NONE)
+			return;
+
+		plugin.updateTiledLightingFbo();
+		assert plugin.fboTiledLighting != 0;
+
+		frameTimer.begin(Timer.DRAW_TILED_LIGHTING);
+		frameTimer.begin(Timer.RENDER_TILED_LIGHTING);
+
+		renderState.framebuffer.set(GL_FRAMEBUFFER, plugin.fboTiledLighting);
+		renderState.viewport.set(0, 0, plugin.tiledLightingResolution[0], plugin.tiledLightingResolution[1]);
+		renderState.vao.set(plugin.vaoTri);
+
+		if (plugin.tiledLightingImageStoreProgram.isValid()) {
+			renderState.program.set(plugin.tiledLightingImageStoreProgram);
+			renderState.drawBuffer.set(GL_NONE);
+			renderState.apply();
+			glDrawArrays(GL_TRIANGLES, 0, 3);
+		} else {
+			renderState.drawBuffer.set(GL_COLOR_ATTACHMENT0);
+			int layerCount = plugin.configDynamicLights.getTiledLightingLayers();
+			for (int layer = 0; layer < layerCount; layer++) {
+				renderState.program.set(plugin.tiledLightingShaderPrograms.get(layer));
+				renderState.framebufferTextureLayer.set(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, plugin.texTiledLighting, 0, layer);
+				renderState.apply();
+				glDrawArrays(GL_TRIANGLES, 0, 3);
+			}
+		}
+
+		frameTimer.end(Timer.RENDER_TILED_LIGHTING);
+		frameTimer.end(Timer.DRAW_TILED_LIGHTING);
 	}
 
 	private void directionalShadowPass() {
@@ -984,6 +985,7 @@ public class ZoneRenderer implements Renderer {
 
 		frameTimer.begin(Timer.DRAW_SUBMIT);
 		if (shouldRenderScene) {
+			tiledlightingPass();
 			directionalShadowPass();
 			scenePass();
 		}
