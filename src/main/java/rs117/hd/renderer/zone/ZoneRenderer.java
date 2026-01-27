@@ -958,10 +958,9 @@ public class ZoneRenderer implements Renderer {
 
 	@Override
 	public void drawDynamic(int renderThreadId, Projection projection, Scene scene, TileObject tileObject, Renderable r, Model m, int orient, int x, int y, int z) {
-		final Timer timer = renderThreadId == -1 ? Timer.DRAW_DYNAMIC : Timer.DRAW_DYNAMIC_ASYNC;
-		frameTimer.begin(timer);
+		final long start = System.nanoTime();
 		modelStreamingManager.drawDynamic(renderThreadId, projection, scene, tileObject, r, m, orient, x, y, z);
-		frameTimer.end(timer);
+		frameTimer.add(renderThreadId == -1 ? Timer.DRAW_DYNAMIC : Timer.DRAW_DYNAMIC_ASYNC, System.nanoTime() - start);
 	}
 
 	@Override
