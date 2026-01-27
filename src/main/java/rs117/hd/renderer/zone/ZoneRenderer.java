@@ -32,7 +32,6 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.api.events.*;
 import net.runelite.api.hooks.*;
-import net.runelite.client.callback.RenderCallbackManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.ui.DrawManager;
 import org.lwjgl.opengl.*;
@@ -96,9 +95,6 @@ public class ZoneRenderer implements Renderer {
 	private DrawManager drawManager;
 
 	@Inject
-	private RenderCallbackManager renderCallbackManager;
-
-	@Inject
 	private HdPlugin plugin;
 
 	@Inject
@@ -143,8 +139,6 @@ public class ZoneRenderer implements Renderer {
 	public final Camera sceneCamera = new Camera();
 	public final Camera directionalCamera = new Camera().setOrthographic(true);
 	public final ShadowCasterVolume directionalShadowCasterVolume = new ShadowCasterVolume(directionalCamera);
-
-	private final int[] worldPos = new int[3];
 
 	public final RenderState renderState = new RenderState();
 	public final CommandBuffer playerCmd = new CommandBuffer(renderState);
