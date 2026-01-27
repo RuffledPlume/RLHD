@@ -1,5 +1,6 @@
 package rs117.hd.renderer.zone;
 
+import java.util.ArrayList;
 import java.util.concurrent.TimeUnit;
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -66,6 +67,7 @@ public class ModelStreamingManager {
 	private int lastAsyncUploadIdx;
 	private boolean disabledRenderThreads;
 
+	private final ArrayList<AsyncCachedModel> pending = new ArrayList<>();
 	private final PrimitiveIntArray clientVisibleFaces = new PrimitiveIntArray();
 	private final PrimitiveIntArray clientCulledFaces = new PrimitiveIntArray();
 
@@ -536,33 +538,54 @@ public class ModelStreamingManager {
 			return;
 
 		frameTimer.begin(Timer.MODEL_UPLOAD_COMPLETE);
+		pending.clear();
 		if(zone != null) {
 			AsyncCachedModel model;
 			while ((model = zone.pendingModelJobs.poll()) != null)
-				waitOnModelUpload(model);
+				pending.add(model);
 		} else {
 			for (AsyncUploadData asyncData : asyncUploadPool) {
 				for(int i = 0; i < asyncData.models.length; i++)
-					waitOnModelUpload(asyncData.models[i]);
+					pending.add(asyncData.models[i]);
 			}
 		}
-		frameTimer.end(Timer.MODEL_UPLOAD_COMPLETE);
-	}
 
-	private void waitOnModelUpload(AsyncCachedModel model) {
-		if(model.isQueued() && model.canStart() && model.processing.compareAndSet(false, true)) {
-			clientVisibleFaces.reset();
-			clientCulledFaces.reset();
-			model.uploadFunc.upload(
-				sceneUploader,
-				facePrioritySorter,
-				clientVisibleFaces,
-				clientCulledFaces,
-				model);
-			return;
+		AsyncCachedModel pendingModel;
+		boolean shouldBlock = false, hasStolen = false;
+		int idx = 0;
+		while (!pending.isEmpty()) {
+			pendingModel = pending.get(idx);
+
+			if(pendingModel.isQueued() && pendingModel.canStart() && pendingModel.processing.compareAndSet(false, true)) {
+				clientVisibleFaces.reset();
+				clientCulledFaces.reset();
+				pendingModel.uploadFunc.upload(
+					sceneUploader,
+					facePrioritySorter,
+					clientVisibleFaces,
+					clientCulledFaces,
+					pendingModel);
+
+				pending.remove(idx);
+				hasStolen = true;
+			}
+
+			if(shouldBlock && pendingModel.waitForCompletion(10))
+				pending.remove(idx);
+
+			if(pending.isEmpty())
+				break;
+
+			idx = (idx + 1) % pending.size();
+			if(idx == 0 && !shouldBlock) {
+				// We've wrapped around to the start, check if any work was stolen.
+				// If no work was stolen, the next iteration we should block since we'll never be able to steal
+				shouldBlock = !hasStolen;
+				hasStolen = false;
+			}
 		}
 
-		model.waitForCompletion();
+		frameTimer.end(Timer.MODEL_UPLOAD_COMPLETE);
 	}
 
 	private AsyncCachedModel obtainAvailableAsyncCachedModel(boolean shouldBlock) {

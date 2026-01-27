@@ -26,7 +26,7 @@ public abstract class Job {
 		waitForCompletion(-1);
 	}
 
-	public final void waitForCompletion(int timeoutNs) {
+	public final boolean waitForCompletion(int timeoutNs) {
 		boolean completed = false;
 		if (handle != null) {
 			try {
@@ -50,6 +50,7 @@ public abstract class Job {
 			group.pending.remove(this);
 			group = null;
 		}
+		return completed;
 	}
 
 	public final boolean isQueued() {
