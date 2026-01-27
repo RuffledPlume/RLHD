@@ -916,11 +916,11 @@ public class ZoneRenderer implements Renderer {
 		if (renderWater)
 			z.renderOpaqueLevel(sceneCmd, Zone.LEVEL_WATER_SURFACE);
 
+		ensureAsyncUploadsComplete(z);
+
 		final boolean hasAlpha = z.sizeA != 0 || !z.alphaModels.isEmpty();
 		if (!hasAlpha)
 			return;
-
-		ensureAsyncUploadsComplete(z);
 
 		final int offset = ctx.sceneContext.sceneOffset >> 3;
 		if (level == 0 && (!sceneManager.isRoot(ctx) || z.inSceneFrustum)) {
