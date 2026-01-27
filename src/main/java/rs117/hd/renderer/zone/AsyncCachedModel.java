@@ -3,6 +3,7 @@ package rs117.hd.renderer.zone;
 import java.lang.reflect.Array;
 import java.util.concurrent.locks.LockSupport;
 import javax.annotation.Nonnull;
+import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
@@ -70,6 +71,9 @@ public final class AsyncCachedModel extends Job implements Model  {
 	// Job Data
 	private final AsyncUploadData asyncData;
 	private UploadModelFunc uploadFunc;
+
+	@Getter
+	private Zone zone;
 
 	public AsyncCachedModel(AsyncUploadData asyncData) {
 		this.asyncData = asyncData;
@@ -150,10 +154,11 @@ public final class AsyncCachedModel extends Job implements Model  {
 	@Override
 	public short[] getFaceTextures() { return faceTextures.getValue(); }
 
-	public void queue(@Nonnull Model model, UploadModelFunc func) {
+	public void queue(@Nonnull Model model, Zone zone, UploadModelFunc uploadFunc) {
+		this.zone = zone;
+		this.uploadFunc = uploadFunc;
 		for (CachedArrayField<?> cachedField : cachedFields)
 			cachedField.setStatus(false);
-		uploadFunc = func;
 
 		// Scalars
 		sceneId = model.getSceneId();
@@ -180,7 +185,8 @@ public final class AsyncCachedModel extends Job implements Model  {
 		verticesCount = model.getVerticesCount();
 		faceCount = model.getFaceCount();
 
-		// Queue & append the previous model
+		if(zone != null)
+			zone.pendingModelJobs.add(this);
 		queue();
 
 		// Caching is done in order of access, Ideally this should be updated to reflect any changes
@@ -237,6 +243,8 @@ public final class AsyncCachedModel extends Job implements Model  {
 		} catch (Exception e) {
 			log.error("Error drawing temp object", e);
 		} finally {
+			if(zone != null)
+				zone.pendingModelJobs.remove(this);
 			asyncData.syncLock.unlock();
 		}
 	}

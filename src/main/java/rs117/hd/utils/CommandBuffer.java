@@ -15,6 +15,7 @@ import static org.lwjgl.opengl.GL33C.*;
 import static org.lwjgl.opengl.GL40.glDrawArraysIndirect;
 import static org.lwjgl.opengl.GL40.glDrawElementsIndirect;
 import static org.lwjgl.opengl.GL43.glMultiDrawArraysIndirect;
+import static rs117.hd.utils.MathUtils.*;
 
 @Slf4j
 public class CommandBuffer {
@@ -39,6 +40,8 @@ public class CommandBuffer {
 	private static final int GL_TOGGLE_TYPE = 13; // Combined glEnable & glDisable
 	private static final int GL_FENCE_SYNC = 14;
 
+	private static final int GL_EXECUTE_SUB_COMMAND_BUFFER = 15;
+
 	private static final long INT_MASK = 0xFFFF_FFFFL;
 	private static final int DRAW_MODE_MASK = 0xF;
 
@@ -50,7 +53,7 @@ public class CommandBuffer {
 	@Setter
 	private FrameTimer frameTimer;
 
-	private long[] cmd = new long[100000]; // 100k calls
+	private long[] cmd = new long[(int) KiB];
 	private int writeHead = 0;
 
 	public CommandBuffer(RenderState renderState) {
@@ -97,6 +100,12 @@ public class CommandBuffer {
 		ensureCapacity(1);
 		int objectIdx = writeObject(program);
 		cmd[writeHead++] = GL_USE_PROGRAM & 0xFF | (long) objectIdx << 8;
+	}
+
+	public void ExecuteSubCommandBuffer(CommandBuffer subCommandBuffer) {
+		ensureCapacity(1);
+		int objectIdx = writeObject(subCommandBuffer); // TODO: Should probably do a circular redundancy check, but for now usage is simiple
+		cmd[writeHead++] = GL_EXECUTE_SUB_COMMAND_BUFFER & 0xFF | (long) objectIdx << 8;
 	}
 
 	public void DepthMask(boolean writeDepth) {
@@ -375,6 +384,11 @@ public class CommandBuffer {
 						int drawCount = (int) (data >> 32);
 						long offset = cmd[readHead++];
 						glMultiDrawArraysIndirect(mode, offset, drawCount, 0);
+						break;
+					}
+					case GL_EXECUTE_SUB_COMMAND_BUFFER: {
+						final CommandBuffer subCmd = (CommandBuffer) objects[(int) (data >> 8)];
+						subCmd.execute();
 						break;
 					}
 					default:

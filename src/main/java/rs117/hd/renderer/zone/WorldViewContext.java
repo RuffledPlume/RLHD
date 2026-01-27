@@ -19,6 +19,7 @@ import rs117.hd.opengl.uniforms.UBOWorldViews;
 import rs117.hd.opengl.uniforms.UBOWorldViews.WorldViewStruct;
 import rs117.hd.utils.Camera;
 import rs117.hd.utils.CommandBuffer;
+import rs117.hd.utils.RenderState;
 import rs117.hd.utils.buffer.GLBuffer;
 import rs117.hd.utils.jobs.JobGroup;
 
@@ -71,6 +72,8 @@ public class WorldViewContext {
 
 	StaticAlphaSortingJob staticAlphaSortingJob;
 
+	CommandBuffer vaoSceneCmd;
+	CommandBuffer vaoDirectionalCmd;
 	final VAO[][] vaos = new VAO[VAO_BUFFER_COUNT][VAO_COUNT];
 
 	public long loadTime;
@@ -96,8 +99,11 @@ public class WorldViewContext {
 		zones = new Zone[sizeX][sizeZ];
 	}
 
-	public void initialize(Injector injector) {
+	public void initialize(RenderState renderState, Injector injector) {
 		injector.injectMembers(this);
+
+		vaoSceneCmd = new CommandBuffer(renderState);
+		vaoDirectionalCmd = new CommandBuffer(renderState);
 
 		for (int x = 0; x < sizeX; ++x)
 			for (int z = 0; z < sizeZ; ++z)

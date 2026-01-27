@@ -31,6 +31,7 @@ import rs117.hd.scene.ProceduralGenerator;
 import rs117.hd.scene.areas.AABB;
 import rs117.hd.scene.areas.Area;
 import rs117.hd.utils.NpcDisplacementCache;
+import rs117.hd.utils.RenderState;
 import rs117.hd.utils.jobs.GenericJob;
 
 import static net.runelite.api.Constants.*;
@@ -82,6 +83,7 @@ public class SceneManager {
 	@Inject
 	private FrameTimer frameTimer;
 
+	private RenderState renderState;
 	private UBOWorldViews uboWorldViews;
 
 	@Getter
@@ -128,9 +130,10 @@ public class SceneManager {
 		return root;
 	}
 
-	public void initialize(UBOWorldViews uboWorldViews) {
+	public void initialize(UBOWorldViews uboWorldViews, RenderState renderState) {
 		this.uboWorldViews = uboWorldViews;
-		root.initialize(injector);
+		this.renderState = renderState;
+		root.initialize(renderState, injector);
 	}
 
 	public void destroy() {
@@ -717,7 +720,7 @@ public class SceneManager {
 		proceduralGenerator.generateSceneData(sceneContext);
 
 		final WorldViewContext ctx = new WorldViewContext(worldView, sceneContext, uboWorldViews);
-		ctx.initialize(injector);
+		ctx.initialize(renderState, injector);
 		subs[worldViewId] = ctx;
 
 		for (int x = 0; x < ctx.sizeX; ++x)

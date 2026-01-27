@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.BlockingDeque;
 import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.LinkedBlockingDeque;
 import java.util.function.ToIntFunction;
 import javax.annotation.Nullable;
@@ -97,6 +98,7 @@ public class Zone {
 
 	final List<AlphaModel> alphaModels = new ArrayList<>(0);
 	final List<AlphaModel> playerModels = new ArrayList<>(0);
+	final ConcurrentLinkedQueue<AsyncCachedModel> pendingModelJobs = new ConcurrentLinkedQueue<>();
 
 	public void initialize(GLBuffer o, GLBuffer a, GLTextureBuffer f, int eboShared) {
 		assert glVao == 0;

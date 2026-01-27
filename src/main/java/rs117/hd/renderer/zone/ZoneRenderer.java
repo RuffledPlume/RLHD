@@ -223,7 +223,7 @@ public class ZoneRenderer implements Renderer {
 
 		jobSystem.initialize();
 		uboWorldViews.initialize(UNIFORM_BLOCK_WORLD_VIEWS);
-		sceneManager.initialize(uboWorldViews);
+		sceneManager.initialize(uboWorldViews, renderState);
 	}
 
 	@Override
@@ -299,6 +299,8 @@ public class ZoneRenderer implements Renderer {
 		ctx.level = level;
 		ctx.maxLevel = maxLevel;
 		ctx.hideRoofIds = hideRoofIds;
+		ctx.vaoSceneCmd.reset();
+		ctx.vaoDirectionalCmd.reset();
 
 		if (ctx.uboWorldViewStruct != null)
 			ctx.uboWorldViewStruct.update();
@@ -918,7 +920,7 @@ public class ZoneRenderer implements Renderer {
 		if (!hasAlpha)
 			return;
 
-		ensureAsyncUploadsComplete();
+		ensureAsyncUploadsComplete(z);
 
 		final int offset = ctx.sceneContext.sceneOffset >> 3;
 		if (level == 0 && (!sceneManager.isRoot(ctx) || z.inSceneFrustum)) {
@@ -949,16 +951,21 @@ public class ZoneRenderer implements Renderer {
 			case DrawCallbacks.PASS_OPAQUE:
 				directionalCmd.SetShader(fastShadowProgram);
 
-				ensureAsyncUploadsComplete();
+				sceneCmd.ExecuteSubCommandBuffer(ctx.vaoSceneCmd);
+				directionalCmd.ExecuteSubCommandBuffer(ctx.vaoDirectionalCmd);
+
+				break;
+			case DrawCallbacks.PASS_ALPHA:
+				ensureAsyncUploadsComplete(null);
 
 				ctx.unmap();
 
 				// Draw opaque
-				ctx.drawAll(VAO_OPAQUE, sceneCmd);
-				ctx.drawAll(VAO_OPAQUE, directionalCmd);
+				ctx.drawAll(VAO_OPAQUE, ctx.vaoSceneCmd);
+				ctx.drawAll(VAO_OPAQUE, ctx.vaoDirectionalCmd);
 
 				// Draw shadow-only models
-				ctx.drawAll(VAO_SHADOW, directionalCmd);
+				ctx.drawAll(VAO_SHADOW, ctx.vaoDirectionalCmd);
 
 				final int offset = ctx.sceneContext.sceneOffset >> 3;
 				for (int zx = 0; zx < ctx.sizeX; ++zx) {
@@ -972,11 +979,11 @@ public class ZoneRenderer implements Renderer {
 
 							if(!playerCmd.isEmpty()) {
 								sceneCmd.DepthMask(false);
-								sceneCmd.append(playerCmd);
+								ctx.vaoSceneCmd	.append(playerCmd);
 								sceneCmd.DepthMask(true);
 
 								// Draw players shadow, with depth writes & alpha
-								directionalCmd.append(playerCmd);
+								ctx.vaoDirectionalCmd.append(playerCmd);
 
 								// Draw players opaque, writing only depth
 								sceneCmd.ColorMask(false, false, false, false);
@@ -988,8 +995,7 @@ public class ZoneRenderer implements Renderer {
 						}
 					}
 				}
-				break;
-			case DrawCallbacks.PASS_ALPHA:
+
 				for (int zx = 0; zx < ctx.sizeX; ++zx)
 					for (int zz = 0; zz < ctx.sizeZ; ++zz)
 						ctx.zones[zx][zz].postAlphaPass();
@@ -1077,7 +1083,7 @@ public class ZoneRenderer implements Renderer {
 			final AsyncCachedModel asyncModelCache = obtainAvailableAsyncCachedModel(renderThreadId >= 0);
 			if(asyncModelCache != null) {
 				// Fast path, buffer the model into the job queue to unblock rl internals
-				asyncModelCache.queue(m,
+				asyncModelCache.queue(m, hasAlpha ? zone : null,
 					(asyncData, bufferedModel) -> {
 						final long asyncStart = System.nanoTime();
 						drawDynamicAsync(
@@ -1222,13 +1228,19 @@ public class ZoneRenderer implements Renderer {
 		}
 	}
 
-	private void ensureAsyncUploadsComplete() {
+	private void ensureAsyncUploadsComplete(Zone zone) {
 		if(asyncUploadPool == null)
 			return;
 
 		frameTimer.begin(Timer.MODEL_UPLOAD_COMPLETE);
-		for (AsyncUploadData asyncData : asyncUploadPool)
-			asyncData.waitForCompletion();
+		if(zone != null) {
+			AsyncCachedModel model;
+			while ((model = zone.pendingModelJobs.poll()) != null)
+				model.waitForCompletion();
+		} else {
+			for (AsyncUploadData asyncData : asyncUploadPool)
+				asyncData.waitForCompletion();
+		}
 		frameTimer.end(Timer.MODEL_UPLOAD_COMPLETE);
 	}
 
@@ -1309,10 +1321,10 @@ public class ZoneRenderer implements Renderer {
 					return;
 			}
 
-			final boolean hasAlpha = renderable instanceof Player || m.getFaceTransparencies() != null;
+			final boolean hasAlpha = m.getFaceTransparencies() != null || modelOverride.mightHaveTransparency;
 			final AsyncCachedModel asyncModelCache = obtainAvailableAsyncCachedModel(false);
 			if (asyncModelCache != null) {
-				asyncModelCache.queue(m,
+				asyncModelCache.queue(m, hasAlpha ? zone : null,
 					(asyncData, bufferedModel) -> {
 						long start = System.nanoTime();
 						drawTempAsync(
@@ -1376,7 +1388,7 @@ public class ZoneRenderer implements Renderer {
 		boolean hasAlpha,
 		int orientation, int x, int y, int z) {
 
-		boolean shouldSort = hasAlpha && (!sceneManager.isRoot(ctx) || zone.inSceneFrustum);
+		boolean shouldSort = (hasAlpha || renderable instanceof Player) && (!sceneManager.isRoot(ctx) || zone.inSceneFrustum);
 		shouldSort &= sceneUploader.preprocessTempModel(
 			worldProjection,
 			plugin.cameraFrustum,
