@@ -1,6 +1,7 @@
 package rs117.hd.renderer.zone;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.concurrent.TimeUnit;
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -62,7 +63,9 @@ public class ModelStreamingManager {
 	private ZoneRenderer renderer;
 
 	private final int[] worldPos = new int[3];
-	private int[][] asyncDynamicWorldPos;
+	private final int[] drawnDynamicRenderableCount = new int[RL_RENDER_THREADS + 1];
+	private int[][] asyncDynamicWorldPos = new int[RL_RENDER_THREADS][3];
+
 	private AsyncUploadData[] asyncUploadPool;
 	private int lastAsyncUploadIdx;
 	private boolean disabledRenderThreads;
@@ -81,7 +84,6 @@ public class ModelStreamingManager {
 			// RENDER_THREADS will act as suppliers into the Job System, so this will be 2 + Client Suppliers
 			flags |= DrawCallbacks.RENDER_THREADS(RL_RENDER_THREADS);
 
-			asyncDynamicWorldPos = new int[RL_RENDER_THREADS][3];
 			asyncUploadPool = new AsyncUploadData[threadCount];
 			for(int i = 0; i < asyncUploadPool.length; i++) {
 				if(asyncUploadPool[i] == null)
@@ -104,6 +106,15 @@ public class ModelStreamingManager {
 			disabledRenderThreads = false;
 			client.setGpuFlags(plugin.gpuFlags);
 		}
+
+		Arrays.fill(drawnDynamicRenderableCount, 0);
+	}
+
+	public int getDrawnDynamicRenderableCount() {
+		int count = 0;
+		for(int i = 0; i < drawnDynamicRenderableCount.length; i++)
+			count += drawnDynamicRenderableCount[i];
+		return count;
 	}
 
 	public void drawTemp(Projection worldProjection, Scene scene, GameObject gameObject, Model m, int orientation, int x, int y, int z) {
@@ -151,6 +162,7 @@ public class ModelStreamingManager {
 				!renderer.directionalShadowCasterVolume.intersectsPoint(x, y, z))
 				return;
 		}
+		plugin.drawnTempRenderableCount++;
 
 		final boolean hasAlpha = m.getFaceTransparencies() != null || modelOverride.mightHaveTransparency;
 		final AsyncCachedModel asyncModelCache = obtainAvailableAsyncCachedModel(false);
@@ -377,6 +389,7 @@ public class ModelStreamingManager {
 				!renderer.directionalShadowCasterVolume.intersectsPoint(x, y, z))
 				return;
 		}
+		drawnDynamicRenderableCount[renderThreadId + 1]++;
 
 		final int preOrientation = HDUtils.getModelPreOrientation(HDUtils.getObjectConfig(tileObject));
 		final boolean hasAlpha = m.getFaceTransparencies() != null || modelOverride.mightHaveTransparency;

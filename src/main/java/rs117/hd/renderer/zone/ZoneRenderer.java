@@ -294,8 +294,7 @@ public class ZoneRenderer implements Renderer {
 		frameTimer.begin(Timer.DRAW_SCENE);
 
 		if (!plugin.enableFreezeFrame && !plugin.redrawPreviousFrame) {
-			plugin.drawnTileCount = 0;
-			plugin.drawnStaticRenderableCount = 0;
+			plugin.drawnTempRenderableCount = 0;
 			plugin.drawnDynamicRenderableCount = 0;
 			try {
 				frameTimer.begin(Timer.UPDATE_ENVIRONMENT);
@@ -606,6 +605,9 @@ public class ZoneRenderer implements Renderer {
 //		frameTimer.begin(Timer.COMPUTE);
 //		plugin.uboCompute.upload();
 //		frameTimer.end(Timer.COMPUTE);
+		
+		// TODO: Tbh, we should add some form of stat tracking to the FrameTimer
+		plugin.drawnDynamicRenderableCount += modelStreamingManager.getDrawnDynamicRenderableCount();
 
 		checkGLErrors();
 	}

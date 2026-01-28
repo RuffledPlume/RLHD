@@ -132,9 +132,10 @@ import static rs117.hd.utils.HDUtils.getJFrame;
 import static rs117.hd.utils.HDUtils.isJFrameMinimized;
 import static rs117.hd.utils.MathUtils.*;
 import static rs117.hd.utils.ResourcePath.path;
-import static rs117.hd.utils.buffer.GLBuffer.*;
 import static rs117.hd.utils.buffer.GLBuffer.MAP_WRITE;
+import static rs117.hd.utils.buffer.GLBuffer.STORAGE_IMMUTABLE;
 import static rs117.hd.utils.buffer.GLBuffer.STORAGE_PERSISTENT;
+import static rs117.hd.utils.buffer.GLBuffer.STORAGE_WRITE;
 
 @PluginDescriptor(
 	name = "117 HD",
@@ -445,6 +446,8 @@ public class HdPlugin extends Plugin {
 	public int drawnTileCount;
 	@Getter
 	public int drawnStaticRenderableCount;
+	@Getter
+	public int drawnTempRenderableCount;
 	@Getter
 	public int drawnDynamicRenderableCount;
 	@Getter
@@ -794,6 +797,10 @@ public class HdPlugin extends Plugin {
 			canvas.validate();
 			startUp();
 		});
+	}
+
+	public boolean isZoneRenderer() {
+		return renderer != null && renderer instanceof ZoneRenderer;
 	}
 
 	@Nullable

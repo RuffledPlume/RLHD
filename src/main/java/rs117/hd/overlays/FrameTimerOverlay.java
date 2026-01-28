@@ -165,25 +165,37 @@ public class FrameTimerOverlay extends OverlayPanel implements FrameTimer.Listen
 					.build());
 			}
 
-			children.add(LineComponent.builder()
-				.left("Tiles:")
-				.right(String.valueOf(plugin.getDrawnTileCount()))
-				.build());
+			if(plugin.isZoneRenderer()) {
+				children.add(LineComponent.builder()
+					.left("Dynamic Renderables:")
+					.right(String.valueOf(plugin.getDrawnDynamicRenderableCount()))
+					.build());
 
-			children.add(LineComponent.builder()
-				.left("Static Renderables:")
-				.right(String.valueOf(plugin.getDrawnStaticRenderableCount()))
-				.build());
+				children.add(LineComponent.builder()
+					.left("Temp Renderables:")
+					.right(String.valueOf(plugin.getDrawnTempRenderableCount()))
+					.build());
+			} else {
+				children.add(LineComponent.builder()
+					.left("Tiles:")
+					.right(String.valueOf(plugin.getDrawnTileCount()))
+					.build());
 
-			children.add(LineComponent.builder()
-				.left("Dynamic Renderables:")
-				.right(String.valueOf(plugin.getDrawnDynamicRenderableCount()))
-				.build());
+				children.add(LineComponent.builder()
+					.left("Static Renderables:")
+					.right(String.valueOf(plugin.getDrawnStaticRenderableCount()))
+					.build());
 
-			children.add(LineComponent.builder()
-				.left("NPC Displacement Cache Size:")
-				.right(String.valueOf(npcDisplacementCache.size()))
-				.build());
+				children.add(LineComponent.builder()
+					.left("Dynamic Renderables:")
+					.right(String.valueOf(plugin.getDrawnDynamicRenderableCount()))
+					.build());
+
+				children.add(LineComponent.builder()
+					.left("NPC Displacement Cache Size:")
+					.right(String.valueOf(npcDisplacementCache.size()))
+					.build());
+			}
 
 			children.add(LineComponent.builder()
 				.leftFont(boldFont)
