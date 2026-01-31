@@ -78,6 +78,8 @@ import static rs117.hd.renderer.zone.WorldViewContext.VAO_OPAQUE;
 import static rs117.hd.renderer.zone.WorldViewContext.VAO_SHADOW;
 import static rs117.hd.utils.Mat4.clipFrustumToDistance;
 import static rs117.hd.utils.MathUtils.*;
+import static rs117.hd.utils.buffer.GLBuffer.MAP_INVALIDATE;
+import static rs117.hd.utils.buffer.GLBuffer.MAP_UNSYNCHRONIZED;
 import static rs117.hd.utils.buffer.GLBuffer.MAP_WRITE;
 
 @Slf4j
@@ -151,6 +153,7 @@ public class ZoneRenderer implements Renderer {
 	public static GLBuffer eboAlpha;
 	public static GLMappedBuffer eboAlphaMapped;
 	public static int eboAlphaOffset;
+	private static int eboAlphaPrevOffset;
 
 	private boolean sceneFboValid;
 	private boolean shouldRenderScene;
@@ -550,9 +553,13 @@ public class ZoneRenderer implements Renderer {
 				totalSortedFaces += entityCtx.getSortedAlphaCount();
 		}
 
-		eboAlpha.ensureCapacity(totalSortedFaces * 3L * Integer.BYTES);
-		eboAlphaMapped = eboAlpha.map(MAP_WRITE);
-		eboAlphaOffset = 0;
+		if((plugin.frame % 4) == 0)
+			eboAlphaOffset = 0;
+		eboAlphaPrevOffset = eboAlphaOffset;
+
+		long alphaOffsetBytes = eboAlphaOffset * (long)Integer.BYTES;
+		eboAlpha.ensureCapacity(alphaOffsetBytes + (totalSortedFaces * 3L * Integer.BYTES));
+		eboAlphaMapped = eboAlpha.map(MAP_WRITE | MAP_INVALIDATE | MAP_UNSYNCHRONIZED, alphaOffsetBytes);
 
 		checkGLErrors();
 	}
@@ -583,7 +590,7 @@ public class ZoneRenderer implements Renderer {
 		uboWorldViews.upload();
 
 		if(eboAlphaMapped != null) {
-			eboAlphaMapped.setPositionBytes(eboAlphaOffset * Integer.BYTES);
+			eboAlphaMapped.setPositionBytes((eboAlphaOffset - eboAlphaPrevOffset) * Integer.BYTES);
 			eboAlpha.unmap();
 		}
 		eboAlphaMapped = null;

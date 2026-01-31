@@ -10,12 +10,17 @@ import static org.lwjgl.opengl.GL15.glBindBuffer;
 import static org.lwjgl.opengl.GL15.glMapBuffer;
 import static org.lwjgl.opengl.GL15.glUnmapBuffer;
 import static org.lwjgl.opengl.GL30.GL_MAP_FLUSH_EXPLICIT_BIT;
+import static org.lwjgl.opengl.GL30.GL_MAP_INVALIDATE_BUFFER_BIT;
+import static org.lwjgl.opengl.GL30.GL_MAP_INVALIDATE_RANGE_BIT;
 import static org.lwjgl.opengl.GL30.GL_MAP_READ_BIT;
+import static org.lwjgl.opengl.GL30.GL_MAP_UNSYNCHRONIZED_BIT;
 import static org.lwjgl.opengl.GL30.GL_MAP_WRITE_BIT;
 import static org.lwjgl.opengl.GL30.glFlushMappedBufferRange;
 import static org.lwjgl.opengl.GL30.glMapBufferRange;
 import static rs117.hd.HdPlugin.checkGLErrors;
+import static rs117.hd.utils.buffer.GLBuffer.MAP_INVALIDATE;
 import static rs117.hd.utils.buffer.GLBuffer.MAP_READ;
+import static rs117.hd.utils.buffer.GLBuffer.MAP_UNSYNCHRONIZED;
 import static rs117.hd.utils.buffer.GLBuffer.MAP_WRITE;
 
 public final class GLMappedBuffer {
@@ -37,6 +42,9 @@ public final class GLMappedBuffer {
 	@Getter
 	private int mappedFlags;
 
+	@Getter
+	private long mappedOffset;
+
 	GLMappedBuffer(GLBuffer owner) {
 		this.owner = owner;
 	}
@@ -56,6 +64,10 @@ public final class GLMappedBuffer {
 	}
 
 	public GLMappedBuffer map(int flags) {
+		return map(flags, 0);
+	}
+
+	public GLMappedBuffer map(int flags, long offsetBytes) {
 		if(mappedBuffer != null) {
 			mappedBuffer.position(0);
 			mappedIntBuffer.position(0);
@@ -70,18 +82,25 @@ public final class GLMappedBuffer {
 		int glFlags = 0;
 		if ((flags & MAP_WRITE) != 0) glFlags |= GL_MAP_WRITE_BIT;
 		if ((flags & MAP_READ) != 0)  glFlags |= GL_MAP_READ_BIT;
+		if ((flags & MAP_UNSYNCHRONIZED) != 0)  glFlags |= GL_MAP_UNSYNCHRONIZED_BIT;
 
 		final ByteBuffer buf;
 		if(owner.target != GL_STATIC_DRAW) {
+			if ((flags & MAP_INVALIDATE) != 0)  {
+				if(offsetBytes == 0) glFlags |= GL_MAP_INVALIDATE_BUFFER_BIT;
+				else glFlags |= GL_MAP_INVALIDATE_RANGE_BIT;
+			}
 			buf = glMapBufferRange(
 				owner.target,
-				0,
-				owner.size,
+				offsetBytes,
+				owner.size - offsetBytes,
 				glFlags | GL_MAP_FLUSH_EXPLICIT_BIT,
 				mappedBuffer
 			);
+			this.mappedOffset = offsetBytes;
 		} else {
 			buf = glMapBuffer(owner.target, glFlags, mappedBuffer);
+			this.mappedOffset = 0;
 		}
 
 		if (buf == null)

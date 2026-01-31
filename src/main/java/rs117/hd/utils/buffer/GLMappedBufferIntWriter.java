@@ -8,6 +8,10 @@ import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import org.lwjgl.system.MemoryUtil;
 
+import static rs117.hd.utils.buffer.GLBuffer.MAP_INVALIDATE;
+import static rs117.hd.utils.buffer.GLBuffer.MAP_UNSYNCHRONIZED;
+import static rs117.hd.utils.buffer.GLBuffer.MAP_WRITE;
+
 @RequiredArgsConstructor
 public class GLMappedBufferIntWriter {
 	private final GLBuffer buffer;
@@ -21,7 +25,7 @@ public class GLMappedBufferIntWriter {
 	private int writtenStagingInts;
 
 	public void map() {
-		mappedBuffer = buffer.map(GLBuffer.MAP_WRITE);
+		mappedBuffer = buffer.map(MAP_WRITE | MAP_INVALIDATE | MAP_UNSYNCHRONIZED);
 	}
 
 	public synchronized ReservedView reserve(int sizeInts) {

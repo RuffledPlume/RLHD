@@ -51,6 +51,8 @@ public class GLBuffer
 
 	public static int MAP_READ = 0;
 	public static int MAP_WRITE = 1;
+	public static int MAP_UNSYNCHRONIZED = 2;
+	public static int MAP_INVALIDATE = 4;
 
 	public final String name;
 	public final int target;
@@ -280,9 +282,13 @@ public class GLBuffer
 	}
 
 	public GLMappedBuffer map(int flags) {
+		return map(flags, 0);
+	}
+
+	public GLMappedBuffer map(int flags, long byteOffset) {
 		if(mappedBuffer == null)
 			mappedBuffer = new GLMappedBuffer(this);
-		mappedBuffer.map(flags);
+		mappedBuffer.map(flags, byteOffset);
 		return mappedBuffer;
 	}
 
