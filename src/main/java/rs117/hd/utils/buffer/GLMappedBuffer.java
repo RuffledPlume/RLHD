@@ -18,6 +18,7 @@ import static org.lwjgl.opengl.GL30.GL_MAP_WRITE_BIT;
 import static org.lwjgl.opengl.GL30.glFlushMappedBufferRange;
 import static org.lwjgl.opengl.GL30.glMapBufferRange;
 import static rs117.hd.HdPlugin.checkGLErrors;
+import static rs117.hd.utils.MathUtils.*;
 import static rs117.hd.utils.buffer.GLBuffer.MAP_INVALIDATE;
 import static rs117.hd.utils.buffer.GLBuffer.MAP_READ;
 import static rs117.hd.utils.buffer.GLBuffer.MAP_UNSYNCHRONIZED;
@@ -64,10 +65,10 @@ public final class GLMappedBuffer {
 	}
 
 	public GLMappedBuffer map(int flags) {
-		return map(flags, 0);
+		return map(flags, 0, owner.size);
 	}
 
-	public GLMappedBuffer map(int flags, long offsetBytes) {
+	public GLMappedBuffer map(int flags, long offsetBytes, long sizeBytes) {
 		if(mappedBuffer != null) {
 			mappedBuffer.position(0);
 			mappedIntBuffer.position(0);
@@ -86,14 +87,15 @@ public final class GLMappedBuffer {
 
 		final ByteBuffer buf;
 		if(owner.target != GL_STATIC_DRAW) {
+			long mapSize = min(owner.size - offsetBytes, sizeBytes);
 			if ((flags & MAP_INVALIDATE) != 0)  {
-				if(offsetBytes == 0) glFlags |= GL_MAP_INVALIDATE_BUFFER_BIT;
+				if(mapSize == owner.size) glFlags |= GL_MAP_INVALIDATE_BUFFER_BIT;
 				else glFlags |= GL_MAP_INVALIDATE_RANGE_BIT;
 			}
 			buf = glMapBufferRange(
 				owner.target,
 				offsetBytes,
-				owner.size - offsetBytes,
+				mapSize,
 				glFlags | GL_MAP_FLUSH_EXPLICIT_BIT,
 				mappedBuffer
 			);
@@ -123,6 +125,15 @@ public final class GLMappedBuffer {
 		return this;
 	}
 
+	public int getPositionBytes() {
+		int bytesPos = mappedBuffer.position();
+		if(mappedIntBuffer.position() * 4 > bytesPos)
+			bytesPos = mappedIntBuffer.position() * 4;
+		if(mappedFloatBuffer.position() * 4 > bytesPos)
+			bytesPos = mappedFloatBuffer.position() * 4;
+		return bytesPos;
+	}
+
 	public void setPositionBytes(int bytesPos) {
 		mappedBuffer.position(bytesPos);
 		mappedIntBuffer.position(bytesPos / 4);
@@ -130,12 +141,7 @@ public final class GLMappedBuffer {
 	}
 
 	public void syncViews() {
-		int bytesPos = mappedBuffer.position();
-		if(mappedIntBuffer.position() * 4 > bytesPos)
-			bytesPos = mappedIntBuffer.position() * 4;
-		if(mappedFloatBuffer.position() * 4 > bytesPos)
-			bytesPos = mappedFloatBuffer.position() * 4;
-
+		int bytesPos = getPositionBytes();
 		mappedBuffer.position(bytesPos);
 		mappedIntBuffer.position(bytesPos / 4);
 		mappedFloatBuffer.position(bytesPos / 4);

@@ -282,13 +282,13 @@ public class GLBuffer
 	}
 
 	public GLMappedBuffer map(int flags) {
-		return map(flags, 0);
+		return map(flags, 0, size);
 	}
 
-	public GLMappedBuffer map(int flags, long byteOffset) {
+	public GLMappedBuffer map(int flags, long byteOffset, long byesSize) {
 		if(mappedBuffer == null)
 			mappedBuffer = new GLMappedBuffer(this);
-		mappedBuffer.map(flags, byteOffset);
+		mappedBuffer.map(flags, byteOffset, byesSize);
 		return mappedBuffer;
 	}
 

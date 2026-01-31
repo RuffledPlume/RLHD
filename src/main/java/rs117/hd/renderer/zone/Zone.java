@@ -1,6 +1,5 @@
 package rs117.hd.renderer.zone;
 
-import java.nio.ByteBuffer;
 import java.nio.IntBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -694,6 +693,7 @@ public class Zone {
 	}
 
 	synchronized void postAlphaPass() {
+		lastSortedAlphaFacesUpload = null;
 		sortedAlphaFacesUpload.waitForCompletion();
 
 		cleanAlphaModels(alphaModels);
@@ -740,22 +740,17 @@ public class Zone {
 	private final AlphaSortPredicate alphaSortPred = new AlphaSortPredicate();
 	private final Comparator<AlphaModel> alphaSortComparator = Comparator.comparingInt(alphaSortPred).reversed();
 
-	private ByteBuffer eboAlphaMappedBuffer;
-	private IntBuffer eboAlphaAsyncBuffer;
+	private static GenericJob lastSortedAlphaFacesUpload;
 	private final GenericJob sortedAlphaFacesUpload = GenericJob.build("sortedAlphaFacesUpload", this::alphaFacesUpload);
 
 	void alphaFacesUpload(GenericJob job) {
-		if(eboAlphaMappedBuffer != ZoneRenderer.eboAlphaMapped.getMappedBuffer()) {
-			eboAlphaMappedBuffer = ZoneRenderer.eboAlphaMapped.getMappedBuffer();
-			eboAlphaAsyncBuffer = eboAlphaMappedBuffer.asIntBuffer();
-		}
+		final IntBuffer eboAlphaBuffer = ZoneRenderer.eboAlphaMapped.getMappedIntBuffer();
 		for (int i = 0; i < alphaModels.size(); ++i) {
 			AlphaModel m = alphaModels.get(i);
-			if (m.eboOffset < 0)
+			if (m.eboOffset < 0 || m.sortedFacesLen <= 0 || m.sortedFaces == null)
 				continue;
 
-			eboAlphaAsyncBuffer.position(m.eboOffset);
-			eboAlphaAsyncBuffer.put(m.sortedFaces, 0, m.sortedFacesLen);
+			eboAlphaBuffer.position(m.eboOffset).put(m.sortedFaces, 0, m.sortedFacesLen);
 		}
 	}
 
@@ -890,15 +885,16 @@ public class Zone {
 
 			if((long)(ZoneRenderer.eboAlphaOffset + m.sortedFacesLen) * Integer.BYTES < ZoneRenderer.eboAlpha.size) {
 				lastDrawMode = STATIC;
-				m.eboOffset = ZoneRenderer.eboAlphaOffset;
+				m.eboOffset = ZoneRenderer.eboAlphaOffset - ZoneRenderer.eboAlphaPrevOffset;
 				alphaFaceCount += m.sortedFacesLen / 3;
 				ZoneRenderer.eboAlphaOffset += m.sortedFacesLen;
 				shouldQueueUpload = true;
 			}
 		}
 
-		if(shouldQueueUpload)
-			sortedAlphaFacesUpload.queue();
+		if(shouldQueueUpload) {
+			lastSortedAlphaFacesUpload = sortedAlphaFacesUpload.queue(lastSortedAlphaFacesUpload);
+		}
 
 		flush(cmd);
 

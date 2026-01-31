@@ -153,7 +153,7 @@ public class ZoneRenderer implements Renderer {
 	public static GLBuffer eboAlpha;
 	public static GLMappedBuffer eboAlphaMapped;
 	public static int eboAlphaOffset;
-	private static int eboAlphaPrevOffset;
+	public static int eboAlphaPrevOffset;
 
 	private boolean sceneFboValid;
 	private boolean shouldRenderScene;
@@ -553,13 +553,14 @@ public class ZoneRenderer implements Renderer {
 				totalSortedFaces += entityCtx.getSortedAlphaCount();
 		}
 
-		if((plugin.frame % 4) == 0)
+		if((plugin.frame % 3) == 0)
 			eboAlphaOffset = 0;
 		eboAlphaPrevOffset = eboAlphaOffset;
 
 		long alphaOffsetBytes = eboAlphaOffset * (long)Integer.BYTES;
-		eboAlpha.ensureCapacity(alphaOffsetBytes + (totalSortedFaces * 3L * Integer.BYTES));
-		eboAlphaMapped = eboAlpha.map(MAP_WRITE | MAP_INVALIDATE | MAP_UNSYNCHRONIZED, alphaOffsetBytes);
+		long alphaNextBytes = totalSortedFaces * 3L * Integer.BYTES;
+		eboAlpha.ensureCapacity(alphaOffsetBytes + alphaNextBytes);
+		eboAlphaMapped = eboAlpha.map(MAP_WRITE | MAP_INVALIDATE | MAP_UNSYNCHRONIZED, alphaOffsetBytes, alphaNextBytes);
 
 		checkGLErrors();
 	}
