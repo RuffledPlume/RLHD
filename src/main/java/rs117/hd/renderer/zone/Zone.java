@@ -813,7 +813,7 @@ public class Zone {
 		int zz,
 		int level,
 		WorldViewContext ctx,
-		boolean isShadowPass,
+		boolean isScenePass,
 		boolean includeRoof
 	) {
 		if (alphaModels.isEmpty())
@@ -829,8 +829,6 @@ public class Zone {
 		}
 
 		drawIdx = 0;
-
-		cmd.DepthMask(false);
 
 		boolean shouldQueueUpload = false;
 		//noinspection ForLoopReplaceableByForEach
@@ -857,7 +855,7 @@ public class Zone {
 				continue;
 			}
 
-			if (isShadowPass || m.asyncSortIdx < 0) {
+			if (!isScenePass || m.asyncSortIdx < 0) {
 				lastDrawMode = STATIC_UNSORTED;
 				pushRange(m.startpos, m.endpos);
 				continue;
@@ -888,8 +886,6 @@ public class Zone {
 		}
 
 		flush(cmd);
-
-		cmd.DepthMask(true);
 	}
 
 	private void flush(CommandBuffer cmd) {
