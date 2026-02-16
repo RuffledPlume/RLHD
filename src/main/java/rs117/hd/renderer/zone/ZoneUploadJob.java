@@ -16,6 +16,8 @@ import static rs117.hd.utils.buffer.GLBuffer.MAP_WRITE;
 public final class ZoneUploadJob extends Job {
 	private static final ConcurrentLinkedQueue<ZoneUploadJob> POOL = new ConcurrentLinkedQueue<>();
 
+	private OcclusionManager occlusionManager;
+
 	private WorldViewContext viewContext;
 	private ZoneSceneContext sceneContext;
 

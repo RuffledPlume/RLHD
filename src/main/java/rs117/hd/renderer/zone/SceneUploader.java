@@ -24,6 +24,7 @@
  */
 package rs117.hd.renderer.zone;
 
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 import javax.inject.Inject;
@@ -125,6 +126,10 @@ public class SceneUploader implements AutoCloseable {
 	private short[][][] overlayIds;
 	private short[][][] underlayIds;
 	private int[][][] tileHeights;
+
+	private final float[] abbMin = new float[3];
+	private final float[] abbMax = new float[3];
+	private final float[] abbVec = new float[3];
 
 	private final int[] worldPos = new int[3];
 	private final int[][] vertices = new int[4][3];
@@ -469,6 +474,9 @@ public class SceneUploader implements AutoCloseable {
 
 		boolean drawTile = renderCallbackManager.drawTile(ctx.scene, t);
 
+		Arrays.fill(abbMin, Float.MAX_VALUE);
+		Arrays.fill(abbMax, Float.MIN_VALUE);
+
 		SceneTilePaint paint = t.getSceneTilePaint();
 		if (paint != null && drawTile) {
 			uploadTilePaint(
@@ -489,6 +497,11 @@ public class SceneUploader implements AutoCloseable {
 
 		if (!onlyWaterSurface)
 			uploadZoneTileRenderables(ctx, zone, t, vertexBuffer, alphaBuffer, textureBuffer);
+
+		if(abbMin[0] != Float.MAX_VALUE && abbMin[1] != Float.MAX_VALUE && abbMin[2] != Float.MAX_VALUE &&
+		   abbMax[0] != Float.MIN_VALUE && abbMax[1] != Float.MIN_VALUE && abbMax[2] != Float.MIN_VALUE) {
+			zone.occlusionQuery.addMinMax(abbMin[0], abbMin[1], abbMin[2], abbMax[0], abbMax[1], abbMax[2]);
+		}
 
 		Tile bridge = t.getBridge();
 		if (bridge != null)
@@ -722,7 +735,7 @@ public class SceneUploader implements AutoCloseable {
 		int alphaStart = alphaBuffer != null ? alphaBuffer.position() : 0;
 		try {
 			uploadStaticModel(
-				ctx, tile, model, modelOverride, uuid,
+				ctx, zone, tile, model, modelOverride, uuid,
 				preOrientation, orient,
 				x - basex, y, z - basez,
 				opaqueBuffer,
@@ -989,21 +1002,18 @@ public class SceneUploader implements AutoCloseable {
 			neMaterialData, nwMaterialData, seMaterialData,
 			neTerrainData, nwTerrainData, seTerrainData
 		);
-
 		vb.putVertex(
 			lx2, neHeight, lz2,
 			uvx, uvy, 0,
 			neNormals[0], neNormals[2], neNormals[1],
 			texturedFaceIdx, 0
 		);
-
 		vb.putVertex(
 			lx3, nwHeight, lz3,
 			uvx - uvcos, uvy - uvsin, 0,
 			nwNormals[0], nwNormals[2], nwNormals[1],
 			texturedFaceIdx, 0
 		);
-
 		vb.putVertex(
 			lx1, seHeight, lz1,
 			uvx + uvsin, uvy - uvcos, 0,
@@ -1016,7 +1026,6 @@ public class SceneUploader implements AutoCloseable {
 			swMaterialData, seMaterialData, nwMaterialData,
 			swTerrainData, seTerrainData, nwTerrainData
 		);
-
 		vb.putVertex(
 			lx0, swHeight, lz0,
 			uvx - uvcos + uvsin, uvy - uvsin - uvcos, 0,
@@ -1037,6 +1046,24 @@ public class SceneUploader implements AutoCloseable {
 			nwNormals[0], nwNormals[2], nwNormals[1],
 			texturedFaceIdx, 0
 		);
+
+		float maxHeight = max(neHeight, nwHeight, seHeight, swHeight) + 0.1f;
+		vec3(abbVec, lx2, maxHeight, lz2);
+		min(abbMin, abbMin, abbVec);
+		max(abbMax, abbMax, abbVec);
+
+		vec3(abbVec, lx3, maxHeight, lz3);
+		min(abbMin, abbMin, abbVec);
+		max(abbMax, abbMax, abbVec);
+
+		float minHeight = min(neHeight, nwHeight, seHeight, swHeight) - 0.1f;
+		vec3(abbVec, lx1, minHeight, lz1);
+		min(abbMin, abbMin, abbVec);
+		max(abbMax, abbMax, abbVec);
+
+		vec3(abbVec, lx0, minHeight, lz0);
+		min(abbMin, abbMin, abbVec);
+		max(abbMax, abbMax, abbVec);
 	}
 
 	private void uploadTileModel(
@@ -1319,12 +1346,25 @@ public class SceneUploader implements AutoCloseable {
 				normalsC[0], normalsC[2], normalsC[1],
 				texturedFaceIdx, 0
 			);
+
+			vec3(abbVec, lx0, ly0, lz0);
+			min(abbMin, abbMin, abbVec);
+			max(abbMax, abbMax, abbVec);
+
+			vec3(abbVec, lx1, ly1, lz1);
+			min(abbMin, abbMin, abbVec);
+			max(abbMax, abbMax, abbVec);
+
+			vec3(abbVec, lx2, ly2, lz2);
+			min(abbMin, abbMin, abbVec);
+			max(abbMax, abbMax, abbVec);
 		}
 	}
 
 	// scene upload
 	private int uploadStaticModel(
 		ZoneSceneContext ctx,
+		Zone zone,
 		Tile tile,
 		Model model,
 		ModelOverride modelOverride,
@@ -1675,6 +1715,11 @@ public class SceneUploader implements AutoCloseable {
 			);
 			len += 3;
 		}
+
+		if(len > 0) {
+			zone.occlusionQuery.addAABB(model.getAABB(orientation), x, y, z);
+		}
+
 		writeCache.flush();
 		return len;
 	}
