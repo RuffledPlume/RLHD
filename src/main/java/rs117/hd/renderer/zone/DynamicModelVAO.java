@@ -23,7 +23,7 @@ import static rs117.hd.utils.buffer.GLBuffer.STORAGE_PERSISTENT;
 import static rs117.hd.utils.buffer.GLBuffer.STORAGE_WRITE;
 
 @Slf4j
-class VAO {
+class DynamicModelVAO {
 	public static final int INITIAL_SIZE = (int) (8 * MiB);
 
 	// Temp vertex format
@@ -60,7 +60,7 @@ class VAO {
 	private long[] dstCopyOffsets = new long[16];
 	private long[] copyNumBytes = new long[16];
 
-	VAO(String name, boolean useStagingBuffer) {
+	DynamicModelVAO(String name, boolean useStagingBuffer) {
 		if (useStagingBuffer) {
 			this.vboRender = new GLBuffer("VAO::VBO::" + name, GL_ARRAY_BUFFER, GL_STATIC_DRAW, 0);
 			this.vboStaging = new GLBuffer(
