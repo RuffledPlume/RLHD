@@ -55,15 +55,15 @@ void main() {
                 uvw.x = clamp(uvw.x, 0, .984375);
 
             #if SHADOW_TRANSPARENCY
-                opacity = texture(textureArray, uvw.xyz).a;
-                if (uvw.w > 0)
-                    opacity *= texture(textureArray, uvw.xyw).r;
-                opacity *= fOpacity;
-            #else
-                opacity = texture(textureArray, uvw.xyz).a;
-                if (opacity < SHADOW_DEFAULT_OPACITY_THRESHOLD)
-                    discard;
-            #endif
+            opacity = texture(textureArray, uvw.xyz).a;
+            if(uvw.w > 0)
+                opacity *= texture(textureArray, uvw.xyw).a;
+            opacity *= fOpacity;
+        #else
+            opacity = texture(textureArray, uvw.xyz).a;
+            if (opacity < SHADOW_DEFAULT_OPACITY_THRESHOLD)
+                discard;
+        #endif
         }
     #endif
 
@@ -74,8 +74,11 @@ void main() {
         // Unfortunately, the exact handling of floats is implementation dependant, so this may not work
         // the same across all GPUs.
         float depth = gl_FragCoord.z;
+        #if !ZONE_RENDERER
+            opacity = 1.0 - opacity;
+        #endif
         gl_FragDepth = (
-            int((1 - opacity) * SHADOW_ALPHA_MAX) << SHADOW_DEPTH_BITS |
+            int(opacity * SHADOW_ALPHA_MAX) << SHADOW_DEPTH_BITS |
             int(depth * SHADOW_DEPTH_MAX)
         ) / float(SHADOW_COMBINED_MAX);
     #endif

@@ -72,7 +72,11 @@ import static net.runelite.api.Constants.*;
 import static net.runelite.api.Perspective.*;
 import static org.lwjgl.opengl.GL33C.*;
 import static org.lwjgl.opengl.GL40.GL_DRAW_INDIRECT_BUFFER;
+import static org.lwjgl.opengl.GL45.GL_NEGATIVE_ONE_TO_ONE;
+import static org.lwjgl.opengl.GL45.GL_ZERO_TO_ONE;
+import static org.lwjgl.opengl.GL45.glClipControl;
 import static rs117.hd.HdPlugin.COLOR_FILTER_FADE_DURATION;
+import static rs117.hd.HdPlugin.GL_CAPS;
 import static rs117.hd.HdPlugin.NEAR_PLANE;
 import static rs117.hd.HdPlugin.ORTHOGRAPHIC_ZOOM;
 import static rs117.hd.HdPlugin.checkGLErrors;
@@ -137,7 +141,7 @@ public class ZoneRenderer implements Renderer {
 	private UBOWorldViews uboWorldViews;
 
 	public final Camera sceneCamera = new Camera().setReverseZ(true);
-	public final Camera directionalCamera = new Camera().setOrthographic(true);
+	public final Camera directionalCamera = new Camera().setReverseZ(true).setOrthographic(true);
 	public final ShadowCasterVolume directionalShadowCasterVolume = new ShadowCasterVolume(directionalCamera);
 
 	public final RenderState renderState = new RenderState();
@@ -176,6 +180,9 @@ public class ZoneRenderer implements Renderer {
 		SceneUploader.POOL = new ConcurrentPool<>(plugin.getInjector(), SceneUploader.class);
 		FacePrioritySorter.POOL = new ConcurrentPool<>(plugin.getInjector(), FacePrioritySorter.class);
 
+		if(GL_CAPS.OpenGL45)
+			glClipControl(GL_LOWER_LEFT, GL_ZERO_TO_ONE);
+
 		sceneCmd.setFrameTimer(frameTimer);
 		directionalCmd.setFrameTimer(frameTimer);
 
@@ -192,6 +199,9 @@ public class ZoneRenderer implements Renderer {
 	@Override
 	public void destroy() {
 		destroyBuffers();
+
+		if(GL_CAPS.OpenGL45)
+			glClipControl(GL_LOWER_LEFT, GL_NEGATIVE_ONE_TO_ONE);
 
 		jobSystem.shutDown();
 		modelStreamingManager.destroy();
@@ -696,12 +706,12 @@ public class ZoneRenderer implements Renderer {
 		renderState.ido.set(indirectDrawCmds.id);
 		renderState.apply();
 
-		glClearDepth(1);
+		glClearDepth(0);
 		glClear(GL_DEPTH_BUFFER_BIT);
-
+		
 		renderState.enable.set(GL_DEPTH_TEST);
 		renderState.disable.set(GL_CULL_FACE);
-		renderState.depthFunc.set(GL_LEQUAL);
+		renderState.depthFunc.set(GL_GREATER);
 
 		CommandBuffer.SKIP_DEPTH_MASKING = true;
 		directionalCmd.execute();

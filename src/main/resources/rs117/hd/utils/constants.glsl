@@ -10,6 +10,7 @@
 #include SHADER_TYPE
 #include LEGACY_RENDERER
 #include ZONE_RENDERER
+#include CLIP_CONTROL
 
 // Any changes here may need to be reflected in OpenCL's constants.cl
 // They are kept separate to avoid accidentally breaking OpenCL compatibility
@@ -33,7 +34,7 @@
 #define SHADOW_MODE_FAST 1
 #define SHADOW_MODE_DETAILED 2
 
-#define SHADOW_DEPTH_BITS 16
+#define SHADOW_DEPTH_BITS 23
 #define SHADOW_ALPHA_BITS 8
 #define SHADOW_COMBINED_BITS (SHADOW_DEPTH_BITS + SHADOW_ALPHA_BITS)
 #define SHADOW_DEPTH_MAX ((1 << SHADOW_DEPTH_BITS) - 1)
