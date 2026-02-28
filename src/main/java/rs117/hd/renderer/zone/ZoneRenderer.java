@@ -382,69 +382,84 @@ public class ZoneRenderer implements Renderer {
 			directionalCamera.setYaw(PI - environmentManager.currentSunAngles[1]);
 			boolean hasDirectionalCameraChanged = directionalCamera.isViewDirty() || directionalCamera.isProjDirty();
 
+			// Multi-Cascade Shadow Map Setup
 			if (hasSceneCameraChanged || hasDirectionalCameraChanged) {
+				int numCascades = 4; // example
 				int shadowDrawDistance = 90 * LOCAL_TILE_SIZE;
 
-				final float[][] volumeCorners = directionalShadowCasterVolume
-					.build(sceneCamera, drawDistance * LOCAL_TILE_SIZE, shadowDrawDistance);
+				// Compute cascade splits (linear/log blend)
+				float lambda = 0.5f; // 0 = linear, 1 = log
+				float[] cascadeSplits = new float[numCascades + 1];
+				float near = sceneCamera.getNearPlane();
+				float far  = shadowDrawDistance; // sceneCamera.getFarPlane(); TODO: Replace this with the scene far
 
-				final float[] sceneCenter = new float[3];
-				for (float[] corner : volumeCorners)
-					add(sceneCenter, sceneCenter, corner);
-				divide(sceneCenter, sceneCenter, (float) volumeCorners.length);
-
-				float minX = Float.POSITIVE_INFINITY, maxX = Float.NEGATIVE_INFINITY;
-				float minY = Float.POSITIVE_INFINITY, maxY = Float.NEGATIVE_INFINITY;
-				float minZ = Float.POSITIVE_INFINITY, maxZ = Float.NEGATIVE_INFINITY;
-				float radius = 0f;
-				for (float[] corner : volumeCorners) {
-					radius = max(radius, distance(sceneCenter, corner));
-
-					directionalCamera.transformPoint(corner, corner);
-
-					minX = min(minX, corner[0]);
-					maxX = max(maxX, corner[0]);
-
-					minY = min(minY, corner[1]);
-					maxY = max(maxY, corner[1]);
-
-					minZ = min(minZ, corner[2]);
-					maxZ = max(maxZ, corner[2]);
+				for (int i = 0; i <= numCascades; i++) {
+					float si = i / (float) numCascades;
+					float linear = near + si * (far - near);
+					float log    = near * (float) Math.pow(far / near, si);
+					cascadeSplits[i] = linear * (1 - lambda) + log * lambda;
 				}
 
-				// Offset the Directional Camera by the radius of the scene
-				float[] directionalFwd = directionalCamera.getForwardDirection();
-				multiply(directionalFwd, directionalFwd, radius);
-				add(sceneCenter, sceneCenter, directionalFwd);
+				// For each cascade
+				for (int cascade = 0; cascade < numCascades; cascade++) {
+					float cascadeNear = cascadeSplits[cascade];
+					float cascadeFar  = cascadeSplits[cascade + 1];
 
-				// Calculate directional size from the AABB of the scene frustum corners
-				// Then snap to the nearest multiple of `LOCAL_HALF_TILE_SIZE` to prevent shimmering
-				int directionalSize = (int) max(abs(maxY - minY), abs(maxX - minX), abs(maxZ - minZ));
-				directionalSize = Math.round(directionalSize / (float) LOCAL_HALF_TILE_SIZE) * LOCAL_HALF_TILE_SIZE;
-				directionalSize = max(8000, directionalSize); // Clamp the size to prevent going too small at reduced draw distances
+					final float[][] volumeCorners = directionalShadowCasterVolume.build(
+						sceneCamera,
+						cascadeNear * LOCAL_TILE_SIZE,
+						cascadeFar * LOCAL_TILE_SIZE
+					);
 
-				// Ignore directional size changes below the change threshold to avoid inducing shimmering
-				int previousDirectionalSize = directionalCamera.getViewportWidth();
-				float changeThreshold = previousDirectionalSize * 0.05f; // 10% of the previous directional size
-				if (abs(directionalSize - previousDirectionalSize) < changeThreshold)
-					directionalSize = previousDirectionalSize;
+					final float[] sceneCenter = new float[3];
+					for (float[] corner : volumeCorners)
+						add(sceneCenter, sceneCenter, corner);
+					divide(sceneCenter, sceneCenter, (float) volumeCorners.length);
 
-				// Snap Position to Shadow Texel Grid to prevent shimmering
-				directionalCamera.transformPoint(sceneCenter, sceneCenter);
+					float minX = Float.POSITIVE_INFINITY, maxX = Float.NEGATIVE_INFINITY;
+					float minY = Float.POSITIVE_INFINITY, maxY = Float.NEGATIVE_INFINITY;
+					float minZ = Float.POSITIVE_INFINITY, maxZ = Float.NEGATIVE_INFINITY;
+					float radius = 0f;
 
-				float texelSize = (float) directionalSize / plugin.shadowMapResolution;
-				sceneCenter[0] = (float) floor(sceneCenter[0] / texelSize + 0.5f) * texelSize;
-				sceneCenter[1] = (float) floor(sceneCenter[1] / texelSize + 0.5f) * texelSize;
+					for (float[] corner : volumeCorners) {
+						radius = max(radius, distance(sceneCenter, corner));
 
-				directionalCamera.setPosition(directionalCamera.inverseTransformPoint(sceneCenter, sceneCenter));
-				directionalCamera.setNearPlane(Math.max(0.1f, radius * 0.05f));
-				directionalCamera.setFarPlane(radius * 2.0f);
-				directionalCamera.setZoom(1.0f);
-				directionalCamera.setViewportWidth(directionalSize);
-				directionalCamera.setViewportHeight(directionalSize);
+						directionalCamera.transformPoint(corner, corner);
 
-				plugin.uboGlobal.lightDir.set(directionalCamera.getForwardDirection());
-				plugin.uboGlobal.lightProjectionMatrix.set(directionalCamera.getViewProjMatrix());
+						minX = min(minX, corner[0]); maxX = max(maxX, corner[0]);
+						minY = min(minY, corner[1]); maxY = max(maxY, corner[1]);
+						minZ = min(minZ, corner[2]); maxZ = max(maxZ, corner[2]);
+					}
+
+					float[] directionalFwd = directionalCamera.getForwardDirection();
+					multiply(directionalFwd, directionalFwd, radius);
+					add(sceneCenter, sceneCenter, directionalFwd);
+
+					int directionalSize = (int) max(abs(maxY - minY), abs(maxX - minX), abs(maxZ - minZ));
+					directionalSize = Math.round(directionalSize / (float) LOCAL_HALF_TILE_SIZE) * LOCAL_HALF_TILE_SIZE;
+					directionalSize = max(8000, directionalSize);
+
+					int previousDirectionalSize = directionalCamera.getViewportWidth();
+					float changeThreshold = previousDirectionalSize * 0.05f;
+					if (abs(directionalSize - previousDirectionalSize) < changeThreshold)
+						directionalSize = previousDirectionalSize;
+
+					// Snap to texel grid
+					directionalCamera.transformPoint(sceneCenter, sceneCenter);
+					float texelSize = (float) directionalSize / plugin.shadowMapResolution;
+					sceneCenter[0] = (float) floor(sceneCenter[0] / texelSize + 0.5f) * texelSize;
+					sceneCenter[1] = (float) floor(sceneCenter[1] / texelSize + 0.5f) * texelSize;
+
+					directionalCamera.setPosition(directionalCamera.inverseTransformPoint(sceneCenter, sceneCenter));
+					directionalCamera.setNearPlane(Math.max(0.1f, radius * 0.05f));
+					directionalCamera.setFarPlane(radius * 2.0f);
+					directionalCamera.setZoom(1.0f);
+					directionalCamera.setViewportWidth(directionalSize);
+					directionalCamera.setViewportHeight(directionalSize);
+
+					plugin.uboGlobal.lightDir.set(directionalCamera.getForwardDirection());
+					plugin.uboGlobal.lightProjectionMatrix.set(directionalCamera.getViewProjMatrix()); // TODO: This needs to write a Mat4 Array
+				}
 			}
 
 			plugin.uboGlobal.cameraPos.set(plugin.cameraPosition);

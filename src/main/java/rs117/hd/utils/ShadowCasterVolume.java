@@ -45,14 +45,16 @@ public class ShadowCasterVolume {
 			volumeTriangles[t] = new VolumeTriangle();
 	}
 
-	public float[][] build(Camera sceneCamera, float drawDistance, int shadowDrawDistance) {
+	public float[][] build(Camera sceneCamera, float cascadeNear, float cascadeFar) {
 		tempSceneCamera.copyFrom(sceneCamera);
 		tempSceneCamera.setReverseZ(false);
-		tempSceneCamera.setFarPlane(drawDistance * LOCAL_TILE_SIZE);
 
-		int maxDistance = Math.min(shadowDrawDistance, (int) tempSceneCamera.getFarPlane());
+		// Clip frustum to cascade near/far
+		tempSceneCamera.setNearPlane(cascadeNear);
+		tempSceneCamera.setFarPlane(cascadeFar);
+
 		tempSceneCamera.getFrustumCorners(volumeCorners);
-		clipFrustumToDistance(volumeCorners, maxDistance);
+		clipFrustumToDistance(volumeCorners, cascadeFar);
 
 		shadowCamera.getForwardDirection(lightDir);
 
