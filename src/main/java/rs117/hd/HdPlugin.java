@@ -163,6 +163,7 @@ public class HdPlugin extends Plugin {
 	public static int TEXTURE_UNIT_COUNT = 0;
 	public static final int TEXTURE_UNIT_UI = GL_TEXTURE0 + TEXTURE_UNIT_COUNT++;
 	public static final int TEXTURE_UNIT_GAME = GL_TEXTURE0 + TEXTURE_UNIT_COUNT++;
+	public static final int TEXTURE_UNIT_SCENE = GL_TEXTURE0 + TEXTURE_UNIT_COUNT++;
 	public static final int TEXTURE_UNIT_SHADOW_MAP = GL_TEXTURE0 + TEXTURE_UNIT_COUNT++;
 	public static final int TEXTURE_UNIT_TILE_HEIGHT_MAP = GL_TEXTURE0 + TEXTURE_UNIT_COUNT++;
 	public static final int TEXTURE_UNIT_TILED_LIGHTING_MAP = GL_TEXTURE0 + TEXTURE_UNIT_COUNT++;
@@ -371,7 +372,7 @@ public class HdPlugin extends Plugin {
 	private int rboSceneColor;
 	private int rboSceneDepth;
 	public int fboSceneResolve;
-	private int rboSceneResolveColor;
+	private int texSceneResolveColor;
 
 	public int shadowMapResolution;
 	public int fboShadowMap;
@@ -512,7 +513,7 @@ public class HdPlugin extends Plugin {
 				rboSceneColor = 0;
 				rboSceneDepth = 0;
 				fboSceneResolve = 0;
-				rboSceneResolveColor = 0;
+				texSceneResolveColor = 0;
 				fboShadowMap = 0;
 				frame = 0;
 				elapsedTime = 0;
@@ -1319,19 +1320,22 @@ public class HdPlugin extends Plugin {
 		checkGLErrors();
 
 		// If necessary, create an FBO for resolving multisampling
-		if (msaaSamples > 1 && resolutionScale != 1) {
-			fboSceneResolve = glGenFramebuffers();
-			glBindFramebuffer(GL_FRAMEBUFFER, fboSceneResolve);
-			rboSceneResolveColor = glGenRenderbuffers();
-			glBindRenderbuffer(GL_RENDERBUFFER, rboSceneResolveColor);
-			glRenderbufferStorageMultisample(GL_RENDERBUFFER, 0, format, sceneResolution[0], sceneResolution[1]);
-			glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rboSceneResolveColor);
-			checkGLErrors();
-		}
+		fboSceneResolve = glGenFramebuffers();
+		glBindFramebuffer(GL_FRAMEBUFFER, fboSceneResolve);
+		texSceneResolveColor = glGenTextures();
+		glActiveTexture(TEXTURE_UNIT_SCENE);
+		glBindTexture(GL_TEXTURE_2D, texSceneResolveColor);
+		glTexImage2D(GL_TEXTURE_2D, 0, format, sceneResolution[0], sceneResolution[1], 0, GL_RGBA, GL_UNSIGNED_BYTE, 0);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, texSceneResolveColor, 0);
+		checkGLErrors();
 
 		// Reset
+		glActiveTexture(TEXTURE_UNIT_UI);
 		glBindFramebuffer(GL_FRAMEBUFFER, awtContext.getFramebuffer(false));
 		glBindRenderbuffer(GL_RENDERBUFFER, 0);
+		glBindTexture(GL_TEXTURE_2D, 0);
 	}
 
 	private void destroySceneFbo() {
@@ -1353,9 +1357,9 @@ public class HdPlugin extends Plugin {
 			glDeleteFramebuffers(fboSceneResolve);
 		fboSceneResolve = 0;
 
-		if (rboSceneResolveColor != 0)
-			glDeleteRenderbuffers(rboSceneResolveColor);
-		rboSceneResolveColor = 0;
+		if (texSceneResolveColor != 0)
+			glDeleteTextures(texSceneResolveColor);
+		texSceneResolveColor = 0;
 	}
 
 	private void initializeShadowMapFbo() {

@@ -127,6 +127,14 @@ float hash(in vec4 st) {
 	return fract(sin(dot(st, vec4(12.9898, 78.233, 45.164, 94.673))) * 43758.5453123);
 }
 
+float stepfun(float x) {
+	return (sign(x) + 1.0) / 2.0;
+}
+
+float square(vec2 pos) {
+    return (stepfun(pos.x + 1.0) * stepfun(1.0 - pos.x)) * (stepfun(pos.y + 1.0) * stepfun(1.0 - pos.y));
+}
+
 // 2D Noise based on Morgan McGuire @morgan3d, under the BSD license
 // https://www.shadertoy.com/view/4dS3Wd
 float noise(in vec2 st) {

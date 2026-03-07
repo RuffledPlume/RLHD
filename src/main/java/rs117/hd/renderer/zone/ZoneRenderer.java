@@ -969,6 +969,19 @@ public class ZoneRenderer implements Renderer {
 					}
 				}
 
+				ctx.vaoSceneCmd.Callback(() -> {
+					// Copy current opaque to resolve, for sampling during the transparency pass
+					glBindFramebuffer(GL_READ_FRAMEBUFFER, plugin.fboScene);
+					glBindFramebuffer(GL_DRAW_FRAMEBUFFER, plugin.fboSceneResolve);
+					glBlitFramebuffer(
+						0, 0, plugin.sceneResolution[0], plugin.sceneResolution[1],
+						0, 0, plugin.sceneResolution[0], plugin.sceneResolution[1],
+						GL_COLOR_BUFFER_BIT, GL_NEAREST
+					);
+
+					glBindFramebuffer(GL_DRAW_FRAMEBUFFER, plugin.fboScene);
+				});
+
 				for (int zx = 0; zx < ctx.sizeX; ++zx)
 					for (int zz = 0; zz < ctx.sizeZ; ++zz)
 						ctx.zones[zx][zz].postAlphaPass();

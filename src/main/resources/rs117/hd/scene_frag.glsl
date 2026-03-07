@@ -41,6 +41,7 @@
 
 uniform sampler2DArray textureArray;
 uniform sampler2D shadowMap;
+uniform sampler2D sceneOpaque;
 uniform usampler2DArray tiledLightingArray;
 
 // general HD settings
@@ -66,6 +67,8 @@ out vec4 FragColor;
 vec2 worldUvs(float scale) {
     return -IN.position.xz / (128 * scale);
 }
+
+#define FROSTED_GLASS 1
 
 #include <utils/constants.glsl>
 #include <utils/misc.glsl>
@@ -466,7 +469,37 @@ void main() {
         } else {
             outputColor.rgb *= mix(compositeLight, vec3(1), unlit);
         }
+
         outputColor.rgb = linearToSrgb(outputColor.rgb);
+
+#if 1
+        // TODO: This should be applied by material
+        if(outputColor.a < 0.9) {
+            const float strength = 0.01;
+            float noise = hash(vec2(IN.position.x + IN.position.z, IN.position.y));
+            vec2 normalizedCoord = gl_FragCoord.xy / sceneResolution;
+            vec2 distortion = (normalizedCoord - 0.5) * noise * strength;
+            vec2 distortedUV = gl_FragCoord.xy + distortion * sceneResolution;
+            vec3 sceneColor = texelFetch(sceneOpaque, ivec2(distortedUV.xy), 0).rgb;
+            outputColor.rgb = mix(sceneColor, outputColor.rgb, outputColor.a);
+
+            #if 0
+            // Screen space reflection
+            vec3 reflectDir = reflect(-viewDir, normals);
+            vec4 reflectScreenPos = projectionMatrix * viewMatrix * vec4(IN.position + reflectDir, 1.0);
+            reflectScreenPos.xyz /= reflectScreenPos.w;
+            vec2 reflectUV = reflectScreenPos.xy * 0.5 + 0.5;
+
+            if (reflectUV.x >= 0.0 && reflectUV.x <= 1.0 && reflectUV.y >= 0.0 && reflectUV.y <= 1.0) {
+                vec3 reflectionColor = texelFetch(sceneOpaque, ivec2(reflectUV * sceneResolution), 0).rgb;
+                float reflectionStrength = fresnel * combinedSpecularStrength * 0.5;
+                outputColor.rgb = reflectionColor; //mix(outputColor.rgb, reflectionColor, reflectionStrength);
+            }
+            #endif
+            
+            outputColor.a = 1.0;
+        }
+#endif
 
         if (isUnderwater) {
             sampleUnderwater(outputColor.rgb, waterType, waterDepth, lightDotNormals);

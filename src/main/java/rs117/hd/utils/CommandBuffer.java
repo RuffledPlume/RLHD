@@ -43,6 +43,7 @@ public class CommandBuffer {
 	private static final int GL_FENCE_SYNC = 14;
 
 	private static final int GL_EXECUTE_SUB_COMMAND_BUFFER = 15;
+	private static final int GL_EXECUTE_RUNNABLE = 16;
 
 	private static final long INT_MASK = 0xFFFF_FFFFL;
 	private static final int DRAW_MODE_MASK = 0xF;
@@ -98,6 +99,11 @@ public class CommandBuffer {
 		ensureCapacity(2);
 		cmd[writeHead++] = GL_FENCE_SYNC & 0xFF | (long) condition << 8;
 		cmd[writeHead++] = writeObject(fence);
+	}
+
+	public void Callback(Runnable runnable) {
+		ensureCapacity(1);
+		cmd[writeHead++] = GL_EXECUTE_RUNNABLE & 0xFF | (long) writeObject(runnable) << 8;
 	}
 
 	public void BindElementsArray(int vao, int ebo) {
@@ -436,6 +442,10 @@ public class CommandBuffer {
 						} finally {
 							callStack.pop();
 						}
+						break;
+					}
+					case GL_EXECUTE_RUNNABLE: {
+						((Runnable) objects[(int) (data >> 8)]).run();
 						break;
 					}
 					default:
