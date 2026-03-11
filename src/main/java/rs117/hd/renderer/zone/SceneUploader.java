@@ -48,6 +48,7 @@ import rs117.hd.utils.HDUtils;
 import rs117.hd.utils.ModelHash;
 import rs117.hd.utils.buffer.GpuIntBuffer;
 import rs117.hd.utils.collections.ConcurrentPool;
+import rs117.hd.utils.collections.IntrusiveLinkedListNode;
 import rs117.hd.utils.collections.PrimitiveIntArray;
 
 import static net.runelite.api.Constants.*;
@@ -60,7 +61,7 @@ import static rs117.hd.utils.HDUtils.UNDERWATER_HSL;
 import static rs117.hd.utils.MathUtils.*;
 
 @Slf4j
-public class SceneUploader implements AutoCloseable {
+public class SceneUploader extends IntrusiveLinkedListNode implements AutoCloseable {
 	public static ConcurrentPool<SceneUploader> POOL;
 
 	public static final int MAX_VERTEX_COUNT = 6500;

@@ -5,7 +5,7 @@ import java.util.Arrays;
 import static java.lang.System.arraycopy;
 import static rs117.hd.utils.HDUtils.ceilPow2;
 
-public final class PrimitiveIntArray {
+public final class PrimitiveIntArray extends IntrusiveLinkedListNode {
 	public int[] array = new int[16];
 	public int length;
 

@@ -28,13 +28,14 @@ import java.util.Arrays;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import rs117.hd.utils.collections.ConcurrentPool;
+import rs117.hd.utils.collections.IntrusiveLinkedListNode;
 import rs117.hd.utils.collections.PrimitiveIntArray;
 
 import static rs117.hd.renderer.zone.Zone.VERT_SIZE;
 import static rs117.hd.utils.MathUtils.*;
 
 @Slf4j
-public final class FacePrioritySorter implements AutoCloseable {
+public final class FacePrioritySorter extends IntrusiveLinkedListNode implements AutoCloseable {
 	public static ConcurrentPool<FacePrioritySorter> POOL;
 
 	public static final int MAX_FACE_COUNT = 8192;

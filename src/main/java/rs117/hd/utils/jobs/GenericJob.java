@@ -1,9 +1,9 @@
 package rs117.hd.utils.jobs;
 
-import java.util.concurrent.ConcurrentLinkedQueue;
+import rs117.hd.utils.collections.ConcurrentPool;
 
 public final class GenericJob extends Job {
-	private static final ConcurrentLinkedQueue<GenericJob> POOL = new ConcurrentLinkedQueue<>();
+	private static final ConcurrentPool<GenericJob> POOL = new ConcurrentPool<>(GenericJob::new);
 
 	@FunctionalInterface
 	public interface TaskRunnable {
@@ -11,13 +11,10 @@ public final class GenericJob extends Job {
 	}
 
 	public static GenericJob build(String context, TaskRunnable runnable) {
-		GenericJob newTask = POOL.poll();
-		if (newTask == null)
-			newTask = new GenericJob();
+		final GenericJob newTask = POOL.acquire();
 		newTask.context = context;
 		newTask.runnable = runnable;
 		newTask.isReleased = false;
-
 		return newTask;
 	}
 
@@ -35,7 +32,7 @@ public final class GenericJob extends Job {
 	@Override
 	public void onReleased() {
 		runnable = null;
-		POOL.add(this);
+		POOL.recycle(this);
 	}
 
 	@Override

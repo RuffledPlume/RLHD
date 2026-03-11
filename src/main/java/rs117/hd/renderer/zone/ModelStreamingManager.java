@@ -200,23 +200,17 @@ public class ModelStreamingManager {
 		final AsyncCachedModel asyncModelCache = obtainAvailableAsyncCachedModel(false);
 		if (asyncModelCache != null) {
 			asyncModelCache.queue(
-				m, hasAlpha ? zone : null,
-				() -> {
-					final long asyncStart = System.nanoTime();
-					uploadTempModel(
-						worldProjection,
-						ctx,
-						gameObject,
-						renderable,
-						modelOverride,
-						zone,
-						asyncModelCache,
-						isModelPartiallyVisible,
-						hasAlpha,
-						orientation, x, y, z
-					);
-					frameTimer.add(Timer.DRAW_TEMP_ASYNC, System.nanoTime() - asyncStart);
-				}
+				worldProjection,
+				ctx,
+				gameObject,
+				renderable,
+				modelOverride,
+				zone,
+				m,
+				isModelPartiallyVisible,
+				hasAlpha,
+				orientation, x, y, z,
+				this::uploadTempModelAsync
 			);
 			return;
 		}
@@ -235,14 +229,42 @@ public class ModelStreamingManager {
 		);
 	}
 
-	private void uploadTempModel(
+	private void uploadTempModelAsync(
 		Projection worldProjection,
 		WorldViewContext ctx,
-		GameObject gameObject,
+		TileObject tileObject,
 		Renderable renderable,
 		ModelOverride modelOverride,
 		Zone zone,
-		Model m,
+		Model model,
+		boolean isModelPartiallyVisible,
+		boolean hasAlpha,
+		int orientation, int x, int y, int z
+	) {
+		final long asyncStart = System.nanoTime();
+		uploadTempModel(
+			worldProjection,
+			ctx,
+			tileObject,
+			renderable,
+			modelOverride,
+			zone,
+			model,
+			isModelPartiallyVisible,
+			hasAlpha,
+			orientation, x, y, z
+		);
+		frameTimer.add(Timer.DRAW_TEMP_ASYNC, System.nanoTime() - asyncStart);
+	}
+
+	private void uploadTempModel(
+		Projection worldProjection,
+		WorldViewContext ctx,
+		TileObject tileObject,
+		Renderable renderable,
+		ModelOverride modelOverride,
+		Zone zone,
+		Model model,
 		boolean isModelPartiallyVisible,
 		boolean hasAlpha,
 		int orientation, int x, int y, int z
@@ -262,7 +284,7 @@ public class ModelStreamingManager {
 				culledFaces,
 				isModelPartiallyVisible,
 				modelOverride,
-				m,
+				model,
 				x,
 				y,
 				z,
@@ -271,9 +293,9 @@ public class ModelStreamingManager {
 
 			final boolean isSquashed = ctx.uboWorldViewStruct != null && ctx.uboWorldViewStruct.isSquashed();
 			if (shouldSort && !isSquashed)
-				facePrioritySorter.sortModelFaces(visibleFaces, m);
+				facePrioritySorter.sortModelFaces(visibleFaces, model);
 
-			final int preOrientation = HDUtils.getModelPreOrientation(gameObject.getConfig());
+			final int preOrientation = HDUtils.getModelPreOrientation(HDUtils.getObjectConfig(tileObject));
 			if (culledFaces.length > 0 &&
 				modelOverride.castShadows &&
 				plugin.configShadowMode != ShadowMode.OFF &&
@@ -282,7 +304,7 @@ public class ModelStreamingManager {
 				final DynamicModelVAO.View shadowView = ctx.beginDraw(VAO_SHADOW, culledFaces.length);
 				sceneUploader.uploadTempModel(
 					culledFaces,
-					m,
+					model,
 					modelOverride,
 					preOrientation,
 					orientation,
@@ -305,7 +327,7 @@ public class ModelStreamingManager {
 
 				sceneUploader.uploadTempModel(
 					visibleFaces,
-					m,
+					model,
 					modelOverride,
 					preOrientation,
 					orientation,
@@ -315,7 +337,7 @@ public class ModelStreamingManager {
 				);
 
 				// Fix rendering projectiles from boats with hide roofs enabled
-				int plane = Math.min(ctx.maxLevel, gameObject.getPlane());
+				int plane = Math.min(ctx.maxLevel, tileObject.getPlane());
 
 				if (renderable instanceof Player) {
 					if (opaqueView.getEndOffset() > opaqueView.getStartOffset()) {
@@ -348,6 +370,9 @@ public class ModelStreamingManager {
 			log.error("Error rendering temp object", e);
 		}
 		finally {
+			visibleFaces.reset();
+			culledFaces.reset();
+
 			FACE_INDICES.recycle(visibleFaces);
 			FACE_INDICES.recycle(culledFaces);
 		}
@@ -436,63 +461,83 @@ public class ModelStreamingManager {
 		}
 		streamingContext.renderableCount++;
 
-		final int preOrientation = HDUtils.getModelPreOrientation(HDUtils.getObjectConfig(tileObject));
 		final boolean hasAlpha = m.getFaceTransparencies() != null || modelOverride.mightHaveTransparency;
 
 		final boolean isModelPartiallyVisible = sceneManager.isRoot(ctx) && modelClassification == 0;
 		final AsyncCachedModel asyncModelCache = obtainAvailableAsyncCachedModel(renderThreadId >= 0);
 		if (asyncModelCache != null) {
-			// Fast path, buffer the model into the job queue to unblock rl internals
 			asyncModelCache.queue(
-				m, hasAlpha ? zone : null,
-				() -> {
-					final long asyncStart = System.nanoTime();
-					uploadDynamicModel(
-						ctx,
-						projection,
-						tileObject,
-						modelOverride,
-						asyncModelCache,
-						zone,
-						isModelPartiallyVisible,
-						hasAlpha,
-						preOrientation, orient,
-						x, y, z
-					);
-					frameTimer.add(Timer.DRAW_DYNAMIC_ASYNC, System.nanoTime() - asyncStart);
-				}
+				projection,
+				ctx,
+				tileObject,
+				r,
+				modelOverride,
+				zone,
+				m,
+				isModelPartiallyVisible,
+				hasAlpha,
+				orient,
+				x, y, z,
+				this::uploadDynamicModelAsync
 			);
 			return;
 		}
 
 		uploadDynamicModel(
-			ctx,
 			projection,
+			ctx,
 			tileObject,
+			r,
 			modelOverride,
-			m,
 			zone,
+			m,
 			isModelPartiallyVisible,
 			hasAlpha,
-			preOrientation, orient,
+			orient,
 			x, y, z
 		);
 	}
 
-	private void uploadDynamicModel(
+	private void uploadDynamicModelAsync(
+		Projection worldProjection,
 		WorldViewContext ctx,
-		Projection projection,
 		TileObject tileObject,
+		Renderable renderable,
 		ModelOverride modelOverride,
-		Model m,
 		Zone zone,
+		Model model,
 		boolean isModelPartiallyVisible,
 		boolean hasAlpha,
-		int preOrientation,
-		int orient,
-		int x,
-		int y,
-		int z
+		int orientation, int x, int y, int z
+	) {
+		final long asyncStart = System.nanoTime();
+		uploadDynamicModel(
+			worldProjection,
+			ctx,
+			tileObject,
+			renderable,
+			modelOverride,
+			zone,
+			model,
+			isModelPartiallyVisible,
+			hasAlpha,
+			orientation,
+			x, y, z
+		);
+		frameTimer.add(Timer.DRAW_DYNAMIC_ASYNC, System.nanoTime() - asyncStart);
+	}
+
+	private void uploadDynamicModel(
+		Projection worldProjection,
+		WorldViewContext ctx,
+		TileObject tileObject,
+		Renderable renderable,
+		ModelOverride modelOverride,
+		Zone zone,
+		Model model,
+		boolean isModelPartiallyVisible,
+		boolean hasAlpha,
+		int orientation, int x, int y, int z
 	) {
 		final PrimitiveIntArray visibleFaces = FACE_INDICES.acquire();
 		final PrimitiveIntArray culledFaces = FACE_INDICES.acquire();
@@ -502,24 +547,25 @@ public class ModelStreamingManager {
 		){
 			boolean shouldSort = hasAlpha && (!sceneManager.isRoot(ctx) || zone.inSceneFrustum);
 			shouldSort &= sceneUploader.preprocessTempModel(
-				projection,
+				worldProjection,
 				plugin.cameraFrustum,
 				shouldSort ? facePrioritySorter.faceDistances : null,
 				visibleFaces,
 				culledFaces,
 				isModelPartiallyVisible,
 				modelOverride,
-				m,
+				model,
 				x,
 				y,
 				z,
-				orient
+				orientation
 			);
 
 			final boolean isSquashed = ctx.uboWorldViewStruct != null && ctx.uboWorldViewStruct.isSquashed();
 			if (shouldSort && !isSquashed)
-				facePrioritySorter.sortModelFaces(visibleFaces, m);
+				facePrioritySorter.sortModelFaces(visibleFaces, model);
 
+			final int preOrientation = HDUtils.getModelPreOrientation(HDUtils.getObjectConfig(tileObject));
 			if (culledFaces.length > 0 &&
 				modelOverride.castShadows &&
 				plugin.configShadowMode != ShadowMode.OFF &&
@@ -528,10 +574,10 @@ public class ModelStreamingManager {
 				final DynamicModelVAO.View shadowView = ctx.beginDraw(VAO_SHADOW, culledFaces.length);
 				sceneUploader.uploadTempModel(
 					culledFaces,
-					m,
+					model,
 					modelOverride,
 					preOrientation,
-					orient,
+					orientation,
 					true,
 					shadowView,
 					shadowView
@@ -548,10 +594,10 @@ public class ModelStreamingManager {
 
 				sceneUploader.uploadTempModel(
 					visibleFaces,
-					m,
+					model,
 					modelOverride,
 					preOrientation,
-					orient,
+					orientation,
 					isSquashed,
 					opaqueView,
 					alphaView
@@ -579,6 +625,9 @@ public class ModelStreamingManager {
 		} catch (Exception e) {
 			log.error("Error rendering dynamic object", e);
 		} finally {
+			visibleFaces.reset();
+			culledFaces.reset();
+
 			FACE_INDICES.recycle(visibleFaces);
 			FACE_INDICES.recycle(culledFaces);
 		}

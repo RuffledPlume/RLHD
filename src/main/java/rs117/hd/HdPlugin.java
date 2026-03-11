@@ -1529,6 +1529,7 @@ public class HdPlugin extends Plugin {
 		if (uiCopyJob != null) {
 			frameTimer.begin(Timer.COPY_UI);
 			uiCopyJob.waitForCompletion();
+			uiCopyJob.release();
 			uiCopyJob = null;
 			frameTimer.end(Timer.COPY_UI);
 

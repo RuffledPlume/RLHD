@@ -7,8 +7,8 @@ import javax.annotation.Nonnull;
 import rs117.hd.utils.Destructible;
 import rs117.hd.utils.DestructibleHandler;
 
-public final class ConcurrentPool<T> {
-	private final ConcurrentLinkedQueue<T> pool = new ConcurrentLinkedQueue<>();
+public final class ConcurrentPool<T extends IntrusiveLinkedListNode> {
+	private final IntrusiveLinkedList<T> pool = new IntrusiveLinkedList<>();
 	private final ConcurrentLinkedQueue<Thread> parkedThreads;
 
 	private final Supplier<T> supplier;
@@ -26,7 +26,7 @@ public final class ConcurrentPool<T> {
 	}
 
 	public T acquire() {
-		T obj = pool.poll();
+		T obj = pool.pop();
 		if (obj == null && (fixedSize == 0 || created < fixedSize)) {
 			obj = supplier.get();
 			created++;
@@ -39,7 +39,7 @@ public final class ConcurrentPool<T> {
 		if (obj == null && parkedThreads != null) {
 			final Thread currentThread = Thread.currentThread();
 			final long deadline = System.nanoTime() + timeout;
-			while ((obj = pool.poll()) == null) {
+			while ((obj = pool.pop()) == null) {
 				if (!parkedThreads.contains(currentThread))
 					parkedThreads.add(currentThread);
 				LockSupport.parkNanos(1000);
@@ -61,7 +61,7 @@ public final class ConcurrentPool<T> {
 		}
 
 		assert !pool.contains(obj) : "Object already in pool: " + obj;
-		pool.offer(obj);
+		pool.push(obj);
 
 		if (parkedThreads != null) {
 			Thread parkedThread = parkedThreads.poll();
@@ -72,7 +72,7 @@ public final class ConcurrentPool<T> {
 
 	public void destroy() {
 		T obj;
-		while ((obj = pool.poll()) != null) {
+		while ((obj = pool.pop()) != null) {
 			if (obj instanceof Destructible)
 				((Destructible) obj).destroy();
 		}

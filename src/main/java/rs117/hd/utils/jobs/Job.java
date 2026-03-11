@@ -4,10 +4,11 @@ import com.google.inject.Injector;
 import java.util.concurrent.atomic.AtomicBoolean;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
+import rs117.hd.utils.collections.IntrusiveLinkedListNode;
 
 @Slf4j
 @SuppressWarnings("unchecked")
-public abstract class Job {
+public abstract class Job extends IntrusiveLinkedListNode {
 	static JobSystem JOB_SYSTEM;
 
 	protected final AtomicBoolean done = new AtomicBoolean();
