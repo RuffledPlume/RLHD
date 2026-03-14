@@ -44,6 +44,7 @@ import rs117.hd.config.DynamicLights;
 import rs117.hd.config.ShadowMode;
 import rs117.hd.opengl.GLOcclusionQueries;
 import rs117.hd.opengl.shader.BasicSceneProgram;
+import rs117.hd.opengl.shader.DepthSceneShaderProgram;
 import rs117.hd.opengl.shader.SceneShaderProgram;
 import rs117.hd.opengl.shader.ShaderException;
 import rs117.hd.opengl.shader.ShaderIncludes;
@@ -127,6 +128,9 @@ public class ZoneRenderer implements Renderer {
 
 	@Inject
 	private SceneShaderProgram sceneProgram;
+
+	@Inject
+	private DepthSceneShaderProgram depthSceneProgram;
 
 	@Inject
 	private BasicSceneProgram basicSceneProgram;
@@ -241,6 +245,7 @@ public class ZoneRenderer implements Renderer {
 	@Override
 	public void initializeShaders(ShaderIncludes includes) throws ShaderException, IOException {
 		sceneProgram.compile(includes);
+		depthSceneProgram.compile(includes);
 		basicSceneProgram.compile(includes);
 		fastShadowProgram.compile(includes);
 		detailedShadowProgram.compile(includes);
@@ -249,6 +254,7 @@ public class ZoneRenderer implements Renderer {
 	@Override
 	public void destroyShaders() {
 		sceneProgram.destroy();
+		depthSceneProgram.destroy();
 		basicSceneProgram.destroy();
 		fastShadowProgram.destroy();
 		detailedShadowProgram.destroy();
@@ -810,8 +816,7 @@ public class ZoneRenderer implements Renderer {
 		renderState.ido.set(indirectDrawCmds.id);
 		renderState.apply();
 
-		basicSceneProgram.use();
-		basicSceneProgram.uniScale.set(0f);
+		depthSceneProgram.use();
 
 		renderState.disable.set(GL_BLEND);
 		renderState.colorMask.set(false, false, false, false);
@@ -842,8 +847,7 @@ public class ZoneRenderer implements Renderer {
 		renderState.colorMask.set(false, false, false, false);
 		renderState.apply();
 
-		basicSceneProgram.use();
-		basicSceneProgram.uniScale.set(1.0f);
+		depthSceneProgram.use();
 
 		// Resue Scene Command Buffer since it has already been drawn
 		sceneCmd.reset();
@@ -898,6 +902,8 @@ public class ZoneRenderer implements Renderer {
 			renderState.blendFunc.set( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
 			renderState.colorMask.set(true, true, true, true);
 			renderState.apply();
+
+			basicSceneProgram.use();
 
 			float EdgeSize = plugin.configPlayerSilhouetteEdgeSize;
 			if (EdgeSize > 0) {
@@ -1119,10 +1125,12 @@ public class ZoneRenderer implements Renderer {
 								ctx.vaoSceneCmd.StencilFunc(GL_ALWAYS, 1, 0xFF);
 								ctx.vaoSceneCmd.StencilOp(GL_KEEP, GL_KEEP, GL_REPLACE);
 
+								ctx.vaoSceneCmd.SetShader(depthSceneProgram);
 								ctx.vaoSceneCmd.ColorMask(false, false, false, false);
 
 								ctx.vaoSceneCmd.append(playerCmd);
 
+								ctx.vaoSceneCmd.SetShader(sceneProgram);
 								ctx.vaoSceneCmd.ColorMask(true, true, true, true);
 								ctx.vaoSceneCmd.StencilMask(0); // Reset to avoid writing stencil for later calls
 							}
