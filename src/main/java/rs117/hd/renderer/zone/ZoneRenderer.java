@@ -25,6 +25,7 @@
 package rs117.hd.renderer.zone;
 
 import com.google.inject.Injector;
+import java.awt.Rectangle;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Set;
@@ -42,6 +43,7 @@ import rs117.hd.HdPluginConfig;
 import rs117.hd.config.ColorFilter;
 import rs117.hd.config.DynamicLights;
 import rs117.hd.config.ShadowMode;
+import rs117.hd.opengl.GLOcclusionQueries;
 import rs117.hd.opengl.shader.BasicSceneProgram;
 import rs117.hd.opengl.shader.SceneShaderProgram;
 import rs117.hd.opengl.shader.ShaderException;
@@ -152,6 +154,10 @@ public class ZoneRenderer implements Renderer {
 	public final CommandBuffer directionalCmd = new CommandBuffer("Directional", renderState);
 	public final CommandBuffer playerCmd = new CommandBuffer("Player", renderState);
 
+	private final GLOcclusionQueries playerSilhouetteQuery = new GLOcclusionQueries();
+	private float playerSilhouetteAlpha = 0.0f;
+	private float playerSilhouetteHideDelay = 0.0f;
+
 	private GLBuffer indirectDrawCmds;
 	public static GpuIntBuffer indirectDrawCmdsStaging;
 
@@ -192,6 +198,7 @@ public class ZoneRenderer implements Renderer {
 		uboWorldViews.initialize(UNIFORM_BLOCK_WORLD_VIEWS);
 		sceneManager.initialize(renderState, uboWorldViews);
 		modelStreamingManager.initialize();
+		playerSilhouetteQuery.initialize();
 
 		// Force updates that only run when the cameras change
 		sceneCamera.setDirty();
@@ -206,6 +213,7 @@ public class ZoneRenderer implements Renderer {
 		modelStreamingManager.destroy();
 		sceneManager.destroy();
 		uboWorldViews.destroy();
+		playerSilhouetteQuery.destroy();
 
 		if (SceneUploader.POOL != null)
 			SceneUploader.POOL.destroy();
@@ -772,64 +780,7 @@ public class ZoneRenderer implements Renderer {
 		renderState.stencilFunc.set(GL_ALWAYS, 0, 0xFFFFFFFF);
 		renderState.apply();
 
-		// Player is also drawn here as part of the main scene draw command buffer
 		sceneCmd.execute();
-
-		if(plugin.configPlayerSilhouette) {
-			basicSceneProgram.use();
-			basicSceneProgram.uniScale.set(0f);
-
-			renderState.disable.set(GL_BLEND);
-			renderState.colorMask.set(false, false, false, false);
-			renderState.depthMask.set(true);
-			renderState.apply();
-
-			alphaDepthCmd.execute();
-
-			renderState.colorMask.set(true, true, true, true);
-
-			if (modelStreamingManager.localPlayerVaoOpaque > 0) {
-				renderState.depthFunc.set(GL_LEQUAL);
-				renderState.depthMask.set(false);
-
-				renderState.stencilMask.set(0);
-				renderState.stencilFunc.set(GL_EQUAL, 0, 0xFF);
-
-				renderState.apply();
-				basicSceneProgram.use();
-
-				float EdgeSize = plugin.configPlayerSilhouetteEdgeSize;
-				if(EdgeSize > 0) {
-					var SilhouetteEdgeColor = plugin.configPlayerSilhouetteEdgeColor;
-					basicSceneProgram.uniScale.set(EdgeSize / 2.0f);
-					basicSceneProgram.uniColor.set(
-						SilhouetteEdgeColor != null ? SilhouetteEdgeColor.getRed() / 255.0f : 0.1f,
-						SilhouetteEdgeColor != null ? SilhouetteEdgeColor.getGreen() / 255.0f : 0.1f,
-						SilhouetteEdgeColor != null ? SilhouetteEdgeColor.getBlue() / 255.0f : 0.1f,
-						1.0f
-					);
-				}
-
-				sceneCmd.reset();
-				sceneCmd.BindVertexArray(modelStreamingManager.localPlayerVaoOpaque);
-				sceneCmd.DrawArrays(
-					GL_TRIANGLES,
-					modelStreamingManager.localPlayerOpaqueVertexOffset,
-					modelStreamingManager.localPlayerOpaqueVertexCount
-				);
-				sceneCmd.execute();
-
-				var SilhouetteColor = plugin.configPlayerSilhouetteColor;
-				basicSceneProgram.uniScale.set(EdgeSize > 0 ? -(EdgeSize / 2.0f) : 0);
-				basicSceneProgram.uniColor.set(
-					SilhouetteColor != null ? SilhouetteColor.getRed() / 255.0f : 0.1f,
-					SilhouetteColor != null ? SilhouetteColor.getGreen() / 255.0f : 0.1f,
-					SilhouetteColor != null ? SilhouetteColor.getBlue() / 255.0f : 0.1f,
-					1.0f);
-
-				sceneCmd.execute();
-			}
-		}
 
 		frameTimer.end(Timer.RENDER_SCENE);
 
@@ -844,6 +795,128 @@ public class ZoneRenderer implements Renderer {
 		renderState.apply();
 
 		frameTimer.end(Timer.DRAW_SCENE);
+	}
+
+	private void sceneAlphaDepthPass() {
+		renderState.framebuffer.set(GL_DRAW_FRAMEBUFFER, plugin.fboScene);
+		if (plugin.msaaSamples > 1) {
+			renderState.enable.set(GL_MULTISAMPLE);
+		} else {
+			renderState.disable.set(GL_MULTISAMPLE);
+		}
+		renderState.viewport.set(0, 0, plugin.sceneResolution[0], plugin.sceneResolution[1]);
+		renderState.ido.set(indirectDrawCmds.id);
+		renderState.apply();
+
+		basicSceneProgram.use();
+		basicSceneProgram.uniScale.set(0f);
+
+		renderState.disable.set(GL_BLEND);
+		renderState.colorMask.set(false, false, false, false);
+		renderState.depthMask.set(true);
+		renderState.apply();
+
+		alphaDepthCmd.execute();
+
+		renderState.colorMask.set(true, true, true, true);
+	}
+
+	private void playerSilhouettePass() {
+		if(!plugin.configPlayerSilhouette || modelStreamingManager.localPlayerVaoOpaque == 0)
+			return;
+
+		sceneAlphaDepthPass();
+
+		renderState.framebuffer.set(GL_DRAW_FRAMEBUFFER, plugin.fboScene);
+		if (plugin.msaaSamples > 1) {
+			renderState.enable.set(GL_MULTISAMPLE);
+		} else {
+			renderState.disable.set(GL_MULTISAMPLE);
+		}
+		renderState.enable.set(GL_DEPTH_TEST);
+		renderState.depthFunc.set(GL_GEQUAL);
+		renderState.depthMask.set(false);
+		renderState.colorMask.set(false, false, false, false);
+		renderState.apply();
+
+		basicSceneProgram.use();
+		basicSceneProgram.uniScale.set(1.0f);
+
+		// Resue Scene Command Buffer since it has already been drawn
+		sceneCmd.reset();
+		sceneCmd.BindVertexArray(modelStreamingManager.localPlayerVaoOpaque);
+		sceneCmd.DrawArrays(
+			GL_TRIANGLES,
+			modelStreamingManager.localPlayerOpaqueVertexOffset,
+			modelStreamingManager.localPlayerOpaqueVertexCount
+		);
+		sceneCmd.execute();
+
+		// Occlusion Test only
+		playerSilhouetteQuery.readBackResult();
+
+		playerSilhouetteQuery.beginQuery(true);
+		sceneCmd.execute();
+		playerSilhouetteQuery.endQuery();
+
+		Rectangle PlayerScreenSpaceRect = client.getLocalPlayer().getConvexHull().getBounds();
+		int playerScreenPixels = (PlayerScreenSpaceRect.width * PlayerScreenSpaceRect.height) / 2;
+		float visibleRatio = playerSilhouetteQuery.getVisibilityRatio(playerScreenPixels, plugin.msaaSamples);
+
+		if(visibleRatio < 0.3f) {
+			if(visibleRatio == 0) {
+				playerSilhouetteAlpha = 1.0f;
+			} else {
+				playerSilhouetteAlpha = min(playerSilhouetteAlpha + plugin.deltaTime * 2.0f, 1.0f);
+			}
+			playerSilhouetteHideDelay = 1.5f;
+		} else {
+			playerSilhouetteHideDelay = max(playerSilhouetteHideDelay - plugin.deltaTime, 0.0f);
+			if(playerSilhouetteHideDelay <= 0.0f)
+				playerSilhouetteAlpha = max(playerSilhouetteAlpha - plugin.deltaTime * 2.0f, 0.0f);
+		}
+
+		if(playerSilhouetteAlpha > 0.0f) {
+			// Player Silhouette Draw
+			renderState.enable.set(GL_BLEND);
+			renderState.enable.set(GL_STENCIL_TEST);
+			renderState.depthFunc.set(GL_LEQUAL);
+			renderState.stencilMask.set(0);
+			renderState.stencilFunc.set(GL_EQUAL, 0, 0xFF);
+			renderState.blendFunc.set( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+			renderState.colorMask.set(true, true, true, true);
+			renderState.apply();
+
+			float EdgeSize = plugin.configPlayerSilhouetteEdgeSize;
+			if (EdgeSize > 0) {
+				var SilhouetteEdgeColor = plugin.configPlayerSilhouetteEdgeColor;
+				basicSceneProgram.uniScale.set(EdgeSize / 2.0f);
+				basicSceneProgram.uniColor.set(
+					SilhouetteEdgeColor != null ? SilhouetteEdgeColor.getRed() / 255.0f : 0.1f,
+					SilhouetteEdgeColor != null ? SilhouetteEdgeColor.getGreen() / 255.0f : 0.1f,
+					SilhouetteEdgeColor != null ? SilhouetteEdgeColor.getBlue() / 255.0f : 0.1f,
+					playerSilhouetteAlpha
+				);
+			}
+			sceneCmd.execute();
+
+			var SilhouetteColor = plugin.configPlayerSilhouetteColor;
+			basicSceneProgram.uniScale.set(EdgeSize > 0 ? -(EdgeSize / 2.0f) : 0);
+			basicSceneProgram.uniColor.set(
+				SilhouetteColor != null ? SilhouetteColor.getRed() / 255.0f : 0.1f,
+				SilhouetteColor != null ? SilhouetteColor.getGreen() / 255.0f : 0.1f,
+				SilhouetteColor != null ? SilhouetteColor.getBlue() / 255.0f : 0.1f,
+				playerSilhouetteAlpha
+			);
+			sceneCmd.execute();
+		}
+
+		renderState.disable.set(GL_DEPTH_TEST);
+		renderState.disable.set(GL_STENCIL_TEST);
+		renderState.disable.set(GL_BLEND);
+		renderState.depthMask.set(true);
+		renderState.colorMask.set(true, true, true, true);
+		renderState.apply();
 	}
 
 	@Override
@@ -1115,6 +1188,7 @@ public class ZoneRenderer implements Renderer {
 			tiledLightingPass();
 			directionalShadowPass();
 			scenePass();
+			playerSilhouettePass();
 		}
 
 		if (sceneFboValid && plugin.sceneResolution != null && plugin.sceneViewport != null) {
