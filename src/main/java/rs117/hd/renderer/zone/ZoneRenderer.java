@@ -25,7 +25,6 @@
 package rs117.hd.renderer.zone;
 
 import com.google.inject.Injector;
-import java.awt.Rectangle;
 import java.io.IOException;
 import java.util.Arrays;
 import java.util.Set;
@@ -155,6 +154,7 @@ public class ZoneRenderer implements Renderer {
 	public final CommandBuffer playerCmd = new CommandBuffer("Player", renderState);
 
 	private final GLOcclusionQueries playerSilhouetteQuery = new GLOcclusionQueries();
+	private final GLOcclusionQueries playerSilhouettePotentialQuery = new GLOcclusionQueries();
 	private float playerSilhouetteAlpha = 0.0f;
 	private float playerSilhouetteHideDelay = 0.0f;
 
@@ -199,6 +199,7 @@ public class ZoneRenderer implements Renderer {
 		sceneManager.initialize(renderState, uboWorldViews);
 		modelStreamingManager.initialize();
 		playerSilhouetteQuery.initialize();
+		playerSilhouettePotentialQuery.initialize();
 
 		// Force updates that only run when the cameras change
 		sceneCamera.setDirty();
@@ -214,6 +215,7 @@ public class ZoneRenderer implements Renderer {
 		sceneManager.destroy();
 		uboWorldViews.destroy();
 		playerSilhouetteQuery.destroy();
+		playerSilhouettePotentialQuery.destroy();
 
 		if (SceneUploader.POOL != null)
 			SceneUploader.POOL.destroy();
@@ -833,7 +835,8 @@ public class ZoneRenderer implements Renderer {
 		} else {
 			renderState.disable.set(GL_MULTISAMPLE);
 		}
-		renderState.enable.set(GL_DEPTH_TEST);
+		renderState.disable.set(GL_DEPTH_TEST);
+		renderState.enable.set(GL_CULL_FACE);
 		renderState.depthFunc.set(GL_GEQUAL);
 		renderState.depthMask.set(false);
 		renderState.colorMask.set(false, false, false, false);
@@ -852,16 +855,25 @@ public class ZoneRenderer implements Renderer {
 		);
 		sceneCmd.execute();
 
-		// Occlusion Test only
+		// Occlusion potentially with depth testing disabled
+		playerSilhouettePotentialQuery.readBackResult();
+
+		playerSilhouettePotentialQuery.beginQuery(true);
+		sceneCmd.execute();
+		playerSilhouettePotentialQuery.endQuery();
+
+		// Occlusion Test only with depth testing enabled
+		renderState.enable.set(GL_DEPTH_TEST);
+		renderState.apply();
+
 		playerSilhouetteQuery.readBackResult();
 
 		playerSilhouetteQuery.beginQuery(true);
 		sceneCmd.execute();
 		playerSilhouetteQuery.endQuery();
 
-		Rectangle PlayerScreenSpaceRect = client.getLocalPlayer().getConvexHull().getBounds();
-		int playerScreenPixels = (PlayerScreenSpaceRect.width * PlayerScreenSpaceRect.height) / 2;
-		float visibleRatio = playerSilhouetteQuery.getVisibilityRatio(playerScreenPixels, plugin.msaaSamples);
+		int potentiallyVisiblePixels = playerSilhouettePotentialQuery.getVisiblePixels(plugin.msaaSamples) / 2;
+		float visibleRatio = playerSilhouetteQuery.getVisibilityRatio(potentiallyVisiblePixels, plugin.msaaSamples);
 
 		if(visibleRatio < 0.3f) {
 			if(visibleRatio == 0) {
