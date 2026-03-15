@@ -969,7 +969,12 @@ public class ZoneRenderer implements Renderer {
 			sceneCmd.execute();
 			playerSilhouetteCanopyQuery.endQuery();
 
-			playerCanopyFadeStrength = playerSilhouetteCanopyQuery.getVisibilityRatio(potentiallyVisiblePixels, plugin.msaaSamples);
+			playerCanopyFadeStrength = mix
+				(
+					playerCanopyFadeStrength,
+					playerSilhouetteCanopyQuery.getVisibilityRatio(potentiallyVisiblePixels, plugin.msaaSamples),
+					plugin.deltaTime * 4.0f
+				);
 		}
 
 		renderState.disable.set(GL_DEPTH_TEST);
