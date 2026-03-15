@@ -818,14 +818,27 @@ public class ZoneRenderer implements Renderer {
 
 		depthSceneProgram.use();
 
-		renderState.disable.set(GL_BLEND);
+		renderState.enable.set(GL_DEPTH_TEST);
+		renderState.enable.set(GL_BLEND);
+		renderState.enable.set(GL_CULL_FACE);
+		renderState.enable.set(GL_STENCIL_TEST);
 		renderState.colorMask.set(false, false, false, false);
 		renderState.depthMask.set(true);
+		renderState.stencilMask.set(0xFF);
+		renderState.stencilFunc.set(GL_ALWAYS, 0, 0xFFFFFFFF);
+		renderState.stencilOp.set(GL_KEEP, GL_KEEP, GL_REPLACE);
 		renderState.apply();
 
 		alphaDepthCmd.execute();
 
 		renderState.colorMask.set(true, true, true, true);
+		renderState.depthMask.set(false);
+		renderState.stencilMask.set(0);
+		renderState.disable.set(GL_BLEND);
+		renderState.disable.set(GL_STENCIL_TEST);
+		renderState.disable.set(GL_CULL_FACE);
+		renderState.disable.set(GL_DEPTH_TEST);
+		renderState.apply();
 	}
 
 	private void playerSilhouettePass() {
@@ -840,6 +853,8 @@ public class ZoneRenderer implements Renderer {
 		} else {
 			renderState.disable.set(GL_MULTISAMPLE);
 		}
+		renderState.viewport.set(0, 0, plugin.sceneResolution[0], plugin.sceneResolution[1]);
+		renderState.ido.set(indirectDrawCmds.id);
 		renderState.disable.set(GL_DEPTH_TEST);
 		renderState.enable.set(GL_CULL_FACE);
 		renderState.depthFunc.set(GL_GEQUAL);
