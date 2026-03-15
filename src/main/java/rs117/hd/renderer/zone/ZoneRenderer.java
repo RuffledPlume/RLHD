@@ -157,10 +157,12 @@ public class ZoneRenderer implements Renderer {
 	public final CommandBuffer directionalCmd = new CommandBuffer("Directional", renderState);
 	public final CommandBuffer playerCmd = new CommandBuffer("Player", renderState);
 
-	private final GLOcclusionQueries playerSilhouetteQuery = new GLOcclusionQueries();
 	private final GLOcclusionQueries playerSilhouettePotentialQuery = new GLOcclusionQueries();
+	private final GLOcclusionQueries playerSilhouetteOpaqueQuery = new GLOcclusionQueries();
+	private final GLOcclusionQueries playerSilhouetteCanopyQuery = new GLOcclusionQueries();
 	private float playerSilhouetteAlpha = 0.0f;
 	private float playerSilhouetteHideDelay = 0.0f;
+	private float playerCanopyFadeStrength = 0.0f;
 
 	private GLBuffer indirectDrawCmds;
 	public static GpuIntBuffer indirectDrawCmdsStaging;
@@ -202,7 +204,8 @@ public class ZoneRenderer implements Renderer {
 		uboWorldViews.initialize(UNIFORM_BLOCK_WORLD_VIEWS);
 		sceneManager.initialize(renderState, uboWorldViews);
 		modelStreamingManager.initialize();
-		playerSilhouetteQuery.initialize();
+		playerSilhouetteOpaqueQuery.initialize();
+		playerSilhouetteCanopyQuery.initialize();
 		playerSilhouettePotentialQuery.initialize();
 
 		// Force updates that only run when the cameras change
@@ -218,7 +221,8 @@ public class ZoneRenderer implements Renderer {
 		modelStreamingManager.destroy();
 		sceneManager.destroy();
 		uboWorldViews.destroy();
-		playerSilhouetteQuery.destroy();
+		playerSilhouetteOpaqueQuery.destroy();
+		playerSilhouetteCanopyQuery.destroy();
 		playerSilhouettePotentialQuery.destroy();
 
 		if (SceneUploader.POOL != null)
@@ -605,6 +609,7 @@ public class ZoneRenderer implements Renderer {
 		plugin.uboGlobal.underwaterCausticsColor.set(environmentManager.currentUnderwaterCausticsColor);
 		plugin.uboGlobal.underwaterCausticsStrength.set(environmentManager.currentUnderwaterCausticsStrength);
 		plugin.uboGlobal.elapsedTime.set((float) (plugin.elapsedTime % MAX_FLOAT_WITH_128TH_PRECISION));
+		plugin.uboGlobal.canopyFadeStrength.set(playerCanopyFadeStrength);
 
 		if (plugin.configColorFilter != ColorFilter.NONE) {
 			plugin.uboGlobal.colorFilter.set(plugin.configColorFilter.ordinal());
@@ -785,6 +790,7 @@ public class ZoneRenderer implements Renderer {
 		renderState.depthMask.set(true);
 		renderState.depthFunc.set(GL_GEQUAL);
 		renderState.blendFunc.set(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
+		renderState.stencilMask.set(0xFF);
 		renderState.stencilFunc.set(GL_ALWAYS, 0, 0xFFFFFFFF);
 		renderState.apply();
 
@@ -825,7 +831,7 @@ public class ZoneRenderer implements Renderer {
 		renderState.colorMask.set(false, false, false, false);
 		renderState.depthMask.set(true);
 		renderState.stencilMask.set(0xFF);
-		renderState.stencilFunc.set(GL_ALWAYS, 0, 0xFFFFFFFF);
+		renderState.stencilFunc.set(GL_ALWAYS, 2, 0xFFFFFFFF); // TODO: Only Alpha we want to fade should write this stencil
 		renderState.stencilOp.set(GL_KEEP, GL_KEEP, GL_REPLACE);
 		renderState.apply();
 
@@ -842,8 +848,12 @@ public class ZoneRenderer implements Renderer {
 	}
 
 	private void playerSilhouettePass() {
-		if(!plugin.configPlayerSilhouette || modelStreamingManager.localPlayerVaoOpaque == 0)
+		if((!plugin.configPlayerSilhouette && !plugin.configPlayerCanopy) || modelStreamingManager.localPlayerVaoOpaque == 0) {
+			playerCanopyFadeStrength = 0;
+			playerSilhouetteAlpha = 0;
+			playerSilhouetteHideDelay = 0;
 			return;
+		}
 
 		sceneAlphaDepthPass();
 
@@ -860,6 +870,7 @@ public class ZoneRenderer implements Renderer {
 		renderState.depthFunc.set(GL_GEQUAL);
 		renderState.depthMask.set(false);
 		renderState.colorMask.set(false, false, false, false);
+		renderState.stencilMask.set(0);
 		renderState.apply();
 
 		depthSceneProgram.use();
@@ -881,67 +892,84 @@ public class ZoneRenderer implements Renderer {
 		sceneCmd.execute();
 		playerSilhouettePotentialQuery.endQuery();
 
+		final int potentiallyVisiblePixels = playerSilhouettePotentialQuery.getVisiblePixels(plugin.msaaSamples) / 2;
+
 		// Occlusion Test only with depth testing enabled
 		renderState.enable.set(GL_DEPTH_TEST);
 		renderState.apply();
 
-		playerSilhouetteQuery.readBackResult();
+		if(plugin.configPlayerSilhouette) {
+			playerSilhouetteOpaqueQuery.readBackResult();
 
-		playerSilhouetteQuery.beginQuery(true);
-		sceneCmd.execute();
-		playerSilhouetteQuery.endQuery();
+			playerSilhouetteOpaqueQuery.beginQuery(true);
+			sceneCmd.execute();
+			playerSilhouetteOpaqueQuery.endQuery();
 
-		int potentiallyVisiblePixels = playerSilhouettePotentialQuery.getVisiblePixels(plugin.msaaSamples) / 2;
-		float visibleRatio = playerSilhouetteQuery.getVisibilityRatio(potentiallyVisiblePixels, plugin.msaaSamples);
-
-		if(visibleRatio < 0.3f) {
-			if(visibleRatio == 0) {
-				playerSilhouetteAlpha = 1.0f;
+			float opaqueVisibleRatio = playerSilhouetteOpaqueQuery.getVisibilityRatio(potentiallyVisiblePixels, plugin.msaaSamples);
+			if(opaqueVisibleRatio < 0.3f) {
+				if(opaqueVisibleRatio == 0) {
+					playerSilhouetteAlpha = 1.0f;
+				} else {
+					playerSilhouetteAlpha = min(playerSilhouetteAlpha + plugin.deltaTime * 2.0f, 1.0f);
+				}
+				playerSilhouetteHideDelay = 1.5f;
 			} else {
-				playerSilhouetteAlpha = min(playerSilhouetteAlpha + plugin.deltaTime * 2.0f, 1.0f);
+				playerSilhouetteHideDelay = max(playerSilhouetteHideDelay - plugin.deltaTime, 0.0f);
+				if(playerSilhouetteHideDelay <= 0.0f)
+					playerSilhouetteAlpha = max(playerSilhouetteAlpha - plugin.deltaTime * 2.0f, 0.0f);
 			}
-			playerSilhouetteHideDelay = 1.5f;
-		} else {
-			playerSilhouetteHideDelay = max(playerSilhouetteHideDelay - plugin.deltaTime, 0.0f);
-			if(playerSilhouetteHideDelay <= 0.0f)
-				playerSilhouetteAlpha = max(playerSilhouetteAlpha - plugin.deltaTime * 2.0f, 0.0f);
+
+			if(playerSilhouetteAlpha > 0.0f) {
+				// Player Silhouette Draw
+				renderState.enable.set(GL_BLEND);
+				renderState.enable.set(GL_STENCIL_TEST);
+				renderState.depthFunc.set(GL_LEQUAL);
+				renderState.stencilFunc.set(GL_EQUAL, 0, 0xFF);
+				renderState.blendFunc.set( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+				renderState.colorMask.set(true, true, true, true);
+				renderState.apply();
+
+				basicSceneProgram.use();
+
+				float EdgeSize = plugin.configPlayerSilhouetteEdgeSize;
+				if (EdgeSize > 0) {
+					var SilhouetteEdgeColor = plugin.configPlayerSilhouetteEdgeColor;
+					basicSceneProgram.uniScale.set(EdgeSize / 2.0f);
+					basicSceneProgram.uniColor.set(
+						SilhouetteEdgeColor != null ? SilhouetteEdgeColor.getRed() / 255.0f : 0.1f,
+						SilhouetteEdgeColor != null ? SilhouetteEdgeColor.getGreen() / 255.0f : 0.1f,
+						SilhouetteEdgeColor != null ? SilhouetteEdgeColor.getBlue() / 255.0f : 0.1f,
+						playerSilhouetteAlpha * (1.0f - playerCanopyFadeStrength)
+					);
+				}
+				sceneCmd.execute();
+
+				var SilhouetteColor = plugin.configPlayerSilhouetteColor;
+				basicSceneProgram.uniScale.set(EdgeSize > 0 ? -(EdgeSize / 2.0f) : 0);
+				basicSceneProgram.uniColor.set(
+					SilhouetteColor != null ? SilhouetteColor.getRed() / 255.0f : 0.1f,
+					SilhouetteColor != null ? SilhouetteColor.getGreen() / 255.0f : 0.1f,
+					SilhouetteColor != null ? SilhouetteColor.getBlue() / 255.0f : 0.1f,
+					playerSilhouetteAlpha * (1.0f - playerCanopyFadeStrength)
+				);
+				sceneCmd.execute();
+			}
 		}
 
-		if(playerSilhouetteAlpha > 0.0f) {
-			// Player Silhouette Draw
-			renderState.enable.set(GL_BLEND);
-			renderState.enable.set(GL_STENCIL_TEST);
+		if(plugin.configPlayerCanopy) {
+			// Occlusion Test to see if we're behind canopy
+			renderState.stencilFunc.set(GL_EQUAL, 2, 0xFF);
 			renderState.depthFunc.set(GL_LEQUAL);
-			renderState.stencilMask.set(0);
-			renderState.stencilFunc.set(GL_EQUAL, 0, 0xFF);
-			renderState.blendFunc.set( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-			renderState.colorMask.set(true, true, true, true);
+			renderState.enable.set(GL_STENCIL_TEST);
 			renderState.apply();
 
-			basicSceneProgram.use();
+			playerSilhouetteCanopyQuery.readBackResult();
 
-			float EdgeSize = plugin.configPlayerSilhouetteEdgeSize;
-			if (EdgeSize > 0) {
-				var SilhouetteEdgeColor = plugin.configPlayerSilhouetteEdgeColor;
-				basicSceneProgram.uniScale.set(EdgeSize / 2.0f);
-				basicSceneProgram.uniColor.set(
-					SilhouetteEdgeColor != null ? SilhouetteEdgeColor.getRed() / 255.0f : 0.1f,
-					SilhouetteEdgeColor != null ? SilhouetteEdgeColor.getGreen() / 255.0f : 0.1f,
-					SilhouetteEdgeColor != null ? SilhouetteEdgeColor.getBlue() / 255.0f : 0.1f,
-					playerSilhouetteAlpha
-				);
-			}
+			playerSilhouetteCanopyQuery.beginQuery(true);
 			sceneCmd.execute();
+			playerSilhouetteCanopyQuery.endQuery();
 
-			var SilhouetteColor = plugin.configPlayerSilhouetteColor;
-			basicSceneProgram.uniScale.set(EdgeSize > 0 ? -(EdgeSize / 2.0f) : 0);
-			basicSceneProgram.uniColor.set(
-				SilhouetteColor != null ? SilhouetteColor.getRed() / 255.0f : 0.1f,
-				SilhouetteColor != null ? SilhouetteColor.getGreen() / 255.0f : 0.1f,
-				SilhouetteColor != null ? SilhouetteColor.getBlue() / 255.0f : 0.1f,
-				playerSilhouetteAlpha
-			);
-			sceneCmd.execute();
+			playerCanopyFadeStrength = playerSilhouetteCanopyQuery.getVisibilityRatio(potentiallyVisiblePixels, plugin.msaaSamples);
 		}
 
 		renderState.disable.set(GL_DEPTH_TEST);
@@ -1191,6 +1219,13 @@ public class ZoneRenderer implements Renderer {
 	@Override
 	public void drawTemp(Projection worldProjection, Scene scene, GameObject gameObject, Model m, int orientation, int x, int y, int z) {
 		frameTimer.begin(Timer.DRAW_TEMP);
+
+		if(gameObject.getRenderable() == client.getLocalPlayer()) {
+			plugin.uboGlobal.playerPosition.set((float)x, y, z);
+			plugin.uboGlobal.playerHeight.set((float) m.getModelHeight());
+			plugin.uboGlobal.upload(); // TODO: Discern how to get this position without needing to hook in here
+		}
+
 		try {
 			modelStreamingManager.drawTemp(worldProjection, scene, gameObject, m, orientation, x, y, z);
 		} catch (Exception ex) {

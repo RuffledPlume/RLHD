@@ -530,6 +530,24 @@ void main() {
         outputColor.rgb = mix(outputColor.rgb, fogColor, combinedFog);
     }
 
+#if PLAYER_CANOPY_FADE
+    // TODO: getMaterialHasTransparency needs to be swapped out for a check to see if we're part of the canopy
+    if (canopyFadeStrength > 0.0 && getMaterialHasTransparency(material1)) {
+        vec3 camToPlayer = (playerPosition + vec3(0, -playerHeight / 2, 0)) - cameraPos;
+        float lineLength = length(camToPlayer);
+        vec3 lineDir = camToPlayer / lineLength;
+
+        vec3 camToFrag = IN.position - cameraPos;
+        float t = clamp(dot(camToFrag, lineDir), 0.0, lineLength);
+
+        vec3 closestPoint = cameraPos + lineDir * t;
+        float distToLine = length(IN.position - closestPoint);
+
+        float fadeRadius = mix(0.0, playerHeight, canopyFadeStrength);
+        outputColor.a *= smoothstep(0.0, fadeRadius, distToLine);
+    }
+#endif
+
     outputColor.rgb = pow(outputColor.rgb, vec3(gammaCorrection));
 
     #if WINDOWS_HDR_CORRECTION

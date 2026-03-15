@@ -400,6 +400,7 @@ public class HdPlugin extends Plugin {
 	public boolean configModelBatching;
 	public boolean configModelCaching;
 	public boolean configPlayerSilhouette;
+	public boolean configPlayerCanopy;
 	public boolean configShadowsEnabled;
 	public boolean configRoofShadows;
 	public boolean configExpandShadowDraw;
@@ -886,6 +887,7 @@ public class HdPlugin extends Plugin {
 			.define("MAX_LIGHT_COUNT", configTiledLighting ? UBOLights.MAX_LIGHTS : configDynamicLights.getMaxSceneLights())
 			.define("NORMAL_MAPPING", config.normalMapping())
 			.define("PARALLAX_OCCLUSION_MAPPING", config.parallaxOcclusionMapping())
+			.define("PLAYER_CANOPY_FADE", configPlayerCanopy)
 			.define("SHADOW_MODE", configShadowMode)
 			.define("SHADOW_TRANSPARENCY", config.shadowTransparency())
 			.define("SHADOW_FILTERING", config.shadowFiltering())
@@ -1629,6 +1631,7 @@ public class HdPlugin extends Plugin {
 		configLegacyGreyColors = config.legacyGreyColors();
 		configModelBatching = config.modelBatching();
 		configModelCaching = config.modelCaching();
+		configPlayerCanopy = config.playerCanopy();
 		configPlayerSilhouette = config.playerSilhouette();
 		configPlayerSilhouetteColor = config.playerSilhouetteColor();
 		configPlayerSilhouetteEdgeColor = config.playerSilhouetteEdgeColor();
@@ -1795,6 +1798,7 @@ public class HdPlugin extends Plugin {
 							case KEY_WIREFRAME:
 							case KEY_SHADOW_FILTERING:
 							case KEY_WINDOWS_HDR_CORRECTION:
+							case KEY_PLAYER_CANOPY:
 								recompilePrograms = true;
 								break;
 							case KEY_ANTI_ALIASING_MODE:

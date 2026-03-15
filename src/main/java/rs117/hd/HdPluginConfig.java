@@ -790,18 +790,30 @@ public interface HdPluginConfig extends Config
 	/*====== Player Silhouette settings ======*/
 
 	@ConfigSection(
-		name = "Player Silhouette",
+		name = "Player Silhouette & Canopy",
 		description = "Player Silhouette settings",
 		position = 4,
 		closedByDefault = true
 	)
 	String playerSilhouetteSettings = "playerSilhouetteSettings";
 
+	String KEY_PLAYER_CANOPY = "playerCanopy";
+	@ConfigItem(
+		keyName = KEY_PLAYER_CANOPY,
+		position = 0,
+		name = "Canopy Fade Enabled",
+		description = "Fades Canopy when it is occluding the player",
+		section = playerSilhouetteSettings
+	)
+	default boolean playerCanopy() {
+		return true;
+	}
+
 	String KEY_PLAYER_SILHOUETTE_BANDING = "playerSilhouette";
 	@ConfigItem(
 		keyName = KEY_PLAYER_SILHOUETTE_BANDING,
-		position = 0,
-		name = "Enabled",
+		position = 1,
+		name = "Silhouette Enabled",
 		description = "Draws the players silhouette whilst they are occluded by scene geometry",
 		section = playerSilhouetteSettings
 	)
@@ -816,7 +828,7 @@ public interface HdPluginConfig extends Config
 	)
 	@ConfigItem(
 		keyName = KEY_PLAYER_SILHOUETTE_EDGE_SIZE,
-		position = 1,
+		position = 2,
 		name = "Edge Size",
 		description = "Controls the size of the players silhouette edge",
 		section = playerSilhouetteSettings
@@ -828,7 +840,7 @@ public interface HdPluginConfig extends Config
 	String KEY_PLAYER_SILHOUETTE_BANDING_COLOR = "playerSilhouetteColor";
 	@ConfigItem(
 		keyName = KEY_PLAYER_SILHOUETTE_BANDING_COLOR,
-		position = 2,
+		position = 3,
 		name = "Fill Color",
 		description = "Controls the colour of the players silhouette",
 		section = playerSilhouetteSettings
@@ -840,7 +852,7 @@ public interface HdPluginConfig extends Config
 	String KEY_PLAYER_SILHOUETTE_EDGE_COLOR = "playerSilhouetteEdgeColor";
 	@ConfigItem(
 		keyName = KEY_PLAYER_SILHOUETTE_EDGE_COLOR,
-		position = 3,
+		position = 4,
 		name = "Edge Color",
 		description = "Controls the colour of the players silhouette",
 		section = playerSilhouetteSettings
