@@ -106,6 +106,10 @@ public class GpuIntBuffer {
 		this.buffer.put(buffer);
 	}
 
+	public static float decodeNormShort(int n) {
+		return n / (float) Short.MAX_VALUE;
+	}
+
 	public static int normShort(float f) {
 		return round(clamp(f, -1, 1) * Short.MAX_VALUE);
 	}

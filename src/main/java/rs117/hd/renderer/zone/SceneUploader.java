@@ -58,6 +58,8 @@ import static rs117.hd.scene.tile_overrides.TileOverride.OVERLAY_FLAG;
 import static rs117.hd.utils.HDUtils.HIDDEN_HSL;
 import static rs117.hd.utils.HDUtils.UNDERWATER_HSL;
 import static rs117.hd.utils.MathUtils.*;
+import static rs117.hd.utils.buffer.GpuIntBuffer.decodeNormShort;
+import static rs117.hd.utils.buffer.GpuIntBuffer.normShort;
 
 @Slf4j
 public class SceneUploader implements AutoCloseable {
@@ -82,6 +84,8 @@ public class SceneUploader implements AutoCloseable {
 	private static final float LIGHTNESS_MULTIPLIER = 3;
 	// the minimum amount by which each color will be lightened
 	private static final int BASE_LIGHTEN = 10;
+
+	private static final int TESSELATION_AMOUNT = 4;
 
 	static {
 		for (int i = 0; i < 8; i++)
@@ -357,8 +361,8 @@ public class SceneUploader implements AutoCloseable {
 
 		SceneTilePaint paint = t.getSceneTilePaint();
 		if (paint != null && paint.getNeColor() != HIDDEN_HSL) {
-			z.sizeO += 2;
-			z.sizeF += 2;
+			z.sizeO += 2 * TESSELATION_AMOUNT * TESSELATION_AMOUNT;
+			z.sizeF += 2 * TESSELATION_AMOUNT * TESSELATION_AMOUNT;
 
 			TileOverride override = tileOverrideManager.getOverride(ctx, t, worldPos);
 			WaterType waterType = proceduralGenerator.seasonalWaterType(override, paint.getTexture());
@@ -367,8 +371,8 @@ public class SceneUploader implements AutoCloseable {
 				// Since these are surface tiles, they should perhaps technically be in the alpha buffer,
 				// but we'll render them in the correct order without needing face sorting,
 				// so we might as well use the opaque buffer for simplicity
-				z.sizeO += 2;
-				z.sizeF += 2;
+				z.sizeO += 2 * TESSELATION_AMOUNT * TESSELATION_AMOUNT;
+				z.sizeF += 2 * TESSELATION_AMOUNT * TESSELATION_AMOUNT;
 			} else {
 				z.onlyWater = false;
 			}
@@ -995,65 +999,221 @@ public class SceneUploader implements AutoCloseable {
 			uvcos = cos(rad) * -uvScale;
 			uvsin = sin(rad) * -uvScale;
 		}
-		float uvx = worldPos[0];
-		float uvy = worldPos[1];
-		float tmp = uvx;
-		uvx = fract(uvx * uvcos - uvy * uvsin);
-		uvy = fract(tmp * uvsin + uvy * uvcos);
 
-		int texturedFaceIdx = fb.putFace(
-			neColor, nwColor, seColor,
-			neMaterialData, nwMaterialData, seMaterialData,
-			neTerrainData, nwTerrainData, seTerrainData
-		);
+		if(onlyWaterSurface) {
+			float[] uvSW = computeUV(uvcos, uvsin, worldPos[0], worldPos[1]);
+			float[] uvSE = computeUV(uvcos, uvsin, worldPos[0] + 1, worldPos[1]);
+			float[] uvNW = computeUV(uvcos, uvsin, worldPos[0], worldPos[1] + 1);
+			float[] uvNE = computeUV(uvcos, uvsin, worldPos[0] + 1, worldPos[1] + 1);
 
-		vb.putVertex(
-			lx2, neHeight, lz2,
-			uvx, uvy, 0,
-			neNormals[0], neNormals[2], neNormals[1],
-			texturedFaceIdx
-		);
+			for (int x = 0; x < TESSELATION_AMOUNT; x++) {
+				for (int y = 0; y < TESSELATION_AMOUNT; y++) {
+					float fx0 = (float) x / TESSELATION_AMOUNT;
+					float fy0 = (float) y / TESSELATION_AMOUNT;
+					float fx1 = (float) (x + 1) / TESSELATION_AMOUNT;
+					float fy1 = (float) (y + 1) / TESSELATION_AMOUNT;
 
-		vb.putVertex(
-			lx3, nwHeight, lz3,
-			uvx - uvcos, uvy - uvsin, 0,
-			nwNormals[0], nwNormals[2], nwNormals[1],
-			texturedFaceIdx
-		);
+					// Interpolate positions
+					int lxA = (int) mix(lx0, lx1, fx0);
+					int lxB = (int) mix(lx0, lx1, fx1);
+					int lxC = (int) mix(lx3, lx2, fx1);
+					int lxD = (int) mix(lx3, lx2, fx0);
 
-		vb.putVertex(
-			lx1, seHeight, lz1,
-			uvx + uvsin, uvy - uvcos, 0,
-			seNormals[0], seNormals[2], seNormals[1],
-			texturedFaceIdx
-		);
+					int lzA = (int) mix(lz0, lz3, fy0);
+					int lzB = (int) mix(lz1, lz2, fy0);
+					int lzC = (int) mix(lz1, lz2, fy1);
+					int lzD = (int) mix(lz0, lz3, fy1);
 
-		texturedFaceIdx = fb.putFace(
-			swColor, seColor, nwColor,
-			swMaterialData, seMaterialData, nwMaterialData,
-			swTerrainData, seTerrainData, nwTerrainData
-		);
+					// Bilinear height interpolation
+					int hA = (int) bilerp(swHeight, seHeight, nwHeight, neHeight, fx0, fy0);
+					int hB = (int) bilerp(swHeight, seHeight, nwHeight, neHeight, fx1, fy0);
+					int hC = (int) bilerp(swHeight, seHeight, nwHeight, neHeight, fx1, fy1);
+					int hD = (int) bilerp(swHeight, seHeight, nwHeight, neHeight, fx0, fy1);
 
-		vb.putVertex(
-			lx0, swHeight, lz0,
-			uvx - uvcos + uvsin, uvy - uvsin - uvcos, 0,
-			swNormals[0], swNormals[2], swNormals[1],
-			texturedFaceIdx
-		);
+					int cA = (int) bilerp(swColor, seColor, nwColor, neColor, fx0, fy0);
+					int cB = (int) bilerp(swColor, seColor, nwColor, neColor, fx1, fy0);
+					int cC = (int) bilerp(swColor, seColor, nwColor, neColor, fx1, fy1);
+					int cD = (int) bilerp(swColor, seColor, nwColor, neColor, fx0, fy1);
 
-		vb.putVertex(
-			lx1, seHeight, lz1,
-			uvx + uvsin, uvy - uvcos, 0,
-			seNormals[0], seNormals[2], seNormals[1],
-			texturedFaceIdx
-		);
+					float[] uvA = fract(bilerp2D(uvSW, uvSE, uvNW, uvNE, fx0, fy0));
+					float[] uvB = fract(bilerp2D(uvSW, uvSE, uvNW, uvNE, fx1, fy0));
+					float[] uvC = fract(bilerp2D(uvSW, uvSE, uvNW, uvNE, fx1, fy1));
+					float[] uvD = fract(bilerp2D(uvSW, uvSE, uvNW, uvNE, fx0, fy1));
 
-		vb.putVertex(
-			lx3, nwHeight, lz3,
-			uvx - uvcos, uvy - uvsin, 0,
-			nwNormals[0], nwNormals[2], nwNormals[1],
-			texturedFaceIdx
-		);
+					float[] nA = bilerpNormal(swNormals, seNormals, nwNormals, neNormals, fx0, fy0);
+					float[] nB = bilerpNormal(swNormals, seNormals, nwNormals, neNormals, fx1, fy0);
+					float[] nC = bilerpNormal(swNormals, seNormals, nwNormals, neNormals, fx1, fy1);
+					float[] nD = bilerpNormal(swNormals, seNormals, nwNormals, neNormals, fx0, fy1);
+
+					int faceIdx = fb.putFace(
+						cC, cD, cB,
+						neMaterialData, nwMaterialData, seMaterialData,
+						neTerrainData, nwTerrainData, seTerrainData
+					);
+
+					vb.putVertex(
+						lxC, hC, lzC,
+						uvC[0], uvC[1], 0,
+						(int) nC[0], (int) nC[2], (int) nC[1],
+						faceIdx
+					);
+
+					vb.putVertex(
+						lxD, hD, lzD,
+						uvD[0], uvD[1], 0,
+						(int) nD[0], (int) nD[2], (int) nD[1],
+						faceIdx
+					);
+
+					vb.putVertex(
+						lxB, hB, lzB,
+						uvB[0], uvB[1], 0,
+						(int) nB[0], (int) nB[2], (int) nB[1],
+						faceIdx
+					);
+
+					// Second triangle
+					faceIdx = fb.putFace(
+						cA, cB, cD,
+						swMaterialData, seMaterialData, nwMaterialData,
+						swTerrainData, seTerrainData, nwTerrainData
+					);
+
+					vb.putVertex(
+						lxA, hA, lzA,
+						uvA[0], uvA[1], 0,
+						(int) nA[0], (int) nA[2], (int) nA[1],
+						faceIdx
+					);
+
+					vb.putVertex(
+						lxB, hB, lzB,
+						uvB[0], uvB[1], 0,
+						(int) nB[0], (int) nB[2], (int) nB[1],
+						faceIdx
+					);
+
+					vb.putVertex(
+						lxD, hD, lzD,
+						uvD[0], uvD[1], 0,
+						(int) nD[0], (int) nD[2], (int) nD[1],
+						faceIdx
+					);
+				}
+			}
+		} else {
+			float uvx = worldPos[0];
+			float uvy = worldPos[1];
+			float tmp = uvx;
+			uvx = fract(uvx * uvcos - uvy * uvsin);
+			uvy = fract(tmp * uvsin + uvy * uvcos);
+
+			int texturedFaceIdx = fb.putFace(
+				neColor, nwColor, seColor,
+				neMaterialData, nwMaterialData, seMaterialData,
+				neTerrainData, nwTerrainData, seTerrainData
+			);
+
+			vb.putVertex(
+				lx2, neHeight, lz2,
+				uvx, uvy, 0,
+				neNormals[0], neNormals[2], neNormals[1],
+				texturedFaceIdx
+			);
+
+			vb.putVertex(
+				lx3, nwHeight, lz3,
+				uvx - uvcos, uvy - uvsin, 0,
+				nwNormals[0], nwNormals[2], nwNormals[1],
+				texturedFaceIdx
+			);
+
+			vb.putVertex(
+				lx1, seHeight, lz1,
+				uvx + uvsin, uvy - uvcos, 0,
+				seNormals[0], seNormals[2], seNormals[1],
+				texturedFaceIdx
+			);
+
+			texturedFaceIdx = fb.putFace(
+				swColor, seColor, nwColor,
+				swMaterialData, seMaterialData, nwMaterialData,
+				swTerrainData, seTerrainData, nwTerrainData
+			);
+
+			vb.putVertex(
+				lx0, swHeight, lz0,
+				uvx - uvcos + uvsin, uvy - uvsin - uvcos, 0,
+				swNormals[0], swNormals[2], swNormals[1],
+				texturedFaceIdx
+			);
+
+			vb.putVertex(
+				lx1, seHeight, lz1,
+				uvx + uvsin, uvy - uvcos, 0,
+				seNormals[0], seNormals[2], seNormals[1],
+				texturedFaceIdx
+			);
+
+			vb.putVertex(
+				lx3, nwHeight, lz3,
+				uvx - uvcos, uvy - uvsin, 0,
+				nwNormals[0], nwNormals[2], nwNormals[1],
+				texturedFaceIdx
+			);
+		}
+	}
+
+	float[] bilerpNormal(int[] sw, int[] se, int[] nw, int[] ne, float fx, float fy) {
+		float nx =
+			decodeNormShort(sw[0]) * (1 - fx) * (1 - fy) +
+			decodeNormShort(se[0]) * fx * (1 - fy) +
+			decodeNormShort(nw[0]) * (1 - fx) * fy +
+			decodeNormShort(ne[0]) * fx * fy;
+
+		float ny =
+			decodeNormShort(sw[1]) * (1 - fx) * (1 - fy) +
+			decodeNormShort(se[1]) * fx * (1 - fy) +
+			decodeNormShort(nw[1]) * (1 - fx) * fy +
+			decodeNormShort(ne[1]) * fx * fy;
+
+		float nz =
+			decodeNormShort(sw[2]) * (1 - fx) * (1 - fy) +
+			decodeNormShort(se[2]) * fx * (1 - fy) +
+			decodeNormShort(nw[2]) * (1 - fx) * fy +
+			decodeNormShort(ne[2]) * fx * fy;
+
+		// Normalize in float space
+		float len = (float)Math.sqrt(nx * nx + ny * ny + nz * nz);
+		if (len > 0.00001f) {
+			nx /= len;
+			ny /= len;
+			nz /= len;
+		}
+
+		return new float[]{normShort(nx), normShort(ny), normShort(nz)};
+	}
+
+	private float[] bilerp2D(float[] sw, float[] se, float[] nw, float[] ne, float fx, float fy) {
+		float u =
+			sw[0] * (1 - fx) * (1 - fy) +
+			se[0] * fx * (1 - fy) +
+			nw[0] * (1 - fx) * fy +
+			ne[0] * fx * fy;
+
+		float v =
+			sw[1] * (1 - fx) * (1 - fy) +
+			se[1] * fx * (1 - fy) +
+			nw[1] * (1 - fx) * fy +
+			ne[1] * fx * fy;
+
+		return new float[]{u, v};
+	}
+
+	private float[] computeUV(float uvcos, float uvsin, float x, float y) {
+		float u = x * uvcos - y * uvsin;
+		float v = x * uvsin + y * uvcos;
+		return new float[]{u, v};
 	}
 
 	private void uploadTileModel(

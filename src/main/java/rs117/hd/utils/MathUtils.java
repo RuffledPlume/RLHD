@@ -783,8 +783,15 @@ public final class MathUtils {
 		return sign(new float[v.length], v);
 	}
 
+
 	public static float mix(float v0, float v1, float factor) {
 		return v0 * (1 - factor) + v1 * factor;
+	}
+
+	public static float bilerp(float a, float b, float c, float d, float x, float y) {
+		float south = mix(a, b, x);
+		float north = mix(c, d, x);
+		return mix(south, north, y);
 	}
 
 	public static float[] mix(float[] out, float[] v0, float[] v1, float... factor) {
