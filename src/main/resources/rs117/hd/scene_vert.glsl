@@ -28,6 +28,7 @@
 #include <uniforms/global.glsl>
 #include <uniforms/world_views.glsl>
 #include <uniforms/texture_faces.glsl>
+#include <uniforms/model_data.glsl>
 
 #include <utils/constants.glsl>
 #include <utils/uvs.glsl>
@@ -83,6 +84,13 @@ layout (location = 0) in vec3 vPosition;
             mat4x3 worldViewProjection = mat4x3(getWorldViewProjection(vWorldViewId));
             worldPosition = worldViewProjection * vec4(worldPosition, 1.0);
             worldNormal = mat3(worldViewProjection) * worldNormal;
+        }
+
+        int modelOffset = floatBitsToInt(vNormal.w);
+        if(modelOffset > 0) {
+            ModelData modelData = getModelData(modelOffset);
+            worldPosition.y *= (modelData.position.y - worldPosition.y) / modelData.height;
+            worldPosition += 1000.0;
         }
 
         OUT.position = worldPosition;

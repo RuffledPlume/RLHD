@@ -71,7 +71,7 @@ public final class VertexWriteCache {
 		int x, int y, int z,
 		float u, float v, float w,
 		int nx, int ny, int nz,
-		int textureFaceIdx
+		int textureFaceIdx, int modelIdx
 	) {
 		if (stagingPosition + 8 > stagingBuffer.length)
 			flushAndGrow();
@@ -83,7 +83,7 @@ public final class VertexWriteCache {
 		stagingBuffer[stagingPosition + 1] = y;
 		stagingBuffer[stagingPosition + 2] = z;
 		stagingBuffer[stagingPosition + 3] = float16(v) << 16 | float16(u);
-		stagingBuffer[stagingPosition + 4] = float16(w);
+		stagingBuffer[stagingPosition + 4] = modelIdx << 16 | float16(w);
 		stagingBuffer[stagingPosition + 5] = (ny & 0xFFFF) << 16 | nx & 0xFFFF;
 		stagingBuffer[stagingPosition + 6] = nz & 0xFFFF;
 		stagingBuffer[stagingPosition + 7] = textureFaceIdx;
@@ -95,7 +95,7 @@ public final class VertexWriteCache {
 		int x, int y, int z,
 		float u, float v, float w,
 		int nx, int ny, int nz,
-		int textureFaceIdx
+		int textureFaceIdx, int modelIdx
 	) {
 		if (stagingPosition + 7 > stagingBuffer.length)
 			flushAndGrow();
@@ -106,7 +106,7 @@ public final class VertexWriteCache {
 		stagingBuffer[stagingPosition] = (y & 0xFFFF) << 16 | x & 0xFFFF;
 		stagingBuffer[stagingPosition + 1] = z & 0xFFFF;
 		stagingBuffer[stagingPosition + 2] = float16(v) << 16 | float16(u);
-		stagingBuffer[stagingPosition + 3] = float16(w);
+		stagingBuffer[stagingPosition + 3] = modelIdx << 16 | float16(w);
 		// Unnormalized normals, assumed to be within short max
 		stagingBuffer[stagingPosition + 4] = (ny & 0xFFFF) << 16 | nx & 0xFFFF;
 		stagingBuffer[stagingPosition + 5] = nz & 0xFFFF;

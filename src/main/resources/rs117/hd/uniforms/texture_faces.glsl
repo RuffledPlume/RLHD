@@ -17,3 +17,5 @@ BEGIN_BUFFER_PARSER(getFaceData,FaceData)
     READ_IVEC3(MaterialData)
     READ_IVEC3(TerrainData)
 END_BUFFER_PARSER()
+
+#undef PARSER_TARGET_BUFFER
