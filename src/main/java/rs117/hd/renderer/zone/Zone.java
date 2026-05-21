@@ -511,7 +511,7 @@ public class Zone implements Destructible {
 			if (color3[f] == -2)
 				continue;
 
-			boolean hasAlpha = modelOverride.mightHaveTransparency || transparencies != null && transparencies[f] != 0;
+			boolean hasAlpha = modelOverride.mightHaveTransparency() || transparencies != null && transparencies[f] != 0;
 			if (!hasAlpha)
 				continue;
 
@@ -553,7 +553,7 @@ public class Zone implements Destructible {
 				continue;
 
 			// Hide fake shadows or lighting that is often baked into models by making the fake shadow transparent
-			if (plugin.configHideFakeShadows && modelOverride.hideVanillaShadows && HDUtils.isBakedGroundShading(model, f))
+			if (plugin.configHideFakeShadows && modelOverride.hideVanillaShadows() && HDUtils.isBakedGroundShading(model, f))
 				continue;
 
 			int transparency = transparencies != null ? transparencies[f] & 0xFF : 0;
@@ -584,7 +584,7 @@ public class Zone implements Destructible {
 				}
 			}
 
-			if (faceOverride.hide)
+			if (faceOverride.hide())
 				continue;
 
 			boolean hasAlpha = material.hasTransparency || transparency != 0;

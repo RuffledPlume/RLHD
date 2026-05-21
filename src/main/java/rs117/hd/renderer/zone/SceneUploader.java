@@ -420,7 +420,7 @@ public class SceneUploader implements AutoCloseable {
 		WallObject wallObject = t.getWallObject();
 		if (wallObject != null) {
 			ModelOverride modelOverride = modelOverrideManager.getOverride(wallObject, worldPos);
-			if (!modelOverride.hide) {
+			if (!modelOverride.hide()) {
 				estimateRenderableSize(z, wallObject.getRenderable1(), modelOverride);
 				estimateRenderableSize(z, wallObject.getRenderable2(), modelOverride);
 			}
@@ -429,7 +429,7 @@ public class SceneUploader implements AutoCloseable {
 		DecorativeObject decorativeObject = t.getDecorativeObject();
 		if (decorativeObject != null) {
 			ModelOverride modelOverride = modelOverrideManager.getOverride(decorativeObject, worldPos);
-			if (!modelOverride.hide) {
+			if (!modelOverride.hide()) {
 				estimateRenderableSize(z, decorativeObject.getRenderable(), modelOverride);
 				estimateRenderableSize(z, decorativeObject.getRenderable2(), modelOverride);
 			}
@@ -438,7 +438,7 @@ public class SceneUploader implements AutoCloseable {
 		GroundObject groundObject = t.getGroundObject();
 		if (groundObject != null) {
 			ModelOverride modelOverride = modelOverrideManager.getOverride(groundObject, worldPos);
-			if (!modelOverride.hide)
+			if (!modelOverride.hide())
 				estimateRenderableSize(z, groundObject.getRenderable(), modelOverride);
 		}
 
@@ -452,7 +452,7 @@ public class SceneUploader implements AutoCloseable {
 				continue;
 
 			ModelOverride modelOverride = modelOverrideManager.getOverride(gameObject, worldPos);
-			if (modelOverride.hide)
+			if (modelOverride.hide())
 				continue;
 
 			estimateRenderableSize(z, gameObject.getRenderable(), modelOverride);
@@ -680,7 +680,7 @@ public class SceneUploader implements AutoCloseable {
 	}
 
 	private void estimateRenderableSize(Zone z, Renderable r, ModelOverride modelOverride) {
-		boolean mightHaveTransparency = modelOverride.mightHaveTransparency;
+		boolean mightHaveTransparency = modelOverride.mightHaveTransparency();
 		Model m = null;
 		if (r instanceof Model) {
 			m = (Model) r;
@@ -747,7 +747,7 @@ public class SceneUploader implements AutoCloseable {
 		}
 
 		ModelOverride modelOverride = modelOverrideManager.getOverride(uuid, worldPos);
-		if (modelOverride.hide)
+		if (modelOverride.hide())
 			return;
 
 		int alphaStart = alphaBuffer != null ? alphaBuffer.position() : 0;
@@ -1439,7 +1439,7 @@ public class SceneUploader implements AutoCloseable {
 			int vx = (int) vertexX[v];
 			int vy = (int) vertexY[v];
 			int vz = (int) vertexZ[v];
-			float heightFrac = modelOverride.terrainVertexSnap ? abs(vy / modelHeight) : 0.0f;
+			float heightFrac = modelOverride.terrainVertexSnap() ? abs(vy / modelHeight) : 0.0f;
 
 			if (orientation != 0) {
 				int x0 = vx;
@@ -1451,7 +1451,7 @@ public class SceneUploader implements AutoCloseable {
 			vy += y;
 			vz += z;
 
-			if (modelOverride.terrainVertexSnap && heightFrac <= modelOverride.terrainVertexSnapThreshold) {
+			if (modelOverride.terrainVertexSnap() && heightFrac <= modelOverride.terrainVertexSnapThreshold) {
 				int vertexTileExX = clamp(ctx.sceneOffset + ((vx + basex) / 128), 0, EXTENDED_SCENE_SIZE - 1);
 				int vertexTileExY = clamp(ctx.sceneOffset + ((vz + basez) / 128), 0, EXTENDED_SCENE_SIZE - 1);
 
@@ -1526,7 +1526,7 @@ public class SceneUploader implements AutoCloseable {
 				}
 			}
 
-			if (faceOverride.hide)
+			if (faceOverride.hide())
 				continue;
 
 			final int triangleA = indices1[face];
@@ -1556,10 +1556,10 @@ public class SceneUploader implements AutoCloseable {
 				color1 = color2 = color3 = 90;
 			} else {
 				// Hide fake shadows or lighting that is often baked into models by making the fake shadow transparent
-				if (plugin.configHideFakeShadows && modelOverride.hideVanillaShadows && HDUtils.isBakedGroundShading(model, face))
+				if (plugin.configHideFakeShadows && modelOverride.hideVanillaShadows() && HDUtils.isBakedGroundShading(model, face))
 					continue;
 
-				if (modelOverride.inheritTileColorType != InheritTileColorType.NONE) {
+				if (modelOverride.getInheritTileColorType() != InheritTileColorType.NONE) {
 					final Scene scene = ctx.scene;
 					SceneTileModel tileModel = tile.getSceneTileModel();
 					SceneTilePaint tilePaint = tile.getSceneTilePaint();
@@ -1587,7 +1587,7 @@ public class SceneUploader implements AutoCloseable {
 							for (int i = 0; i < tileModel.getTriangleColorA().length; i++) {
 								boolean isOverlay = ProceduralGenerator.isOverlayFace(tile, i);
 								// Use underlay if the tile does not have an overlay, useful for rocks in cave corners.
-								if (modelOverride.inheritTileColorType == InheritTileColorType.UNDERLAY
+								if (modelOverride.getInheritTileColorType() == InheritTileColorType.UNDERLAY
 									|| tileModel.getModelOverlay() == 0) {
 									// pulling the color from UNDERLAY is more desirable for green grass tiles
 									// OVERLAY pulls in path color which is not desirable for grass next to paths
@@ -1595,7 +1595,7 @@ public class SceneUploader implements AutoCloseable {
 										faceColorIndex = i;
 										break;
 									}
-								} else if (modelOverride.inheritTileColorType == InheritTileColorType.OVERLAY) {
+								} else if (modelOverride.getInheritTileColorType() == InheritTileColorType.OVERLAY) {
 									if (isOverlay) {
 										// OVERLAY used in dirt/path/house tile color blend better with rubbles/rocks
 										faceColorIndex = i;
@@ -1608,7 +1608,7 @@ public class SceneUploader implements AutoCloseable {
 								int color = tileModel.getTriangleColorA()[faceColorIndex];
 								if (color != HIDDEN_HSL) {
 									var override = ctx.getTileOverride(tileZ, tileExX, tileExY,
-										modelOverride.inheritTileColorType == InheritTileColorType.OVERLAY ?
+										modelOverride.getInheritTileColorType() == InheritTileColorType.OVERLAY ?
 										TILE_OVERRIDE_OVERLAY : TILE_OVERRIDE_UNDERLAY);
 
 									color = override.modifyColor(color);
@@ -1622,7 +1622,7 @@ public class SceneUploader implements AutoCloseable {
 					}
 				}
 
-				if (plugin.configLegacyTzHaarReskin && modelOverride.tzHaarRecolorType != TzHaarRecolorType.NONE) {
+				if (plugin.configLegacyTzHaarReskin && modelOverride.getTzHaarRecolorType() != TzHaarRecolorType.NONE) {
 					ProceduralGenerator.recolorTzHaar(
 						modelOverride,
 						model,
@@ -1641,7 +1641,7 @@ public class SceneUploader implements AutoCloseable {
 			int textureFace = textureFaces != null ? textureFaces[face] : -1;
 			if (material != Material.NONE) {
 				uvType = faceOverride.uvType;
-				if (uvType == UvType.VANILLA || (textureId != -1 && faceOverride.retainVanillaUvs))
+				if (uvType == UvType.VANILLA || (textureId != -1 && faceOverride.retainVanillaUvs()))
 					uvType = isVanillaUVMapped && textureFace != -1 ? UvType.VANILLA : UvType.GEOMETRY;
 			}
 
@@ -1658,7 +1658,7 @@ public class SceneUploader implements AutoCloseable {
 
 			final boolean shouldRotateNormals;
 			boolean shouldCalculateFaceNormal;
-			if (!modelHasNormals || faceOverride.flatNormals || !plugin.configPreserveVanillaNormals && color3s[face] == -1) {
+			if (!modelHasNormals || faceOverride.flatNormals() || !plugin.configPreserveVanillaNormals && color3s[face] == -1) {
 				shouldRotateNormals = false;
 				shouldCalculateFaceNormal = true;
 			} else {
@@ -1683,7 +1683,7 @@ public class SceneUploader implements AutoCloseable {
 				);
 			}
 
-			if (plugin.configUndoVanillaShading && modelOverride.undoVanillaShading && !keepShading) {
+			if (plugin.configUndoVanillaShading && modelOverride.undoVanillaShading() && !keepShading) {
 				color1 = undoVanillaShading(color1, plugin.configLegacyGreyColors, modelNormals[0], modelNormals[1], modelNormals[2]);
 				color2 = undoVanillaShading(color2, plugin.configLegacyGreyColors, modelNormals[3], modelNormals[4], modelNormals[5]);
 				color3 = undoVanillaShading(color3, plugin.configLegacyGreyColors, modelNormals[6], modelNormals[7], modelNormals[8]);
@@ -1856,7 +1856,7 @@ public class SceneUploader implements AutoCloseable {
 				continue;
 
 			// Hide fake shadows or lighting that is often baked into models by making the fake shadow transparent
-			if (plugin.configHideFakeShadows && modelOverride.hideVanillaShadows && HDUtils.isBakedGroundShading(model, f))
+			if (plugin.configHideFakeShadows && modelOverride.hideVanillaShadows() && HDUtils.isBakedGroundShading(model, f))
 				continue;
 
 			UvType uvType = UvType.GEOMETRY;
@@ -1887,12 +1887,12 @@ public class SceneUploader implements AutoCloseable {
 				}
 			}
 
-			if (faceOverride.hide)
+			if (faceOverride.hide())
 				continue;
 
 			if (material != Material.NONE) {
 				uvType = faceOverride.uvType;
-				if (uvType == UvType.VANILLA || (textureId != -1 && faceOverride.retainVanillaUvs)) {
+				if (uvType == UvType.VANILLA || (textureId != -1 && faceOverride.retainVanillaUvs())) {
 					final int textureFace = textureFaces != null ? textureFaces[f] : -1;
 					uvType = isVanillaUVMapped && textureFace != -1 ? UvType.VANILLA : UvType.GEOMETRY;
 				}
@@ -2064,7 +2064,7 @@ public class SceneUploader implements AutoCloseable {
 			if (!isShadow) {
 				final boolean shouldRotateNormals;
 				boolean shouldCalculateFaceNormal;
-				if (!modelHasNormals || faceOverride.flatNormals || (!plugin.configPreserveVanillaNormals && color3s[face] == -1)) {
+				if (!modelHasNormals || faceOverride.flatNormals() || (!plugin.configPreserveVanillaNormals && color3s[face] == -1)) {
 					shouldRotateNormals = false;
 					shouldCalculateFaceNormal = true;
 				} else {
@@ -2089,7 +2089,7 @@ public class SceneUploader implements AutoCloseable {
 					);
 				}
 
-				if (plugin.configUndoVanillaShading && modelOverride.undoVanillaShading) {
+				if (plugin.configUndoVanillaShading && modelOverride.undoVanillaShading()) {
 					color1 = undoVanillaShading(color1, plugin.configLegacyGreyColors, faceNormals[0], faceNormals[1], faceNormals[2]);
 					color2 = undoVanillaShading(color2, plugin.configLegacyGreyColors, faceNormals[3], faceNormals[4], faceNormals[5]);
 					color3 = undoVanillaShading(color3, plugin.configLegacyGreyColors, faceNormals[6], faceNormals[7], faceNormals[8]);

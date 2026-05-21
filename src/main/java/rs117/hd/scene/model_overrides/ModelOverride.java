@@ -1,14 +1,23 @@
 package rs117.hd.scene.model_overrides;
 
+import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.google.gson.TypeAdapter;
+import com.google.gson.TypeAdapterFactory;
 import com.google.gson.annotations.JsonAdapter;
+import com.google.gson.reflect.TypeToken;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonToken;
+import com.google.gson.stream.JsonWriter;
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nullable;
-import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
@@ -27,12 +36,39 @@ import static rs117.hd.utils.MathUtils.*;
 
 @Slf4j
 @NoArgsConstructor
-@AllArgsConstructor
 public class ModelOverride
 {
 	public static final ModelOverride NONE = new ModelOverride(true);
 
 	private static final Set<Integer> EMPTY = new HashSet<>();
+
+	private static final int FLAG_HIDE = 1;
+	private static final int FLAG_DISABLE_DETAIL_CULLING = 1 << 1;
+	private static final int FLAG_RETAIN_VANILLA_UVS = 1 << 2;
+	private static final int FLAG_FORCE_MATERIAL_CHANGES = 1 << 3;
+	private static final int FLAG_FLAT_NORMALS = 1 << 4;
+	private static final int FLAG_UPWARDS_NORMALS = 1 << 5;
+	private static final int FLAG_HIDE_VANILLA_SHADOWS = 1 << 6;
+	private static final int FLAG_RETAIN_VANILLA_SHADOWS_IN_PVM = 1 << 7;
+	private static final int FLAG_HIDE_HD_SHADOWS_IN_PVM = 1 << 8;
+	private static final int FLAG_CAST_SHADOWS = 1 << 9;
+	private static final int FLAG_RECEIVE_SHADOWS = 1 << 10;
+	private static final int FLAG_TERRAIN_VERTEX_SNAP = 1 << 11;
+	private static final int FLAG_UNDO_VANILLA_SHADING = 1 << 12;
+	private static final int FLAG_HIDE_AS_WATER_EFFECT = 1 << 13;
+	private static final int FLAG_INVERT_DISPLACEMENT_STRENGTH = 1 << 14;
+	private static final int FLAG_DISABLE_PRIORITY_SORTING = 1 << 15;
+	private static final int FLAG_IS_DUMMY = 1 << 16;
+	private static final int FLAG_IS_GENERATED = 1 << 17;
+	private static final int FLAG_HAS_TRANSPARENCY = 1 << 18;
+	private static final int FLAG_MIGHT_HAVE_TRANSPARENCY = 1 << 19;
+	private static final int FLAG_MODIFIES_VANILLA_TEXTURE = 1 << 20;
+
+	private static final int DEFAULT_FLAGS =
+		FLAG_RETAIN_VANILLA_UVS |
+		FLAG_CAST_SHADOWS |
+		FLAG_RECEIVE_SHADOWS |
+		FLAG_UNDO_VANILLA_SHADING;
 
 	public String description = "UNKNOWN";
 
@@ -51,36 +87,25 @@ public class ModelOverride
 
 	public Material baseMaterial = Material.NONE;
 	public Material textureMaterial = Material.NONE;
+
 	public UvType uvType = UvType.VANILLA;
 	public float uvScale = 1;
+
 	public int uvOrientation = 0;
 	public int uvOrientationX = 0;
 	public int uvOrientationY = 0;
 	public int uvOrientationZ = 0;
 	public int rotate = 0;
-	public boolean hide = false;
-	public boolean disableDetailCulling = false;
-	public boolean retainVanillaUvs = true;
-	public boolean forceMaterialChanges = false;
-	public boolean flatNormals = false;
-	public boolean upwardsNormals = false;
-	public boolean hideVanillaShadows = false;
-	public boolean retainVanillaShadowsInPvm = false;
-	public boolean hideHdShadowsInPvm = false;
-	public boolean castShadows = true;
-	public boolean receiveShadows = true;
-	public boolean terrainVertexSnap = false;
-	public boolean undoVanillaShading = true;
-	private boolean hideAsWaterEffect = false;
+	public int windDisplacementModifier = 0;
+	public int depthBias = -1;
+	public int flags = DEFAULT_FLAGS;
+
 	public float terrainVertexSnapThreshold = 0.125f;
 	public float shadowOpacityThreshold = 0;
-	public TzHaarRecolorType tzHaarRecolorType = TzHaarRecolorType.NONE;
-	public InheritTileColorType inheritTileColorType = InheritTileColorType.NONE;
-	public WindDisplacement windDisplacementMode = WindDisplacement.DISABLED;
-	public int windDisplacementModifier = 0;
-	public boolean invertDisplacementStrength = false;
-	public int depthBias = -1;
-	public boolean disablePrioritySorting = false;
+
+	private byte tzHaarRecolorType = (byte) TzHaarRecolorType.NONE.ordinal();
+	private byte inheritTileColorType = (byte) InheritTileColorType.NONE.ordinal();
+	private byte windDisplacementMode = (byte) WindDisplacement.DISABLED.ordinal();
 
 	@JsonAdapter(AABB.ArrayAdapter.class)
 	public AABB[] hideInAreas = {};
@@ -90,16 +115,8 @@ public class ModelOverride
 
 	private JsonElement colors;
 
-	public transient boolean isDummy;
-	public transient boolean isGenerated;
 	public transient Map<AABB, ModelOverride> areaOverrides;
 	public transient AhslPredicate ahslCondition;
-	public transient boolean hasTransparency;
-	public transient boolean mightHaveTransparency;
-	public transient boolean modifiesVanillaTexture;
-
-	// Transient not volatile, since access order can be random as it'll mean we'll just fall back to the full lookup
-	private transient long cachedColorOverrideAhsl = -1;
 
 	@FunctionalInterface
 	public interface AhslPredicate {
@@ -123,20 +140,20 @@ public class ModelOverride
 				throw new IllegalStateException("Invalid uvType");
 			uvType = ModelOverride.NONE.uvType;
 		}
-		if (tzHaarRecolorType == null) {
+		if (!isValidOrdinal(tzHaarRecolorType, TzHaarRecolorType.values())) {
 			if (Props.DEVELOPMENT)
 				throw new IllegalStateException("Invalid tzHaarRecolorType");
-			tzHaarRecolorType = ModelOverride.NONE.tzHaarRecolorType;
+			setTzHaarRecolorType(ModelOverride.NONE.getTzHaarRecolorType());
 		}
-		if (inheritTileColorType == null) {
+		if (!isValidOrdinal(inheritTileColorType, InheritTileColorType.values())) {
 			if (Props.DEVELOPMENT)
 				throw new IllegalStateException("Invalid inheritTileColorType");
-			inheritTileColorType = ModelOverride.NONE.inheritTileColorType;
+			setInheritTileColorType(ModelOverride.NONE.getInheritTileColorType());
 		}
-		if (windDisplacementMode == null) {
+		if (!isValidOrdinal(windDisplacementMode, WindDisplacement.values())) {
 			if (Props.DEVELOPMENT)
 				throw new IllegalStateException("Invalid windDisplacementMode");
-			windDisplacementMode = ModelOverride.NONE.windDisplacementMode;
+			setWindDisplacementMode(ModelOverride.NONE.getWindDisplacementMode());
 		}
 
 		if (windDisplacementModifier < -3 || windDisplacementModifier > 3) {
@@ -145,9 +162,9 @@ public class ModelOverride
 			windDisplacementModifier = clamp(windDisplacementModifier, -3, 3);
 		}
 
-		modifiesVanillaTexture = textureMaterial.modifiesVanillaTexture;
+		setModifiesVanillaTexture(textureMaterial.modifiesVanillaTexture);
 
-		boolean disableTextures = !plugin.configModelTextures && !forceMaterialChanges;
+		boolean disableTextures = !plugin.configModelTextures && !forceMaterialChanges();
 		if (disableTextures) {
 			if (baseMaterial.modifiesVanillaTexture)
 				baseMaterial = Material.NONE;
@@ -155,26 +172,21 @@ public class ModelOverride
 				textureMaterial = Material.NONE;
 		}
 
-		if (areas == null)
-			areas = new AABB[0];
-		if (hideInAreas == null)
-			hideInAreas = new AABB[0];
-
-		hasTransparency = mightHaveTransparency =
+		setHasTransparency(setMightHaveTransparency(
 			baseMaterial.hasTransparency ||
 			textureMaterial.hasTransparency ||
-			tzHaarRecolorType != TzHaarRecolorType.NONE;
+			getTzHaarRecolorType() != TzHaarRecolorType.NONE));
 
-		hide |= hideAsWaterEffect && plugin.configHideVanillaWaterEffects;
+		setHide(hide() || hideAsWaterEffect() && plugin.configHideVanillaWaterEffects);
 
 		if (materialOverrides != null) {
 			var normalized = new HashMap<Material, ModelOverride>();
 			for (var entry : materialOverrides.entrySet()) {
 				var override = entry.getValue();
 				override.normalize(plugin);
-				if (disableTextures && override.modifiesVanillaTexture)
+				if (disableTextures && override.modifiesVanillaTexture())
 					continue;
-				mightHaveTransparency |= override.mightHaveTransparency;
+				setMightHaveTransparency(mightHaveTransparency() | override.mightHaveTransparency());
 				normalized.put(entry.getKey(), override);
 			}
 			if (normalized.isEmpty())
@@ -185,9 +197,10 @@ public class ModelOverride
 		if (colorOverrides != null) {
 			for (var override : colorOverrides) {
 				override.normalize(plugin);
-				mightHaveTransparency |= override.mightHaveTransparency;
+				setMightHaveTransparency(mightHaveTransparency() | override.mightHaveTransparency());
 				override.ahslCondition = parseAhslConditions(override.colors);
 			}
+			colors = null;
 		}
 
 		if (uvOrientationX == 0)
@@ -197,77 +210,335 @@ public class ModelOverride
 		if (uvOrientationZ == 0)
 			uvOrientationZ = uvOrientation;
 
-		if (retainVanillaShadowsInPvm) {
+		if (retainVanillaShadowsInPvm()) {
 			if (plugin.configVanillaShadowMode.retainInPvm)
-				hideVanillaShadows = false;
-			if (plugin.configVanillaShadowMode == VanillaShadowMode.PREFER_IN_PVM && hideHdShadowsInPvm)
-				castShadows = false;
+				setHideVanillaShadows(false);
+			if (plugin.configVanillaShadowMode == VanillaShadowMode.PREFER_IN_PVM && hideHdShadowsInPvm())
+				setCastShadows(false);
 		}
 
-		if (!castShadows && shadowOpacityThreshold == 0)
+		if (!castShadows() && shadowOpacityThreshold == 0)
 			shadowOpacityThreshold = 1;
 	}
 
 	public ModelOverride copy() {
-		return new ModelOverride(
-			description,
-			seasonalTheme,
-			areas,
-			npcIds,
-			objectIds,
-			projectileIds,
-			graphicsObjectIds,
-			baseMaterial,
-			textureMaterial,
-			uvType,
-			uvScale,
-			uvOrientation,
-			uvOrientationX,
-			uvOrientationY,
-			uvOrientationZ,
-			rotate,
-			hide,
-			disableDetailCulling,
-			retainVanillaUvs,
-			forceMaterialChanges,
-			flatNormals,
-			upwardsNormals,
-			hideVanillaShadows,
-			retainVanillaShadowsInPvm,
-			hideHdShadowsInPvm,
-			castShadows,
-			receiveShadows,
-			terrainVertexSnap,
-			undoVanillaShading,
-			hideAsWaterEffect,
-			terrainVertexSnapThreshold,
-			shadowOpacityThreshold,
-			tzHaarRecolorType,
-			inheritTileColorType,
-			windDisplacementMode,
-			windDisplacementModifier,
-			invertDisplacementStrength,
-			depthBias,
-			disablePrioritySorting,
-			hideInAreas,
-			materialOverrides,
-			colorOverrides,
-			colors,
-			isDummy,
-			isGenerated,
-			areaOverrides,
-			ahslCondition,
-			hasTransparency,
-			mightHaveTransparency,
-			modifiesVanillaTexture,
-			// Runtime caching fields
-			-1
-		);
+		var copy = new ModelOverride();
+		copy.description = description;
+		copy.seasonalTheme = seasonalTheme;
+		copy.areas = areas;
+		copy.npcIds = npcIds;
+		copy.objectIds = objectIds;
+		copy.projectileIds = projectileIds;
+		copy.graphicsObjectIds = graphicsObjectIds;
+		copy.baseMaterial = baseMaterial;
+		copy.textureMaterial = textureMaterial;
+		copy.uvType = uvType;
+		copy.uvScale = uvScale;
+		copy.uvOrientation = uvOrientation;
+		copy.uvOrientationX = uvOrientationX;
+		copy.uvOrientationY = uvOrientationY;
+		copy.uvOrientationZ = uvOrientationZ;
+		copy.rotate = rotate;
+		copy.flags = flags;
+		copy.terrainVertexSnapThreshold = terrainVertexSnapThreshold;
+		copy.shadowOpacityThreshold = shadowOpacityThreshold;
+		copy.tzHaarRecolorType = tzHaarRecolorType;
+		copy.inheritTileColorType = inheritTileColorType;
+		copy.windDisplacementMode = windDisplacementMode;
+		copy.windDisplacementModifier = windDisplacementModifier;
+		copy.depthBias = depthBias;
+		copy.hideInAreas = hideInAreas;
+		copy.materialOverrides = materialOverrides;
+		copy.colorOverrides = colorOverrides;
+		copy.colors = colors;
+		copy.areaOverrides = areaOverrides;
+		copy.ahslCondition = ahslCondition;
+		return copy;
 	}
 
 	private ModelOverride(boolean isDummy) {
 		this();
-		this.isDummy = isDummy;
+		setIsDummy(isDummy);
+	}
+
+	private static boolean isValidOrdinal(byte ordinal, Enum<?>[] values) {
+		int index = ordinal & 0xFF;
+		return index < values.length;
+	}
+
+	private static <T extends Enum<T>> T getOrdinal(byte ordinal, T[] values) {
+		int index = ordinal & 0xFF;
+		return index < values.length ? values[index] : values[0];
+	}
+
+	private boolean hasFlag(int flag) {
+		return (flags & flag) != 0;
+	}
+
+	private boolean setFlag(int flag, boolean value) {
+		if (value) {
+			flags |= flag;
+		} else {
+			flags &= ~flag;
+		}
+		return hasFlag(flag);
+	}
+
+	public boolean mightHaveTransparency() {
+		return hasFlag(FLAG_MIGHT_HAVE_TRANSPARENCY);
+	}
+
+	public boolean setMightHaveTransparency(boolean value) { return setFlag(FLAG_MIGHT_HAVE_TRANSPARENCY, value); }
+
+	public boolean hasTransparency() {
+		return hasFlag(FLAG_HAS_TRANSPARENCY);
+	}
+
+	public void setHasTransparency(boolean value) { setFlag(FLAG_HAS_TRANSPARENCY, value); }
+
+	public boolean isGenerated() {
+		return hasFlag(FLAG_IS_GENERATED);
+	}
+
+	public void setGenerated(boolean value) {
+		setFlag(FLAG_IS_GENERATED, value);
+	}
+
+	public boolean modifiesVanillaTexture() {
+		return hasFlag(FLAG_MODIFIES_VANILLA_TEXTURE);
+	}
+
+	public void setModifiesVanillaTexture(boolean value) {
+		setFlag(FLAG_MODIFIES_VANILLA_TEXTURE, value);
+	}
+
+	public boolean isDummy() {
+		return hasFlag(FLAG_IS_DUMMY);
+	}
+
+	public void setIsDummy(boolean value) {
+		setFlag(FLAG_IS_DUMMY, value);
+	}
+
+	public boolean hide() {
+		return hasFlag(FLAG_HIDE);
+	}
+
+	public void setHide(boolean value) {
+		setFlag(FLAG_HIDE, value);
+	}
+
+	public boolean disableDetailCulling() {
+		return hasFlag(FLAG_DISABLE_DETAIL_CULLING);
+	}
+
+	public void setDisableDetailCulling(boolean value) {
+		setFlag(FLAG_DISABLE_DETAIL_CULLING, value);
+	}
+
+	public boolean retainVanillaUvs() {
+		return hasFlag(FLAG_RETAIN_VANILLA_UVS);
+	}
+
+	public void setRetainVanillaUvs(boolean value) { setFlag(FLAG_RETAIN_VANILLA_UVS, value); }
+
+	public boolean forceMaterialChanges() {
+		return hasFlag(FLAG_FORCE_MATERIAL_CHANGES);
+	}
+
+	public void setForceMaterialChanges(boolean value) {
+		setFlag(FLAG_FORCE_MATERIAL_CHANGES, value);
+	}
+
+	public boolean flatNormals() {
+		return hasFlag(FLAG_FLAT_NORMALS);
+	}
+
+	public void setFlatNormals(boolean value) { setFlag(FLAG_FLAT_NORMALS, value); }
+
+	public boolean upwardsNormals() {
+		return hasFlag(FLAG_UPWARDS_NORMALS);
+	}
+
+	public void setUpwardsNormals(boolean value) {
+		setFlag(FLAG_UPWARDS_NORMALS, value);
+	}
+
+	public boolean hideVanillaShadows() {
+		return hasFlag(FLAG_HIDE_VANILLA_SHADOWS);
+	}
+
+	public void setHideVanillaShadows(boolean value) {
+		setFlag(FLAG_HIDE_VANILLA_SHADOWS, value);
+	}
+
+	public boolean retainVanillaShadowsInPvm() {
+		return hasFlag(FLAG_RETAIN_VANILLA_SHADOWS_IN_PVM);
+	}
+
+	public void setRetainVanillaShadowsInPvm(boolean value) { setFlag(FLAG_RETAIN_VANILLA_SHADOWS_IN_PVM, value); }
+
+	public boolean hideHdShadowsInPvm() {
+		return hasFlag(FLAG_HIDE_HD_SHADOWS_IN_PVM);
+	}
+
+	public void setHideHdShadowsInPvm(boolean value) {
+		setFlag(FLAG_HIDE_HD_SHADOWS_IN_PVM, value);
+	}
+
+	public boolean castShadows() {
+		return hasFlag(FLAG_CAST_SHADOWS);
+	}
+
+	public void setCastShadows(boolean value) {
+		setFlag(FLAG_CAST_SHADOWS, value);
+	}
+
+	public boolean receiveShadows() {
+		return hasFlag(FLAG_RECEIVE_SHADOWS);
+	}
+
+	public void setReceiveShadows(boolean value) {
+		setFlag(FLAG_RECEIVE_SHADOWS, value);
+	}
+
+	public boolean terrainVertexSnap() {
+		return hasFlag(FLAG_TERRAIN_VERTEX_SNAP);
+	}
+
+	public void setTerrainVertexSnap(boolean value) {
+		setFlag(FLAG_TERRAIN_VERTEX_SNAP, value);
+	}
+
+	public boolean undoVanillaShading() {
+		return hasFlag(FLAG_UNDO_VANILLA_SHADING);
+	}
+
+	public void setUndoVanillaShading(boolean value) { setFlag(FLAG_UNDO_VANILLA_SHADING, value); }
+
+	public boolean hideAsWaterEffect() {
+		return hasFlag(FLAG_HIDE_AS_WATER_EFFECT);
+	}
+
+	public void setHideAsWaterEffect(boolean value) {
+		setFlag(FLAG_HIDE_AS_WATER_EFFECT, value);
+	}
+
+	public boolean invertDisplacementStrength() {
+		return hasFlag(FLAG_INVERT_DISPLACEMENT_STRENGTH);
+	}
+
+	public void setInvertDisplacementStrength(boolean value) {
+		setFlag(FLAG_INVERT_DISPLACEMENT_STRENGTH, value);
+	}
+
+	public boolean disablePrioritySorting() {
+		return hasFlag(FLAG_DISABLE_PRIORITY_SORTING);
+	}
+
+	public void setDisablePrioritySorting(boolean value) {
+		setFlag(FLAG_DISABLE_PRIORITY_SORTING, value);
+	}
+
+	public TzHaarRecolorType getTzHaarRecolorType() {
+		return getOrdinal(tzHaarRecolorType, TzHaarRecolorType.values());
+	}
+
+	public void setTzHaarRecolorType(TzHaarRecolorType value) {
+		tzHaarRecolorType = (byte) value.ordinal();
+	}
+
+	public InheritTileColorType getInheritTileColorType() {
+		return getOrdinal(inheritTileColorType, InheritTileColorType.values());
+	}
+
+	public void setInheritTileColorType(InheritTileColorType value) {
+		inheritTileColorType = (byte) value.ordinal();
+	}
+
+	public WindDisplacement getWindDisplacementMode() {
+		return getOrdinal(windDisplacementMode, WindDisplacement.values());
+	}
+
+	public void setWindDisplacementMode(WindDisplacement value) {
+		windDisplacementMode = (byte) value.ordinal();
+	}
+
+	public static class AdapterFactory implements TypeAdapterFactory {
+		@Override
+		@SuppressWarnings("unchecked")
+		public <T> TypeAdapter<T> create(Gson gson, TypeToken<T> type) {
+			if (type.getRawType() != ModelOverride.class)
+				return null;
+
+			var delegate = gson.getDelegateAdapter(this, type);
+			return (TypeAdapter<T>) new TypeAdapter<ModelOverride>() {
+				@Override
+				public void write(JsonWriter out, ModelOverride value) throws IOException {
+					delegate.write(out, (T) value);
+				}
+
+				@Override
+				public ModelOverride read(JsonReader in) throws IOException {
+					if (in.peek() == JsonToken.NULL) {
+						in.nextNull();
+						return null;
+					}
+
+					JsonElement element = new JsonParser().parse(in);
+					if (!element.isJsonObject())
+						return (ModelOverride) delegate.fromJsonTree(element);
+
+					JsonObject object = element.getAsJsonObject();
+					convertEnumOrdinal(object, "tzHaarRecolorType", TzHaarRecolorType.values());
+					convertEnumOrdinal(object, "inheritTileColorType", InheritTileColorType.values());
+					convertEnumOrdinal(object, "windDisplacementMode", WindDisplacement.values());
+
+					var override = (ModelOverride) delegate.fromJsonTree(object);
+					readFlag(object, override, "hide", FLAG_HIDE);
+					readFlag(object, override, "disableDetailCulling", FLAG_DISABLE_DETAIL_CULLING);
+					readFlag(object, override, "retainVanillaUvs", FLAG_RETAIN_VANILLA_UVS);
+					readFlag(object, override, "forceMaterialChanges", FLAG_FORCE_MATERIAL_CHANGES);
+					readFlag(object, override, "flatNormals", FLAG_FLAT_NORMALS);
+					readFlag(object, override, "upwardsNormals", FLAG_UPWARDS_NORMALS);
+					readFlag(object, override, "hideVanillaShadows", FLAG_HIDE_VANILLA_SHADOWS);
+					readFlag(object, override, "retainVanillaShadowsInPvm", FLAG_RETAIN_VANILLA_SHADOWS_IN_PVM);
+					readFlag(object, override, "hideHdShadowsInPvm", FLAG_HIDE_HD_SHADOWS_IN_PVM);
+					readFlag(object, override, "castShadows", FLAG_CAST_SHADOWS);
+					readFlag(object, override, "receiveShadows", FLAG_RECEIVE_SHADOWS);
+					readFlag(object, override, "terrainVertexSnap", FLAG_TERRAIN_VERTEX_SNAP);
+					readFlag(object, override, "undoVanillaShading", FLAG_UNDO_VANILLA_SHADING);
+					readFlag(object, override, "hideAsWaterEffect", FLAG_HIDE_AS_WATER_EFFECT);
+					readFlag(object, override, "invertDisplacementStrength", FLAG_INVERT_DISPLACEMENT_STRENGTH);
+					readFlag(object, override, "disablePrioritySorting", FLAG_DISABLE_PRIORITY_SORTING);
+					return override;
+				}
+			};
+		}
+
+		private static void readFlag(JsonObject object, ModelOverride override, String name, int flag) {
+			var element = object.get(name);
+			if (element != null && !element.isJsonNull())
+				override.setFlag(flag, element.getAsBoolean());
+		}
+
+		private static void convertEnumOrdinal(JsonObject object, String name, Enum<?>[] values) {
+			var element = object.get(name);
+			if (element == null || element.isJsonNull() || !element.isJsonPrimitive())
+				return;
+
+			var primitive = element.getAsJsonPrimitive();
+			if (primitive.isNumber())
+				return;
+
+			String value = primitive.getAsString();
+			for (var enumValue : values) {
+				if (enumValue.name().equals(value)) {
+					object.addProperty(name, enumValue.ordinal());
+					return;
+				}
+			}
+		}
 	}
 
 	private AhslPredicate parseAhslConditions(JsonElement element) {
@@ -627,23 +898,13 @@ public class ModelOverride
 
 	@Nullable
 	public final ModelOverride testColorOverrides(int ahsl) {
-		ModelOverride override = null;
-		final long packedAhl = cachedColorOverrideAhsl;
-		if (packedAhl != -1 && ahsl == (int) packedAhl)
-			override = colorOverrides[(int) (packedAhl >> 32)];
-
-		if (override == null) {
-			final int len = colorOverrides.length;
-			for (int i = 0; i < len; ++i) {
-				final var inner = colorOverrides[i];
-				if (inner.ahslCondition.test(ahsl)) {
-					cachedColorOverrideAhsl = ahsl | (long) i << 32;
-					override = inner;
-					break;
-				}
-			}
+		final int len = colorOverrides.length;
+		for (int i = 0; i < len; ++i) {
+			final var inner = colorOverrides[i];
+			if (inner.ahslCondition.test(ahsl))
+				return inner;
 		}
 
-		return override;
+		return null;
 	}
 }

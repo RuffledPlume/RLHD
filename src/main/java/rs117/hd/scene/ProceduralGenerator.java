@@ -1174,7 +1174,7 @@ public class ProceduralGenerator {
 		int hue = 7;
 		hsl1[0] = hsl2[0] = hsl3[0] = hue;
 
-		if (modelOverride.tzHaarRecolorType == TzHaarRecolorType.GRADIENT) {
+		if (modelOverride.getTzHaarRecolorType() == TzHaarRecolorType.GRADIENT) {
 			final int triA = model.getFaceIndices1()[face];
 			final int triB = model.getFaceIndices2()[face];
 			final int triC = model.getFaceIndices3()[face];
@@ -1188,7 +1188,7 @@ public class ProceduralGenerator {
 				round(hsl2, mix(gradientDarkColor, gradientBaseColor, pos));
 				round(hsl3, mix(gradientDarkColor, gradientBaseColor, pos));
 			}
-		} else if (modelOverride.tzHaarRecolorType == TzHaarRecolorType.HUE_SHIFT) {
+		} else if (modelOverride.getTzHaarRecolorType() == TzHaarRecolorType.HUE_SHIFT) {
 			// objects around the entrance to The Inferno only need a hue-shift
 			// and very slight lightening to match the lightened terrain
 			hsl1[2] += 1;

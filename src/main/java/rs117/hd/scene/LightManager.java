@@ -739,7 +739,7 @@ public class LightManager {
 		int[] worldPos = sceneContext.localToWorld(npc.getLocalLocation());
 
 		var modelOverride = modelOverrideManager.getOverride(uuid, worldPos);
-		if (modelOverride.hide)
+		if (modelOverride.hide())
 			return;
 
 		for (LightDefinition def : NPC_LIGHTS.get(npc.getId())) {

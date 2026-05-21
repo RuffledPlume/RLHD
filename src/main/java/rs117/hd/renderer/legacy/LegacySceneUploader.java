@@ -365,7 +365,7 @@ public class LegacySceneUploader {
 		int vertexOffset = sceneContext.getVertexOffset();
 		int uvOffset = sceneContext.getUvOffset();
 
-		if (modelOverride.hide) {
+		if (modelOverride.hide()) {
 			vertexOffset = -1;
 		} else {
 			modelPusher.pushModel(sceneContext, tile, uuid, model, modelOverride, orientation, false);

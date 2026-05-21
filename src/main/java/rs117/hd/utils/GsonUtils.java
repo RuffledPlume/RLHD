@@ -26,6 +26,7 @@ import javax.annotation.Nullable;
 import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import rs117.hd.scene.model_overrides.ModelOverride;
 
 import static rs117.hd.utils.MathUtils.*;
 
@@ -45,6 +46,7 @@ public class GsonUtils {
 			.setPrettyPrinting()
 			.disableHtmlEscaping() // Disable HTML escaping for JSON exports (Gson never escapes when parsing regardless)
 			.registerTypeAdapterFactory(new ExcludeDefaultsFactory())
+			.registerTypeAdapterFactory(new ModelOverride.AdapterFactory())
 			.registerTypeAdapter(Float.class, new RoundingAdapter(3))
 			.create();
 	}

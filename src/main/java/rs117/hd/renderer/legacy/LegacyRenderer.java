@@ -1668,7 +1668,7 @@ public class LegacyRenderer implements Renderer {
 			}
 			int[] worldPos = sceneContext.localToWorld(x, z, plane);
 			ModelOverride modelOverride = modelOverrideManager.getOverride(uuid, worldPos);
-			if (modelOverride.hide)
+			if (modelOverride.hide())
 				return;
 
 			// Disable color overrides when caching is disabled, since they are expensive on dynamic models

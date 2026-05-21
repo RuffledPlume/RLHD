@@ -182,7 +182,7 @@ public class ModelHasher {
 
 	private long calculateUvCacheHash(int orientation, ModelOverride modelOverride) {
 		long h = faceCount;
-		h = h * 31L + (modelOverride.uvType == UvType.VANILLA || modelOverride.retainVanillaUvs ? textureTrianglesHash : 0);
+		h = h * 31L + (modelOverride.uvType == UvType.VANILLA || modelOverride.retainVanillaUvs() ? textureTrianglesHash : 0);
 		h = h * 31L + (modelOverride.uvType.orientationDependent ? orientation : 0);
 		h = h * 31L + (modelOverride.uvType == UvType.BOX ? vertexHash : 0);
 		h = h * 31L + modelOverride.hashCode();

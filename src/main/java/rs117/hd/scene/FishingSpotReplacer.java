@@ -69,7 +69,7 @@ public class FishingSpotReplacer {
 
 	public ModelOverride getModelOverride() {
 		ModelOverride override = new ModelOverride();
-		override.hide = true;
+		override.setHide(true);
 		override.npcIds = NPC_IDS;
 		return override;
 	}

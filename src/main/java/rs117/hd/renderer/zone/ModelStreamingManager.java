@@ -167,7 +167,7 @@ public class ModelStreamingManager {
 		int uuid = ModelHash.generateUuid(client, gameObject.getHash(), renderable);
 
 		ModelOverride modelOverride = modelOverrideManager.getOverride(uuid, streamingContext.worldPos);
-		if (modelOverride.hide)
+		if (modelOverride.hide())
 			return;
 
 		int offset = ctx.sceneContext.sceneOffset >> 3;
@@ -186,7 +186,7 @@ public class ModelStreamingManager {
 		boolean isOffScreen = modelClassification == -1;
 		// Additional Culling checks to help reduce dynamic object perf impact when off-screen
 		if (isOffScreen && (
-			!modelOverride.castShadows ||
+			!modelOverride.castShadows() ||
 			!renderer.directionalShadowCasterVolume.intersectsPoint(
 				(int) objectWorldPos[0],
 				(int) objectWorldPos[1],
@@ -198,7 +198,7 @@ public class ModelStreamingManager {
 		plugin.drawnTempRenderableCount++;
 
 		final boolean hasAlpha =
-			(m.getFaceTransparencies() != null || modelOverride.mightHaveTransparency) &&
+			(m.getFaceTransparencies() != null || modelOverride.mightHaveTransparency()) &&
 			(!sceneManager.isRoot(ctx) || zone.inSceneFrustum);
 		final Zone.AlphaModel alphaModel = hasAlpha ?
 			zone.requestTempAlphaModel(
@@ -328,7 +328,7 @@ public class ModelStreamingManager {
 
 			final int preOrientation = HDUtils.getModelPreOrientation(gameObject.getConfig());
 			if (culledFaces.length > 0 &&
-				modelOverride.castShadows &&
+				modelOverride.castShadows() &&
 				plugin.configShadowMode != ShadowMode.OFF &&
 				(!sceneManager.isRoot(ctx) || zone.inShadowFrustum)
 			) {
@@ -444,7 +444,7 @@ public class ModelStreamingManager {
 
 		ctx.sceneContext.localToWorld(tileObject.getLocalLocation(), tileObject.getPlane(), streamingContext.worldPos);
 		ModelOverride modelOverride = modelOverrideManager.getOverride(uuid, streamingContext.worldPos);
-		if (modelOverride.hide)
+		if (modelOverride.hide())
 			return;
 
 		m.calculateBoundsCylinder();
@@ -454,7 +454,7 @@ public class ModelStreamingManager {
 		boolean isOffScreen = modelClassification == -1;
 		// Additional Culling checks to help reduce dynamic object perf impact when off-screen
 		if (isOffScreen && (
-			!modelOverride.castShadows ||
+			!modelOverride.castShadows() ||
 			!renderer.directionalShadowCasterVolume.intersectsPoint(
 				(int) objectWorldPos[0],
 				(int) objectWorldPos[1],
@@ -466,7 +466,7 @@ public class ModelStreamingManager {
 		streamingContext.renderableCount++;
 
 		final boolean hasAlpha =
-			(m.getFaceTransparencies() != null || modelOverride.mightHaveTransparency) &&
+			(m.getFaceTransparencies() != null || modelOverride.mightHaveTransparency()) &&
 			(!sceneManager.isRoot(ctx) || zone.inSceneFrustum);
 		final Zone.AlphaModel alphaModel = hasAlpha ?
 			zone.requestTempAlphaModel(
@@ -594,7 +594,7 @@ public class ModelStreamingManager {
 				PooledArrayType.INT.release(faceDistances);
 
 			if (culledFaces.length > 0 &&
-				modelOverride.castShadows &&
+				modelOverride.castShadows() &&
 				plugin.configShadowMode != ShadowMode.OFF &&
 				(!sceneManager.isRoot(ctx) || zone.inShadowFrustum)
 			) {

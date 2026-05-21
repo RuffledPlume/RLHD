@@ -76,7 +76,7 @@ public class ModelOverrideManager {
 
 					if (override.hideInAreas.length > 0) {
 						var hider = override.copy();
-						hider.hide = true;
+						hider.setHide(true);
 						hider.areas = override.hideInAreas;
 						addOverride(hider, gamevalHandle);
 					}
@@ -87,7 +87,7 @@ public class ModelOverrideManager {
 
 				detailCullingBlacklist.clear();
 				for (var entry : modelOverrides)
-					if (entry.getValue().disableDetailCulling)
+					if (entry.getValue().disableDetailCulling())
 						detailCullingBlacklist.add(entry.getKey());
 
 				log.debug("Loaded {} model overrides", modelOverrides.size());
@@ -149,9 +149,9 @@ public class ModelOverrideManager {
 			// Non-area-restricted override, of which there can only be one per UUID
 
 			// A dummy override is used as the base if only area-specific overrides exist
-			boolean isDuplicate = current != null && !current.isDummy;
+			boolean isDuplicate = current != null && !current.isDummy();
 
-			if (isDuplicate && entry.isGenerated)
+			if (isDuplicate && entry.isGenerated())
 				return; // Manually specified model overrides should take precedence over generated ones
 
 			if (isDuplicate && Props.DEVELOPMENT) {
@@ -215,10 +215,10 @@ public class ModelOverrideManager {
 				if (sailId == null)
 					continue;
 				ModelOverride sailOverride = new ModelOverride();
-				sailOverride.isGenerated = true;
+				sailOverride.setGenerated(true);
 				sailOverride.description = "Disable detail culling of boat sails";
 				sailOverride.objectIds = Set.of(sailId);
-				sailOverride.disableDetailCulling = true;
+				sailOverride.setDisableDetailCulling(true);
 				sailOverride.normalize(plugin);
 				addOverride(sailOverride, gamevalHandle);
 			}

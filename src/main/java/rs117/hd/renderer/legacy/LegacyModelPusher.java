@@ -347,12 +347,12 @@ public class LegacyModelPusher {
 					}
 				}
 
-				if (faceOverride.hide)
+				if (faceOverride.hide())
 					continue;
 
 				if (material != Material.NONE) {
 					uvType = faceOverride.uvType;
-					if (uvType == UvType.VANILLA || (textureId != -1 && faceOverride.retainVanillaUvs))
+					if (uvType == UvType.VANILLA || (textureId != -1 && faceOverride.retainVanillaUvs()))
 						uvType = isVanillaUVMapped && textureFaces[face] != -1 ? UvType.VANILLA : UvType.GEOMETRY;
 				}
 
@@ -390,7 +390,7 @@ public class LegacyModelPusher {
 
 	private void getNormalDataForFace(LegacySceneContext sceneContext, Model model, @Nonnull ModelOverride modelOverride, int face) {
 		assert packTerrainData(false, 0, WaterType.NONE, 0) == 0;
-		if (modelOverride.flatNormals || !plugin.configPreserveVanillaNormals && model.getFaceColors3()[face] == -1) {
+		if (modelOverride.flatNormals() || !plugin.configPreserveVanillaNormals && model.getFaceColors3()[face] == -1) {
 			Arrays.fill(sceneContext.modelFaceNormals, 0);
 			return;
 		}
@@ -437,7 +437,7 @@ public class LegacyModelPusher {
 
 		// Hide fake shadows or lighting that is often baked into models by making the fake shadow transparent
 		if (plugin.configHideFakeShadows && HDUtils.isBakedGroundShading(model, face)) {
-			if (modelOverride.hideVanillaShadows)
+			if (modelOverride.hideVanillaShadows())
 				return ZEROED_INTS; // Hide the face
 
 			if (ModelHash.getUuidType(uuid) == ModelHash.TYPE_PLAYER) {
@@ -510,7 +510,7 @@ public class LegacyModelPusher {
 			}
 
 			if (tile != null) {
-				if (modelOverride.inheritTileColorType != InheritTileColorType.NONE) {
+				if (modelOverride.getInheritTileColorType() != InheritTileColorType.NONE) {
 					final Scene scene = sceneContext.scene;
 					SceneTileModel tileModel = tile.getSceneTileModel();
 					SceneTilePaint tilePaint = tile.getSceneTilePaint();
@@ -545,7 +545,7 @@ public class LegacyModelPusher {
 							for (int i = 0; i < tileModel.getTriangleColorA().length; i++) {
 								boolean isOverlay = ProceduralGenerator.isOverlayFace(tile, i);
 								// Use underlay if the tile does not have an overlay, useful for rocks in cave corners.
-								if (modelOverride.inheritTileColorType == InheritTileColorType.UNDERLAY
+								if (modelOverride.getInheritTileColorType() == InheritTileColorType.UNDERLAY
 									|| tileModel.getModelOverlay() == 0) {
 									// pulling the color from UNDERLAY is more desirable for green grass tiles
 									// OVERLAY pulls in path color which is not desirable for grass next to paths
@@ -553,7 +553,7 @@ public class LegacyModelPusher {
 										faceColorIndex = i;
 										break;
 									}
-								} else if (modelOverride.inheritTileColorType == InheritTileColorType.OVERLAY) {
+								} else if (modelOverride.getInheritTileColorType() == InheritTileColorType.OVERLAY) {
 									if (isOverlay) {
 										// OVERLAY used in dirt/path/house tile color blend better with rubbles/rocks
 										faceColorIndex = i;
@@ -572,7 +572,7 @@ public class LegacyModelPusher {
 									int tileExX = tileX + sceneContext.sceneOffset;
 									int tileExY = tileY + sceneContext.sceneOffset;
 									int[] worldPos = sceneContext.sceneToWorld(tileX, tileY, tileZ);
-									int tileId = modelOverride.inheritTileColorType == InheritTileColorType.OVERLAY ?
+									int tileId = modelOverride.getInheritTileColorType() == InheritTileColorType.OVERLAY ?
 										OVERLAY_FLAG | scene.getOverlayIds()[tileZ][tileExX][tileExY] :
 										scene.getUnderlayIds()[tileZ][tileExX][tileExY];
 									var override = tileOverrideManager.getOverride(sceneContext, tile, worldPos, tileId);
@@ -587,7 +587,7 @@ public class LegacyModelPusher {
 					}
 				}
 
-				if (plugin.configLegacyTzHaarReskin && modelOverride.tzHaarRecolorType != TzHaarRecolorType.NONE) {
+				if (plugin.configLegacyTzHaarReskin && modelOverride.getTzHaarRecolorType() != TzHaarRecolorType.NONE) {
 					ProceduralGenerator.recolorTzHaar(
 						modelOverride,
 						model,

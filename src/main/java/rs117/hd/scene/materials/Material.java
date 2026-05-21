@@ -182,12 +182,12 @@ public class Material {
 		return (materialIndex & MAX_MATERIAL_INDEX) << 21
 			   | ((int) (modelOverride.shadowOpacityThreshold * 0x3F) & 0x3F) << 15
 			   | ((modelOverride.windDisplacementModifier + 3) & 0x7) << 12
-			   | (modelOverride.windDisplacementMode.ordinal() & 0x7) << 9
-			   | (modelOverride.invertDisplacementStrength ? 1 : 0) << 8
-			   | (modelOverride.terrainVertexSnap ? 1 : 0) << 6
-			   | (!modelOverride.receiveShadows ? 1 : 0) << 5
-			   | (modelOverride.upwardsNormals ? 1 : 0) << 4
-			   | (modelOverride.flatNormals ? 1 : 0) << 3
+			   | (modelOverride.getWindDisplacementMode().ordinal() & 0x7) << 9
+			   | (modelOverride.invertDisplacementStrength() ? 1 : 0) << 8
+			   | (modelOverride.terrainVertexSnap() ? 1 : 0) << 6
+			   | (!modelOverride.receiveShadows() ? 1 : 0) << 5
+			   | (modelOverride.upwardsNormals() ? 1 : 0) << 4
+			   | (modelOverride.flatNormals() ? 1 : 0) << 3
 			   | (uvType.worldUvs ? 1 : 0) << 2
 			   | (uvType == UvType.VANILLA ? 1 : 0) << 1
 			   | (isOverlay ? 1 : 0);
