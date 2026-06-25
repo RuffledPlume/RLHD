@@ -127,10 +127,10 @@ import rs117.hd.utils.PopupUtils;
 import rs117.hd.utils.Props;
 import rs117.hd.utils.ResourcePath;
 import rs117.hd.utils.ShaderRecompile;
+import rs117.hd.utils.UITileCopyJob;
 import rs117.hd.utils.buffer.GLBuffer;
 import rs117.hd.utils.collections.ConcurrentPool;
 import rs117.hd.utils.collections.PooledArrayType;
-import rs117.hd.utils.jobs.GenericJob;
 import rs117.hd.utils.jobs.JobSystem;
 
 import static net.runelite.api.Constants.*;
@@ -138,6 +138,7 @@ import static org.lwjgl.opengl.GL33C.*;
 import static rs117.hd.HdPluginConfig.*;
 import static rs117.hd.utils.MathUtils.*;
 import static rs117.hd.utils.ResourcePath.path;
+import static rs117.hd.utils.UITileCopyJob.UI_TILE_SIZE;
 import static rs117.hd.utils.buffer.GLBuffer.DEBUG_MAC_OS;
 import static rs117.hd.utils.buffer.GLBuffer.MAP_WRITE;
 import static rs117.hd.utils.buffer.GLBuffer.STORAGE_IMMUTABLE;
@@ -305,6 +306,9 @@ public class HdPlugin extends Plugin {
 	@Inject
 	private JobSystem jobSystem;
 
+	@Inject
+	private UITileCopyJob uiCopyJob;
+
 	@Getter
 	@Inject
 	public TiledLightingShaderProgram tiledLightingImageStoreProgram;
@@ -362,7 +366,6 @@ public class HdPlugin extends Plugin {
 	private int texUi;
 	private int uiWidth;
 	private int uiHeight;
-	private GenericJob uiCopyJob;
 
 	@Nullable
 	public int[] sceneViewport;
@@ -1501,9 +1504,7 @@ public class HdPlugin extends Plugin {
 	}
 
 	public void prepareInterfaceTexture() {
-		if (uiCopyJob != null)
-			uiCopyJob.waitForCompletion(true);
-		uiCopyJob = null;
+		uiCopyJob.waitForCompletion();
 
 		int[] resolution = {
 			max(1, client.getCanvasWidth()),
@@ -1512,7 +1513,6 @@ public class HdPlugin extends Plugin {
 		boolean resize = !Arrays.equals(uiResolution, resolution);
 		if (resize) {
 			uiResolution = resolution;
-
 			glActiveTexture(TEXTURE_UNIT_UI);
 			glBindTexture(GL_TEXTURE_2D, texUi);
 			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, uiResolution[0], uiResolution[1], 0, GL_BGRA, GL_UNSIGNED_BYTE, 0);
@@ -1528,31 +1528,27 @@ public class HdPlugin extends Plugin {
 		round(actualUiResolution, multiply(vec(actualUiResolution), getDpiScaling()));
 
 		final BufferProvider bufferProvider = client.getBufferProvider();
-		final int[] pixels = bufferProvider.getPixels();
 		uiWidth = bufferProvider.getWidth();
 		uiHeight = bufferProvider.getHeight();
 
 		frameTimer.begin(Timer.MAP_UI_BUFFER);
 		final GLBuffer pbo = pboUi[frame % 3];
-		pbo.map(MAP_WRITE, 0, uiWidth * uiHeight * 4L);
+		pbo.map(MAP_WRITE, 0, UITileCopyJob.getPBOSize(uiWidth, uiHeight));
 		frameTimer.end(Timer.MAP_UI_BUFFER);
+
 		if (!pbo.isMapped()) {
 			log.error("Unable to map interface PBO. Skipping UI...");
-		} else if (uiWidth > uiResolution[0] || uiHeight > uiResolution[1]) {
-			log.error("UI texture resolution mismatch ({}x{} > {}). Skipping UI...", uiWidth, uiHeight, uiResolution);
-		} else {
-			uiCopyJob = GenericJob
-				.build(
-					"AsyncUICopy",
-					t -> {
-						long start = System.nanoTime();
-						pbo.mapped().intView().put(pixels, 0, uiWidth * uiHeight);
-						frameTimer.add(Timer.COPY_UI_ASYNC, System.nanoTime() - start);
-					}
-				)
-				.setExecuteAsync(!isPowerSaving)
-				.queue();
+			return;
 		}
+
+		if (uiWidth > uiResolution[0] || uiHeight > uiResolution[1]) {
+			log.error("UI texture resolution mismatch ({}x{} > {}). Skipping UI...", uiWidth, uiHeight, uiResolution);
+			pbo.unbind();
+			return;
+		}
+
+		uiCopyJob.queue(bufferProvider, pbo, resize);
+
 		pbo.unbind();
 	}
 
@@ -1560,13 +1556,12 @@ public class HdPlugin extends Plugin {
 		if (uiResolution == null || developerTools.isHideUiEnabled() && hasLoggedIn)
 			return;
 
-		// Fix vanilla bug causing the overlay to remain on the login screen in areas like Fossil Island underwater
 		if (client.getGameState().getState() < GameState.LOADING.getState())
 			overlayColor = 0;
 
 		frameTimer.begin(Timer.RENDER_UI);
 
-		if(fboSceneResolve != 0) {
+		if (fboSceneResolve != 0) {
 			glBindFramebuffer(GL_READ_FRAMEBUFFER, fboScene);
 			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboSceneResolve);
 			glBlitFramebuffer(
@@ -1574,7 +1569,6 @@ public class HdPlugin extends Plugin {
 				0, 0, sceneResolution[0], sceneResolution[1],
 				GL_COLOR_BUFFER_BIT, GL_NEAREST
 			);
-
 			glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
 			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 		}
@@ -1583,7 +1577,7 @@ public class HdPlugin extends Plugin {
 		glViewport(0, 0, actualUiResolution[0], actualUiResolution[1]);
 
 		uiProgram.use();
-		if(sceneViewport != null)
+		if (sceneViewport != null)
 			uboUI.sceneViewport.set(sceneViewport);
 		else
 			uboUI.sceneViewport.set(0, 0, 0, 0);
@@ -1592,18 +1586,13 @@ public class HdPlugin extends Plugin {
 		uboUI.alphaOverlay.set(ColorUtils.srgba(overlayColor));
 		uboUI.upload();
 
-		// Set the sampling function used when stretching the UI.
-		// This is probably better done with sampler objects instead of texture parameters, but this is easier and likely more portable.
-		// See https://www.khronos.org/opengl/wiki/Sampler_Object for details.
-		// GL_NEAREST makes sampling for bicubic/xBR simpler, so it should be used whenever linear/pixel isn't
 		final int function = config.uiScalingMode().glSamplingFunction;
 		glActiveTexture(TEXTURE_UNIT_UI);
 		glBindTexture(GL_TEXTURE_2D, texUi);
 
 		if (uiCopyJob != null) {
 			frameTimer.begin(Timer.COPY_UI);
-			uiCopyJob.waitForCompletion(true);
-			uiCopyJob = null;
+			uiCopyJob.waitForCompletion();
 			frameTimer.end(Timer.COPY_UI);
 
 			frameTimer.begin(Timer.UPLOAD_UI);
@@ -1611,7 +1600,29 @@ public class HdPlugin extends Plugin {
 			pbo.unmap();
 			pbo.bind();
 
-			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, uiWidth, uiHeight, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, 0);
+			glPixelStorei(GL_UNPACK_ROW_LENGTH, UI_TILE_SIZE);
+
+			long pboOffset = 0;
+			for (int i = 0; i < uiCopyJob.dirtyTiles.length;) {
+				int tx = uiCopyJob.dirtyTiles.array[i++];
+				int ty = uiCopyJob.dirtyTiles.array[i++];
+				int startX = tx * UI_TILE_SIZE;
+				int startY = ty * UI_TILE_SIZE;
+				int tileW = Math.min(UI_TILE_SIZE, uiWidth  - startX);
+				int tileH = Math.min(UI_TILE_SIZE, uiHeight - startY);
+
+				glTexSubImage2D(
+					GL_TEXTURE_2D, 0,
+					startX, startY,
+					tileW, tileH,
+					GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV,
+					pboOffset
+				);
+
+				pboOffset += (long) UI_TILE_SIZE * UI_TILE_SIZE * 4;
+			}
+
+			glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
 			pbo.unbind();
 			frameTimer.end(Timer.UPLOAD_UI);
 		}
@@ -1629,8 +1640,8 @@ public class HdPlugin extends Plugin {
 	}
 
 	/**
-	 * Convert the front framebuffer to an Image
-	 */
+     * Convert the front framebuffer to an Image
+     */
 	public Image screenshot() {
 		if (uiResolution == null)
 			return null;
