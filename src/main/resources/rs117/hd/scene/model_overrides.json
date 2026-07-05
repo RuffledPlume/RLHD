@@ -1113,6 +1113,7 @@
   {
     "description": "TREES - Warm Region",
     "baseMaterial": "BARK",
+    "doubleSidedFaces": true,
     "areas": [ "WARM_REGIONS" ],
     "windDisplacementMode": "VERTEX_WITH_HEMISPHERE_BLEND",
     "depthBias": 1,
@@ -1146,21 +1147,25 @@
     "materialOverrides": {
       "LEAVES_SIDE": {
         "windDisplacementMode": "VERTEX",
-        "textureMaterial": "SEASONLESS_LEAVES_SIDE"
+        "textureMaterial": "SEASONLESS_LEAVES_SIDE",
+        "doubleSidedFaces": true
       },
       "LEAVES_TOP": {
         "windDisplacementMode": "VERTEX",
-        "textureMaterial": "SEASONLESS_LEAVES_TOP"
+        "textureMaterial": "SEASONLESS_LEAVES_TOP",
+        "doubleSidedFaces": true
       },
       "MAPLE_LEAVES": {
         "windDisplacementMode": "VERTEX",
-        "textureMaterial": "SEASONLESS_MAPLE_LEAVES"
+        "textureMaterial": "SEASONLESS_MAPLE_LEAVES",
+        "doubleSidedFaces": true
       }
     }
   },
   {
     "description": "TREES",
     "baseMaterial": "BARK",
+    "doubleSidedFaces": true,
     "windDisplacementMode": "VERTEX_WITH_HEMISPHERE_BLEND",
     "depthBias": 1,
     "objectIds": [
@@ -1186,15 +1191,18 @@
     "materialOverrides": {
       "LEAVES_SIDE": {
         "windDisplacementMode": "VERTEX",
-        "textureMaterial": "LEAVES_YELLOW_SIDE"
+        "textureMaterial": "LEAVES_YELLOW_SIDE",
+        "doubleSidedFaces": true
       },
       "LEAVES_TOP": {
         "windDisplacementMode": "VERTEX",
-        "textureMaterial": "LEAVES_YELLOW_TOP"
+        "textureMaterial": "LEAVES_YELLOW_TOP",
+        "doubleSidedFaces": true
       },
       "MAPLE_LEAVES": {
         "windDisplacementMode": "VERTEX",
-        "textureMaterial": "MAPLE_LEAVES"
+        "textureMaterial": "MAPLE_LEAVES",
+        "doubleSidedFaces": true
       }
     }
   },
@@ -1262,6 +1270,7 @@
   {
     "description": "Tree - Double Tree",
     "baseMaterial": "BARK",
+    "doubleSidedFaces": true,
     "windDisplacementMode": "VERTEX_WITH_HEMISPHERE_BLEND",
     "objectIds": [
       "TREE",
@@ -1279,11 +1288,13 @@
     "materialOverrides": {
       "LEAVES_SIDE": {
         "windDisplacementMode": "VERTEX",
-        "textureMaterial": "LEAVES_ORANGE_SIDE"
+        "textureMaterial": "LEAVES_ORANGE_SIDE",
+        "doubleSidedFaces": true
       },
       "LEAVES_TOP": {
         "windDisplacementMode": "VERTEX",
-        "textureMaterial": "LEAVES_ORANGE_TOP"
+        "textureMaterial": "LEAVES_ORANGE_TOP",
+        "doubleSidedFaces": true
       }
     }
   },
@@ -1587,6 +1598,7 @@
   {
     "description": "Warm Region - Objects - Tree - Yew",
     "areas": [ "WARM_REGIONS" ],
+    "doubleSidedFaces": true,
     "baseMaterial": "BARK",
     "windDisplacementMode": "VERTEX_WITH_HEMISPHERE_BLEND",
     "objectIds": [
@@ -1631,11 +1643,13 @@
     "materialOverrides": {
       "LEAVES_SIDE": {
         "windDisplacementMode": "VERTEX",
-        "textureMaterial": "SEASONLESS_LEAVES_SIDE"
+        "textureMaterial": "SEASONLESS_LEAVES_SIDE",
+        "doubleSidedFaces": true
       },
       "LEAVES_TOP": {
         "windDisplacementMode": "VERTEX",
-        "textureMaterial": "SEASONLESS_LEAVES_TOP"
+        "textureMaterial": "SEASONLESS_LEAVES_TOP",
+        "doubleSidedFaces": true
       }
     }
   },
@@ -1663,6 +1677,7 @@
   {
     "description": "Objects - Tree - Yew",
     "baseMaterial": "BARK",
+    "doubleSidedFaces": true,
     "windDisplacementMode": "VERTEX_WITH_HEMISPHERE_BLEND",
     "objectIds": [
       "YEW_TREE_SEEDLING",
@@ -1706,11 +1721,13 @@
     "materialOverrides": {
       "LEAVES_SIDE": {
         "windDisplacementMode": "VERTEX",
-        "textureMaterial": "LEAVES_SIDE"
+        "textureMaterial": "LEAVES_SIDE",
+        "doubleSidedFaces": true
       },
       "LEAVES_TOP": {
         "windDisplacementMode": "VERTEX",
-        "textureMaterial": "LEAVES_TOP"
+        "textureMaterial": "LEAVES_TOP",
+        "doubleSidedFaces": true
       }
     }
   },
@@ -1788,7 +1805,8 @@
     "materialOverrides": {
       "WILLOW_LEAVES": {
         "windDisplacementMode": "VERTEX",
-        "textureMaterial": "SEASONLESS_WILLOW_LEAVES"
+        "textureMaterial": "SEASONLESS_WILLOW_LEAVES",
+        "doubleSidedFaces": true
       }
     }
   },
@@ -1806,7 +1824,8 @@
     "uvScale": 0.8,
     "uvOrientationZ": 128,
     "uvOrientationY": 512,
-    "retainVanillaUvs": true
+    "retainVanillaUvs": true,
+    "doubleSidedFaces": true
   },
   {
     "description": "Objects - Tree - Mahogany - Stump",
@@ -23102,7 +23121,8 @@
       "TROPICAL_LEAF": {
         "textureMaterial": "TROPICAL_LEAF",
         "windDisplacementMode": "OBJECT_NO_GROUND_DISPLACEMENT",
-        "windDisplacementModifier": -2
+        "windDisplacementModifier": -2,
+        "doubleSidedFaces": true
       }
     }
   },
@@ -35945,6 +35965,7 @@
   {
     "description": "Oak Tree",
     "baseMaterial": "BARK",
+    "doubleSidedFaces": true,
     "windDisplacementMode": "VERTEX_WITH_HEMISPHERE_BLEND",
     "objectIds": [
       "OAK_TREE_SEEDLING",
@@ -35967,11 +35988,13 @@
     "materialOverrides": {
       "LEAVES_SIDE": {
         "windDisplacementMode": "VERTEX",
-        "textureMaterial": "LEAVES_RED_SIDE"
+        "textureMaterial": "LEAVES_RED_SIDE",
+        "doubleSidedFaces": true
       },
       "LEAVES_TOP": {
         "windDisplacementMode": "VERTEX",
-        "textureMaterial": "LEAVES_RED_TOP"
+        "textureMaterial": "LEAVES_RED_TOP",
+        "doubleSidedFaces": true
       }
     }
   },
@@ -35979,6 +36002,7 @@
     "description": "Warm Region Oak Tree",
     "areas": [ "WARM_REGIONS" ],
     "baseMaterial": "BARK",
+    "doubleSidedFaces": true,
     "windDisplacementMode": "VERTEX_WITH_HEMISPHERE_BLEND",
     "objectIds": [
       "OAK_TREE_SEEDLING",
@@ -36002,11 +36026,13 @@
     "materialOverrides": {
       "LEAVES_SIDE": {
         "windDisplacementMode": "VERTEX",
-        "textureMaterial": "SEASONLESS_LEAVES_SIDE"
+        "textureMaterial": "SEASONLESS_LEAVES_SIDE",
+        "doubleSidedFaces": true
       },
       "LEAVES_TOP": {
         "windDisplacementMode": "VERTEX",
-        "textureMaterial": "SEASONLESS_LEAVES_TOP"
+        "textureMaterial": "SEASONLESS_LEAVES_TOP",
+        "doubleSidedFaces": true
       }
     }
   },
