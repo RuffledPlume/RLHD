@@ -425,6 +425,7 @@ public class Zone implements Destructible {
 		byte flags;
 
 		// only set for static geometry as they require sorting
+		char backfaceCount;
 		int radius;
 		int[] packedFaces;
 		int[] sortedFaces;
@@ -560,15 +561,13 @@ public class Zone implements Destructible {
 		}
 
 		int packedFaceCount = (endpos - startpos) / ((3 * VERT_SIZE) >> 2);
-		if(modelOverride.doubleSidedFaces)
-			packedFaceCount *= 2;
-
 		final int[] packedFaces = PooledArrayType.INT.borrow(packedFaceCount);
-		final int[] backFaceBitSet = modelOverride.doubleSidedFaces ? PooledArrayType.INT.borrow(packedFaceCount) : null;
+		final int[] backFaceBitSet = modelOverride.doubleSidedFaces ? PooledArrayType.INT.borrow(ceil(packedFaceCount / 32.0f)) : null;
 		if(backFaceBitSet != null)
 			Arrays.fill(backFaceBitSet, 0);
 
 		int radius = 0;
+		char backfaceCount = 0;
 		char bufferIdx = 0;
 		for (int f = 0; f < faceCount; ++f) {
 			if (color3[f] == -2)
@@ -629,9 +628,8 @@ public class Zone implements Destructible {
 			bufferIdx++;
 
 			if (backFaceBitSet != null && faceOverride.doubleSidedFaces) {
-				packedFaces[bufferIdx] = packed;
 				backFaceBitSet[bufferIdx >> 5] |= 1 << (bufferIdx & 31);
-				bufferIdx++;
+				backfaceCount++;
 			}
 		}
 
@@ -639,8 +637,9 @@ public class Zone implements Destructible {
 		// Normally these will be equal, but transparency is used to hide faces in the TzHaar reskin
 		assert bufferIdx <= packedFaces.length : String.format("%d > %d", (int) bufferIdx, packedFaces.length);
 
+		m.backfaceCount = backfaceCount;
 		m.radius = 2 + (int) Math.sqrt(radius);
-		m.sortedFaces = new int[bufferIdx * 3];
+		m.sortedFaces = new int[(bufferIdx + backfaceCount) * 3]; // TODO: We can use PooledArrayType.INT for this
 		m.packedFaces = Arrays.copyOf(packedFaces, bufferIdx);
 		m.backFaceBitSet = backFaceBitSet != null ? Arrays.copyOf(backFaceBitSet, ceil(bufferIdx / 32.0f)) : null;
 

@@ -206,12 +206,12 @@ public final class FacePrioritySorter implements AutoCloseable {
 		int pitchCos, int pitchSin
 	) {
 		final int radius = m.radius;
-		final int diameter = 1 + (radius * (m.backFaceBitSet != null ? 2 : 1)) * 2;
+		final int diameter = 1 + radius * 2;
 		if (diameter >= MAX_DIAMETER)
 			return;
 
 		final int faceCount = m.packedFaces.length;
-		ensureCapacity(diameter, faceCount);
+		ensureCapacity(diameter, faceCount + m.backfaceCount);
 
 		final int[] packedFaces = m.packedFaces;
 		final int[] backFaceBitSet = m.backFaceBitSet;
@@ -225,7 +225,8 @@ public final class FacePrioritySorter implements AutoCloseable {
 
 		int backfaceWord = 0;
 		int minFz = diameter, maxFz = 0;
-		for (int i = 0; i < faceCount; ++i) {
+		int faceIdx = 0;
+		for (int i = 0; i < faceCount; ++i, ++faceIdx) {
 			final int packed = packedFaces[i];
 			final short x = (short) (packed >> 21);
 			final short y = (short) ((packed << 11) >> 22);
@@ -236,36 +237,36 @@ public final class FacePrioritySorter implements AutoCloseable {
 			int fz = (z * yawCos - x * yawSin) >> 16;
 			fz = ((y * pitchSin + fz * pitchCos) >> 16) + radius;
 
+			final int tailFaceIdx = zsortTail[fz];
+			if (tailFaceIdx == -1) {
+				zsortHead[fz] = faceIdx;
+				zsortTail[fz] = faceIdx;
+				minFz = min(minFz, fz);
+				maxFz = max(maxFz, fz);
+			} else {
+				zsortNext[tailFaceIdx] = faceIdx;
+				zsortTail[fz] = faceIdx;
+			}
+			zsortNext[faceIdx] = -1;
+
 			if (backFaceBitSet != null) {
 				int bitIdx = i & 31;
 				if (bitIdx == 0)
 					backfaceWord = backFaceBitSet[i >> 5];
 
 				if ((backfaceWord & (1 << bitIdx)) != 0)
-					fz += radius * 2;
+					faceIdx++; // Face has a backface, skip over it
 			}
-
-			final int tailFaceIdx = zsortTail[fz];
-			if (tailFaceIdx == -1) {
-				zsortHead[fz] = i;
-				zsortTail[fz] = i;
-				minFz = min(minFz, fz);
-				maxFz = max(maxFz, fz);
-			} else {
-				zsortNext[tailFaceIdx] = i;
-				zsortTail[fz] = i;
-			}
-
-			zsortNext[i] = -1;
 		}
 
 		final int start = m.startpos / (VERT_SIZE >> 2);
+		int backfaceOffset = 0;
 		for (int i = maxFz; i >= minFz; --i) {
 			for (int f = zsortHead[i]; f != -1; f = zsortNext[f]) {
 				if (f >= faceCount)
 					continue;
 
-				final int sortedOffset = m.sortedFacesLen;
+				final int sortedOffset = m.backfaceCount + m.sortedFacesLen;
 				final int faceStart = f * 3 + start;
 				sortedFaces[sortedOffset] = faceStart;
 				sortedFaces[sortedOffset + 1] = faceStart + 1;
@@ -274,8 +275,24 @@ public final class FacePrioritySorter implements AutoCloseable {
 
 				if (m.sortedFacesLen >= sortedFaces.length)
 					return;
+
+				// Check if this face is double sided, then add it to the front of the draw
+				if (backFaceBitSet != null) {
+					int bitIdx = f & 31;
+					if (bitIdx == 0)
+						backfaceWord = backFaceBitSet[f >> 5];
+
+					if ((backfaceWord & (1 << bitIdx)) != 0) {
+						final int backFaceStart = (f + 1) * 3 + start;
+						sortedFaces[backfaceOffset] = backFaceStart;
+						sortedFaces[backfaceOffset + 1] = backFaceStart + 1;
+						sortedFaces[backfaceOffset + 2] = backFaceStart + 2;
+						backfaceOffset += 3;
+					}
+				}
 			}
 		}
+		m.sortedFacesLen += backfaceOffset;
 	}
 
 	@Override
