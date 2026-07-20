@@ -20,6 +20,11 @@ public class TileOverrideVariables implements VariableSupplier {
 
 	@Override
 	public Object get(String name) {
+		return getInt(name);
+	}
+
+	@Override
+	public int getInt(String name) {
 		for (int i = 0; i < HSL_VARS.length; i++) {
 			if (HSL_VARS[i].equals(name)) {
 				if (requiresHslUpdate) {
