@@ -587,7 +587,7 @@ public class ExpressionParser {
 		}
 
 		private String formatOperand(Object operand) {
-			if (operand instanceof Number) {
+			if (operand instanceof Float) {
 				int nearest = round((float) operand);
 				if (abs((float) operand - nearest) < 1e-10)
 					operand = nearest;
@@ -708,7 +708,7 @@ public class ExpressionParser {
 		}
 
 		private boolean isPrimitive(Object obj) {
-			return obj == null || obj instanceof Float || obj instanceof Boolean;
+			return obj == null || obj instanceof Integer || obj instanceof Float || obj instanceof Boolean;
 		}
 
 		private void registerVariables(@Nullable Object dependency) {
