@@ -13,50 +13,29 @@ import javax.annotation.Nullable;
 import lombok.AllArgsConstructor;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import rs117.hd.utils.ExpressionParserEvaluators.BooleanAnd;
+import rs117.hd.utils.ExpressionParserEvaluators.BooleanComparisons;
 import rs117.hd.utils.ExpressionParserEvaluators.BooleanConstant;
-import rs117.hd.utils.ExpressionParserEvaluators.BooleanEqual;
 import rs117.hd.utils.ExpressionParserEvaluators.BooleanEvalPredicate;
 import rs117.hd.utils.ExpressionParserEvaluators.BooleanNot;
-import rs117.hd.utils.ExpressionParserEvaluators.BooleanNotEqual;
-import rs117.hd.utils.ExpressionParserEvaluators.BooleanOr;
 import rs117.hd.utils.ExpressionParserEvaluators.BooleanTernary;
 import rs117.hd.utils.ExpressionParserEvaluators.BooleanToObjectFunction;
 import rs117.hd.utils.ExpressionParserEvaluators.BooleanVariable;
 import rs117.hd.utils.ExpressionParserEvaluators.ConstantFunction;
-import rs117.hd.utils.ExpressionParserEvaluators.FloatAdd;
+import rs117.hd.utils.ExpressionParserEvaluators.FloatComparisons;
 import rs117.hd.utils.ExpressionParserEvaluators.FloatConstant;
-import rs117.hd.utils.ExpressionParserEvaluators.FloatDiv;
-import rs117.hd.utils.ExpressionParserEvaluators.FloatEqual;
-import rs117.hd.utils.ExpressionParserEvaluators.FloatGreater;
-import rs117.hd.utils.ExpressionParserEvaluators.FloatGreaterEqual;
-import rs117.hd.utils.ExpressionParserEvaluators.FloatLess;
-import rs117.hd.utils.ExpressionParserEvaluators.FloatLessEqual;
-import rs117.hd.utils.ExpressionParserEvaluators.FloatMod;
-import rs117.hd.utils.ExpressionParserEvaluators.FloatMul;
-import rs117.hd.utils.ExpressionParserEvaluators.FloatNotEqual;
-import rs117.hd.utils.ExpressionParserEvaluators.FloatSub;
 import rs117.hd.utils.ExpressionParserEvaluators.FloatTernary;
 import rs117.hd.utils.ExpressionParserEvaluators.FloatToObjectFunction;
 import rs117.hd.utils.ExpressionParserEvaluators.FloatVariable;
-import rs117.hd.utils.ExpressionParserEvaluators.IntAdd;
+import rs117.hd.utils.ExpressionParserEvaluators.IntComparisons;
 import rs117.hd.utils.ExpressionParserEvaluators.IntConstant;
-import rs117.hd.utils.ExpressionParserEvaluators.IntDiv;
-import rs117.hd.utils.ExpressionParserEvaluators.IntEqual;
-import rs117.hd.utils.ExpressionParserEvaluators.IntGreater;
-import rs117.hd.utils.ExpressionParserEvaluators.IntGreaterEqual;
-import rs117.hd.utils.ExpressionParserEvaluators.IntLess;
-import rs117.hd.utils.ExpressionParserEvaluators.IntLessEqual;
-import rs117.hd.utils.ExpressionParserEvaluators.IntMod;
-import rs117.hd.utils.ExpressionParserEvaluators.IntMul;
-import rs117.hd.utils.ExpressionParserEvaluators.IntNotEqual;
-import rs117.hd.utils.ExpressionParserEvaluators.IntSub;
 import rs117.hd.utils.ExpressionParserEvaluators.IntTernary;
 import rs117.hd.utils.ExpressionParserEvaluators.IntToObjectFunction;
 import rs117.hd.utils.ExpressionParserEvaluators.IntVariable;
 import rs117.hd.utils.ExpressionParserEvaluators.ObjectTernaryFunction;
 import rs117.hd.utils.ExpressionParserEvaluators.ObjectVariableFunction;
 
+import static rs117.hd.utils.ExpressionParser.Operator.NOT;
+import static rs117.hd.utils.ExpressionParser.Operator.TERNARY;
 import static rs117.hd.utils.MathUtils.*;
 
 public class ExpressionParser {
@@ -258,7 +237,7 @@ public class ExpressionParser {
 	}
 
 	@RequiredArgsConstructor
-	private enum Operator {
+	public enum Operator {
 		MOD("%", 6, 2),
 		MUL("*", 6, 2),
 		DIV("/", 6, 2),
@@ -590,7 +569,7 @@ public class ExpressionParser {
 				}
 			}
 
-			if (op == Operator.TERNARY) {
+			if (op == TERNARY) {
 				Object t = asExpression(ternary).simplify(constants);
 				if (t instanceof Boolean)
 					return (boolean) t ? l : r;
@@ -632,7 +611,7 @@ public class ExpressionParser {
 		public Function<VariableSupplier, Object> toFunction() {
 			if (op == null)
 				return asFunction(left);
-			if (op == Operator.TERNARY)
+			if (op == TERNARY)
 				return compileObjectTernary();
 			return isBoolean() ?
 				new BooleanToObjectFunction(compileBoolean()) :
@@ -649,97 +628,49 @@ public class ExpressionParser {
 		private IntEval compileInt() {
 			if (op == null)
 				return toIntEval(left);
-			switch (op) {
-				case ADD:
-					return new IntAdd(toIntEval(left), toIntEval(right));
-				case SUB:
-					return new IntSub(toIntEval(left), toIntEval(right));
-				case MUL:
-					return new IntMul(toIntEval(left), toIntEval(right));
-				case DIV:
-					return new IntDiv(toIntEval(left), toIntEval(right));
-				case MOD:
-					return new IntMod(toIntEval(left), toIntEval(right));
-				case TERNARY:
-					return new IntTernary(toBooleanEval(ternary), toIntEval(left), toIntEval(right));
-			}
-			throw new UnsupportedOperationException("Operator '" + op + "' does not produce a numeric result");
+
+			if(op == TERNARY)
+				return new IntTernary(toBooleanEval(ternary), toIntEval(left), toIntEval(right));
+
+			return new ExpressionParserEvaluators.IntMathOperation(op, toIntEval(left), toIntEval(right));
 		}
 
 		private FloatEval compileFloat() {
 			if (op == null)
 				return toFloatEval(left);
-			switch (op) {
-				case ADD:
-					return new FloatAdd(toFloatEval(left), toFloatEval(right));
-				case SUB:
-					return new FloatSub(toFloatEval(left), toFloatEval(right));
-				case MUL:
-					return new FloatMul(toFloatEval(left), toFloatEval(right));
-				case DIV:
-					return new FloatDiv(toFloatEval(left), toFloatEval(right));
-				case MOD:
-					return new FloatMod(toFloatEval(left), toFloatEval(right));
-				case TERNARY:
-					return new FloatTernary(toBooleanEval(ternary), toFloatEval(left), toFloatEval(right));
-			}
-			throw new UnsupportedOperationException("Operator '" + op + "' does not produce a numeric result");
+
+			if(op == TERNARY)
+				return new FloatTernary(toBooleanEval(ternary), toFloatEval(left), toFloatEval(right));
+
+			return new ExpressionParserEvaluators.FloatMathOperation(op, toFloatEval(left), toFloatEval(right));
 		}
 
 		private BooleanEval compileBoolean() {
 			if (op == null)
 				return toBooleanEval(left);
-			final boolean isFloat = left instanceof Float || left instanceof Expression && ((Expression) left).hasDecimal ||
-									right instanceof Float || right instanceof Expression && ((Expression)right).hasDecimal;
-			switch (op) {
-				case AND:
-					return new BooleanAnd(toBooleanEval(left), toBooleanEval(right));
-				case OR:
-					return new BooleanOr(toBooleanEval(left), toBooleanEval(right));
-				case NOT:
+
+			final boolean isFloatCompare =
+				left instanceof Float || left instanceof Expression && ((Expression) left).hasDecimal ||
+				right instanceof Float || right instanceof Expression && ((Expression)right).hasDecimal;
+
+			final boolean isBooleanCompare =
+				left instanceof Boolean || left instanceof Expression && ((Expression) left).isBoolean() ||
+				right instanceof Boolean || right instanceof Expression && ((Expression) right).isBoolean();
+
+			if(isBooleanCompare) {
+				if(op == NOT)
 					return new BooleanNot(toBooleanEval(right));
-				case LESS:
-					return isFloat ?
-						new FloatLess(toFloatEval(left), toFloatEval(right)) :
-						new IntLess(toIntEval(left), toIntEval(right));
-				case LEQUAL:
-					return isFloat ?
-						new FloatLessEqual(toFloatEval(left), toFloatEval(right)) :
-						new IntLessEqual(toIntEval(left), toIntEval(right));
-				case GREATER:
-					return isFloat ?
-						new FloatGreater(toFloatEval(left), toFloatEval(right)) :
-						new IntGreater(toIntEval(left), toIntEval(right));
-				case GEQUAL:
-					return isFloat ?
-						new FloatGreaterEqual(toFloatEval(left), toFloatEval(right)) :
-						new IntGreaterEqual(toIntEval(left), toIntEval(right));
-				case EQUAL:
-				case NOTEQUAL: {
-					boolean isBooleanCompare =
-						left instanceof Boolean || left instanceof Expression && ((Expression) left).isBoolean() ||
-						right instanceof Boolean || right instanceof Expression && ((Expression) right).isBoolean();
 
-					if (isBooleanCompare) {
-						return op == Operator.EQUAL ?
-							new BooleanEqual(toBooleanEval(left), toBooleanEval(right)) :
-							new BooleanNotEqual(toBooleanEval(left), toBooleanEval(right));
-					}
-
-					if(isFloat) {
-						return op == Operator.EQUAL ?
-							new FloatEqual(toFloatEval(left), toFloatEval(right)) :
-							new FloatNotEqual(toFloatEval(left), toFloatEval(right));
-					}
-
-					return op == Operator.EQUAL ?
-						new IntEqual(toIntEval(left), toIntEval(right)) :
-						new IntNotEqual(toIntEval(left), toIntEval(right));
-				}
-				case TERNARY:
+				if(op == TERNARY)
 					return new BooleanTernary(toBooleanEval(ternary), toBooleanEval(left), toBooleanEval(right));
+
+				return new BooleanComparisons(op, toBooleanEval(left), toBooleanEval(right));
 			}
-			throw new UnsupportedOperationException("Operator '" + op + "' does not produce a boolean result");
+
+			if(isFloatCompare)
+				return new FloatComparisons(op, toFloatEval(left), toFloatEval(right));
+
+			return new IntComparisons(op, toIntEval(left), toIntEval(right));
 		}
 
 		public ExpressionPredicate toPredicate() {
@@ -822,7 +753,7 @@ public class ExpressionParser {
 			for (var op : Operator.OPERATORS) {
 				// Skip lower precedence operators
 				if (op.precedence >= ctx.minPrecedence && ctx.expr.startsWith(op.symbol, ctx.index)) {
-					if (op == Operator.TERNARY) {
+					if (op == TERNARY) {
 						// Parse the ternary into an expression to be the new left operand, and keep parsing
 						var condition = ctx.operands[0];
 						if (condition == null)

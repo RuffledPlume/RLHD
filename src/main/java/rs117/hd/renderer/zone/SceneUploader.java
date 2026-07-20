@@ -148,6 +148,8 @@ public class SceneUploader implements AutoCloseable {
 	private final GpuIntBuffer zoneVboA = new GpuIntBuffer(false);
 	private final GpuIntBuffer zoneTboF = new GpuIntBuffer(false);
 
+	private final ModelOverride.AHSLSupplier ahslSupplier = new ModelOverride.AHSLSupplier();
+
 	// Lazily initialized staging buffers
 	public VertexWriteCache.Collection writeCache;
 
@@ -1547,8 +1549,8 @@ public class SceneUploader implements AutoCloseable {
 					}
 				}
 			} else if (modelOverride.colorOverrides != null) {
-				final int ahsl = (0xFF - transparency) << 16 | color1;
-				final var override = modelOverride.testColorOverrides(ahsl);
+				ahslSupplier.ahsl = (0xFF - transparency) << 16 | color1;
+				final var override = modelOverride.testColorOverrides(ahslSupplier);
 				if (override != null) {
 					faceOverride = override;
 					material = faceOverride.baseMaterial;
@@ -1925,8 +1927,8 @@ public class SceneUploader implements AutoCloseable {
 					}
 				}
 			} else if (modelOverride.colorOverrides != null) {
-				final int ahsl = (0xFF - transparency) << 16 | model.getFaceColors1()[f];
-				final var override = modelOverride.testColorOverrides(ahsl);
+				ahslSupplier.ahsl = (0xFF - transparency) << 16 | model.getFaceColors1()[f];
+				final var override = modelOverride.testColorOverrides(ahslSupplier);
 				if (override != null) {
 					faceOverride = override;
 					material = faceOverride.baseMaterial;

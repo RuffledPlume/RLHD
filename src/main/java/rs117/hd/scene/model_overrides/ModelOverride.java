@@ -127,7 +127,7 @@ public class ModelOverride
 
 	@FunctionalInterface
 	public interface AhslPredicate {
-		boolean test(int ahsl);
+		boolean test(AHSLSupplier vars);
 	}
 
 	public void normalize(HdPlugin plugin) {
@@ -349,7 +349,7 @@ public class ModelOverride
 		this.isDummy = isDummy;
 	}
 
-	private static class AHSLSupplier implements VariableSupplier {
+	public static class AHSLSupplier implements VariableSupplier {
 		public int ahsl;
 
 		@Override
@@ -422,7 +422,7 @@ public class ModelOverride
 			} else if (prim.isNumber()) {
 				try {
 					int targetHsl = prim.getAsInt();
-					condition = ahsl -> (ahsl & 0xFFFF) == targetHsl;
+					condition = vars -> (vars.getInt("ahsl") & 0xFFFF) == targetHsl;
 				} catch (Exception ex) {
 					log.warn("Expected integer, but got {} in override '{}'", el, description);
 					continue;
@@ -440,11 +440,7 @@ public class ModelOverride
 				}
 
 				final var predicate = expr.toPredicate();
-				condition = ahsl -> {
-					final AHSLSupplier supplier = LOCAL_AHSLSupplier.get();
-					supplier.ahsl = ahsl;
-					return predicate.test(supplier);
-				};
+				condition = predicate::test;
 			} else {
 				log.warn("Skipping unexpected HSL condition primitive '{}' in override '{}'", el, description);
 				continue;
@@ -752,10 +748,20 @@ public class ModelOverride
 
 	@Nullable
 	public final ModelOverride testColorOverrides(int ahsl) {
+		if(colorOverrides.length == 0)
+			return null;
+
+		AHSLSupplier vars = LOCAL_AHSLSupplier.get();
+		vars.ahsl = ahsl;
+		return testColorOverrides(vars);
+	}
+
+	@Nullable
+	public final ModelOverride testColorOverrides(AHSLSupplier vars) {
 		final int len = colorOverrides.length;
 		for (int i = 0; i < len; ++i) {
 			final var override = colorOverrides[i];
-			if (override.ahslCondition.test(ahsl))
+			if (override.ahslCondition.test(vars))
 				return override;
 		}
 		return null;

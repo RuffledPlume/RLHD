@@ -110,92 +110,12 @@ public class ExpressionParserEvaluators {
 	}
 
 	@RequiredArgsConstructor
-	public static final class IntAdd implements ExpressionParser.IntEval {
-		private final ExpressionParser.IntEval l, r;
-
-		@Override
-		public int apply(VariableSupplier vars) { return l.apply(vars) + r.apply(vars); }
-	}
-
-	@RequiredArgsConstructor
-	public static final class IntSub implements ExpressionParser.IntEval {
-		private final ExpressionParser.IntEval l, r;
-
-		@Override
-		public int apply(VariableSupplier vars) { return l.apply(vars) - r.apply(vars); }
-	}
-
-	@RequiredArgsConstructor
-	public static final class IntMul implements ExpressionParser.IntEval {
-		private final ExpressionParser.IntEval l, r;
-
-		@Override
-		public int apply(VariableSupplier vars) { return l.apply(vars) * r.apply(vars); }
-	}
-
-	@RequiredArgsConstructor
-	public static final class IntDiv implements ExpressionParser.IntEval {
-		private final ExpressionParser.IntEval l, r;
-
-		@Override
-		public int apply(VariableSupplier vars) { return l.apply(vars) / r.apply(vars); }
-	}
-
-	@RequiredArgsConstructor
-	public static final class IntMod implements ExpressionParser.IntEval {
-		private final ExpressionParser.IntEval l, r;
-
-		@Override
-		public int apply(VariableSupplier vars) { return l.apply(vars) % r.apply(vars); }
-	}
-
-	@RequiredArgsConstructor
 	public static final class IntTernary implements ExpressionParser.IntEval {
 		private final ExpressionParser.BooleanEval condition;
 		private final ExpressionParser.IntEval ifTrue, ifFalse;
 
 		@Override
 		public int apply(VariableSupplier vars) { return condition.apply(vars) ? ifTrue.apply(vars) : ifFalse.apply(vars); }
-	}
-
-	@RequiredArgsConstructor
-	public static final class FloatAdd implements ExpressionParser.FloatEval {
-		private final ExpressionParser.FloatEval l, r;
-
-		@Override
-		public float apply(VariableSupplier vars) { return l.apply(vars) + r.apply(vars); }
-	}
-
-	@RequiredArgsConstructor
-	public static final class FloatSub implements ExpressionParser.FloatEval {
-		private final ExpressionParser.FloatEval l, r;
-
-		@Override
-		public float apply(VariableSupplier vars) { return l.apply(vars) - r.apply(vars); }
-	}
-
-	@RequiredArgsConstructor
-	public static final class FloatMul implements ExpressionParser.FloatEval {
-		private final ExpressionParser.FloatEval l, r;
-
-		@Override
-		public float apply(VariableSupplier vars) { return l.apply(vars) * r.apply(vars); }
-	}
-
-	@RequiredArgsConstructor
-	public static final class FloatDiv implements ExpressionParser.FloatEval {
-		private final ExpressionParser.FloatEval l, r;
-
-		@Override
-		public float apply(VariableSupplier vars) { return l.apply(vars) / r.apply(vars); }
-	}
-
-	@RequiredArgsConstructor
-	public static final class FloatMod implements ExpressionParser.FloatEval {
-		private final ExpressionParser.FloatEval l, r;
-
-		@Override
-		public float apply(VariableSupplier vars) { return l.apply(vars) % r.apply(vars); }
 	}
 
 	@RequiredArgsConstructor
@@ -208,19 +128,89 @@ public class ExpressionParserEvaluators {
 	}
 
 	@RequiredArgsConstructor
-	public static final class BooleanAnd implements ExpressionParser.BooleanEval {
-		private final ExpressionParser.BooleanEval l, r;
+	public static final class BooleanTernary implements ExpressionParser.BooleanEval {
+		private final ExpressionParser.BooleanEval condition, ifTrue, ifFalse;
 
 		@Override
-		public boolean apply(VariableSupplier vars) { return l.apply(vars) && r.apply(vars); }
+		public boolean apply(VariableSupplier vars) { return condition.apply(vars) ? ifTrue.apply(vars) : ifFalse.apply(vars); }
 	}
 
 	@RequiredArgsConstructor
-	public static final class BooleanOr implements ExpressionParser.BooleanEval {
+	public static final class IntMathOperation implements ExpressionParser.IntEval {
+		private final ExpressionParser.Operator op;
+		private final ExpressionParser.IntEval l, r;
+
+		@Override
+		public int apply(VariableSupplier vars) {
+			final int lVal = l.apply(vars);
+			final int rVal = r.apply(vars);
+
+			switch (op) {
+				case ADD:
+					return lVal + rVal;
+				case SUB:
+					return lVal - rVal;
+				case MUL:
+					return lVal * rVal;
+				case DIV:
+					return lVal / rVal;
+				case MOD:
+					return lVal % rVal;
+			}
+
+			throw new UnsupportedOperationException("Operator '" + op + "' is not a math operator");
+		}
+	}
+
+	@RequiredArgsConstructor
+	public static final class FloatMathOperation implements ExpressionParser.FloatEval {
+		private final ExpressionParser.Operator op;
+		private final ExpressionParser.FloatEval l, r;
+
+		@Override
+		public float apply(VariableSupplier vars) {
+			final float lVal = l.apply(vars);
+			final float rVal = r.apply(vars);
+
+			switch (op) {
+				case ADD:
+					return lVal + rVal;
+				case SUB:
+					return lVal - rVal;
+				case MUL:
+					return lVal * rVal;
+				case DIV:
+					return lVal / rVal;
+				case MOD:
+					return lVal % rVal;
+			}
+
+			throw new UnsupportedOperationException("Operator '" + op + "' is not a math operator");
+		}
+	}
+
+	@RequiredArgsConstructor
+	public static final class BooleanComparisons implements ExpressionParser.BooleanEval {
+		private final ExpressionParser.Operator op;
 		private final ExpressionParser.BooleanEval l, r;
 
 		@Override
-		public boolean apply(VariableSupplier vars) { return l.apply(vars) || r.apply(vars); }
+		public boolean apply(VariableSupplier vars) {
+			final boolean lVal = l.apply(vars);
+			final boolean rVal = r.apply(vars);
+			switch (op) {
+				case AND:
+					return lVal && rVal;
+				case OR:
+					return lVal || rVal;
+				case EQUAL:
+					return lVal == rVal;
+				case NOTEQUAL:
+					return lVal != rVal;
+			}
+
+			throw new UnsupportedOperationException("Operator '" + op + "' is not a boolean comparison operator");
+		}
 	}
 
 	@RequiredArgsConstructor
@@ -232,122 +222,58 @@ public class ExpressionParserEvaluators {
 	}
 
 	@RequiredArgsConstructor
-	public static final class IntLess implements ExpressionParser.BooleanEval {
+	public static final class IntComparisons implements ExpressionParser.BooleanEval {
+		private final ExpressionParser.Operator op;
 		private final ExpressionParser.IntEval l, r;
 
 		@Override
-		public boolean apply(VariableSupplier vars) { return l.apply(vars) < r.apply(vars); }
+		public boolean apply(VariableSupplier vars) {
+			final int lVal = l.apply(vars);
+			final int rVal = r.apply(vars);
+			switch (op) {
+				case LESS:
+					return lVal < rVal;
+				case LEQUAL:
+					return lVal <= rVal;
+				case GREATER:
+					return lVal > rVal;
+				case GEQUAL:
+					return lVal >= rVal;
+				case EQUAL:
+					return lVal == rVal;
+				case NOTEQUAL:
+					return lVal != rVal;
+			}
+
+			throw new UnsupportedOperationException("Operator '" + op + "' is not a int comparison operator");
+		}
 	}
 
 	@RequiredArgsConstructor
-	public static final class IntLessEqual implements ExpressionParser.BooleanEval {
-		private final ExpressionParser.IntEval l, r;
-
-		@Override
-		public boolean apply(VariableSupplier vars) { return l.apply(vars) <= r.apply(vars); }
-	}
-
-	@RequiredArgsConstructor
-	public static final class IntGreater implements ExpressionParser.BooleanEval {
-		private final ExpressionParser.IntEval l, r;
-
-		@Override
-		public boolean apply(VariableSupplier vars) { return l.apply(vars) > r.apply(vars); }
-	}
-
-	@RequiredArgsConstructor
-	public static final class IntGreaterEqual implements ExpressionParser.BooleanEval {
-		private final ExpressionParser.IntEval l, r;
-
-		@Override
-		public boolean apply(VariableSupplier vars) { return l.apply(vars) >= r.apply(vars); }
-	}
-
-	@RequiredArgsConstructor
-	public static final class IntEqual implements ExpressionParser.BooleanEval {
-		private final ExpressionParser.IntEval l, r;
-
-		@Override
-		public boolean apply(VariableSupplier vars) { return l.apply(vars) == r.apply(vars); }
-	}
-
-	@RequiredArgsConstructor
-	public static final class IntNotEqual implements ExpressionParser.BooleanEval {
-		private final ExpressionParser.IntEval l, r;
-
-		@Override
-		public boolean apply(VariableSupplier vars) { return l.apply(vars) != r.apply(vars); }
-	}
-
-	@RequiredArgsConstructor
-	public static final class FloatLess implements ExpressionParser.BooleanEval {
+	public static final class FloatComparisons implements ExpressionParser.BooleanEval {
+		private final ExpressionParser.Operator op;
 		private final ExpressionParser.FloatEval l, r;
 
 		@Override
-		public boolean apply(VariableSupplier vars) { return l.apply(vars) < r.apply(vars); }
-	}
+		public boolean apply(VariableSupplier vars) {
+			final float lVal = l.apply(vars);
+			final float rVal = r.apply(vars);
+			switch (op) {
+				case LESS:
+					return lVal < rVal;
+				case LEQUAL:
+					return lVal <= rVal;
+				case GREATER:
+					return lVal > rVal;
+				case GEQUAL:
+					return lVal >= rVal;
+				case EQUAL:
+					return lVal == rVal;
+				case NOTEQUAL:
+					return lVal != rVal;
+			}
 
-	@RequiredArgsConstructor
-	public static final class FloatLessEqual implements ExpressionParser.BooleanEval {
-		private final ExpressionParser.FloatEval l, r;
-
-		@Override
-		public boolean apply(VariableSupplier vars) { return l.apply(vars) <= r.apply(vars); }
-	}
-
-	@RequiredArgsConstructor
-	public static final class FloatGreater implements ExpressionParser.BooleanEval {
-		private final ExpressionParser.FloatEval l, r;
-
-		@Override
-		public boolean apply(VariableSupplier vars) { return l.apply(vars) > r.apply(vars); }
-	}
-
-	@RequiredArgsConstructor
-	public static final class FloatGreaterEqual implements ExpressionParser.BooleanEval {
-		private final ExpressionParser.FloatEval l, r;
-
-		@Override
-		public boolean apply(VariableSupplier vars) { return l.apply(vars) >= r.apply(vars); }
-	}
-
-	@RequiredArgsConstructor
-	public static final class FloatEqual implements ExpressionParser.BooleanEval {
-		private final ExpressionParser.FloatEval l, r;
-
-		@Override
-		public boolean apply(VariableSupplier vars) { return l.apply(vars) == r.apply(vars); }
-	}
-
-	@RequiredArgsConstructor
-	public static final class FloatNotEqual implements ExpressionParser.BooleanEval {
-		private final ExpressionParser.FloatEval l, r;
-
-		@Override
-		public boolean apply(VariableSupplier vars) { return l.apply(vars) != r.apply(vars); }
-	}
-
-	@RequiredArgsConstructor
-	public static final class BooleanEqual implements ExpressionParser.BooleanEval {
-		private final ExpressionParser.BooleanEval l, r;
-
-		@Override
-		public boolean apply(VariableSupplier vars) { return l.apply(vars) == r.apply(vars); }
-	}
-
-	@RequiredArgsConstructor
-	public static final class BooleanNotEqual implements ExpressionParser.BooleanEval {
-		private final ExpressionParser.BooleanEval l, r;
-
-		@Override
-		public boolean apply(VariableSupplier vars) { return l.apply(vars) != r.apply(vars); }
-	}
-
-	@RequiredArgsConstructor
-	public static final class BooleanTernary implements ExpressionParser.BooleanEval {
-		private final ExpressionParser.BooleanEval condition, ifTrue, ifFalse;
-
-		@Override
-		public boolean apply(VariableSupplier vars) { return condition.apply(vars) ? ifTrue.apply(vars) : ifFalse.apply(vars); }
+			throw new UnsupportedOperationException("Operator '" + op + "' is not a int comparison operator");
+		}
 	}
 }
