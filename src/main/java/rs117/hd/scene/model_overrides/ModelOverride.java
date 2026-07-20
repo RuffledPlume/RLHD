@@ -3,8 +3,10 @@ package rs117.hd.scene.model_overrides;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.annotations.JsonAdapter;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nullable;
@@ -41,6 +43,7 @@ public class ModelOverride
 	public static final ModelOverride UNLIT = new ModelOverride(true).baseMaterial(Material.UNLIT).undoVanillaShading(false);
 
 	private static final Set<Integer> EMPTY = new HashSet<>();
+	private static final List<AhslPredicate> CONDITIONS = new ArrayList<>();
 
 	public String description = "UNKNOWN";
 
@@ -404,8 +407,7 @@ public class ModelOverride
 			arr.add(element);
 		}
 
-		AhslPredicate combinedPredicate = null;
-
+		CONDITIONS.clear();
 		for (var el : arr) {
 			if (el.isJsonNull())
 				continue;
@@ -446,18 +448,24 @@ public class ModelOverride
 				continue;
 			}
 
-			if (combinedPredicate == null) {
-				combinedPredicate = condition;
-			} else {
-				var prev = combinedPredicate;
-				combinedPredicate = ahsl -> prev.test(ahsl) || condition.test(ahsl);
-			}
+			CONDITIONS.add(condition);
 		}
 
-		if (combinedPredicate == null)
+		if (CONDITIONS.isEmpty())
 			return ahsl -> false;
 
-		return combinedPredicate;
+		final int conditionCount = CONDITIONS.size();
+		if(conditionCount == 1)
+			return CONDITIONS.get(0);
+
+		final AhslPredicate[] conditions = CONDITIONS.toArray(new AhslPredicate[conditionCount]);
+		return ahsl -> {
+			for (int i = 0; i < conditionCount; i++) {
+				if (conditions[i].test(ahsl))
+					return true;
+			}
+			return false;
+		};
 	}
 
 	public void computeModelUvw(float[] out, int i, float x, float y, float z, int orientation) {
