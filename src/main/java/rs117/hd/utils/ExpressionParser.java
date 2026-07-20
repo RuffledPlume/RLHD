@@ -649,18 +649,19 @@ public class ExpressionParser {
 			if (op == null)
 				return toBooleanEval(left);
 
+			if (op == NOT)
+				return new BooleanNot(toBooleanEval(right));
+
 			final boolean isFloatCompare =
 				left instanceof Float || left instanceof Expression && ((Expression) left).hasDecimal ||
 				right instanceof Float || right instanceof Expression && ((Expression)right).hasDecimal;
 
 			final boolean isBooleanCompare =
+				op == Operator.AND || op == Operator.OR ||
 				left instanceof Boolean || left instanceof Expression && ((Expression) left).isBoolean() ||
 				right instanceof Boolean || right instanceof Expression && ((Expression) right).isBoolean();
 
 			if(isBooleanCompare) {
-				if(op == NOT)
-					return new BooleanNot(toBooleanEval(right));
-
 				if(op == TERNARY)
 					return new BooleanTernary(toBooleanEval(ternary), toBooleanEval(left), toBooleanEval(right));
 
