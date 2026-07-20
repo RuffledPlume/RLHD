@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.annotations.JsonAdapter;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -12,6 +13,7 @@ import java.util.Set;
 import javax.annotation.Nullable;
 import lombok.AllArgsConstructor;
 import lombok.NoArgsConstructor;
+import lombok.RequiredArgsConstructor;
 import lombok.Setter;
 import lombok.experimental.Accessors;
 import lombok.extern.slf4j.Slf4j;
@@ -43,7 +45,15 @@ public class ModelOverride
 	public static final ModelOverride UNLIT = new ModelOverride(true).baseMaterial(Material.UNLIT).undoVanillaShading(false);
 
 	private static final Set<Integer> EMPTY = new HashSet<>();
-	private static final List<AhslPredicate> CONDITIONS = new ArrayList<>();
+
+	private static final Comparator<WeightedPredicate> WEIGHTED_PREDICATE_COMPARATOR = Comparator.comparingInt((val) -> val.weight);
+	private static final List<WeightedPredicate> PREDICATES = new ArrayList<>();
+
+	@RequiredArgsConstructor
+	private static class WeightedPredicate {
+		public final AhslPredicate condition;
+		public final int weight;
+	}
 
 	public String description = "UNKNOWN";
 
@@ -407,7 +417,7 @@ public class ModelOverride
 			arr.add(element);
 		}
 
-		CONDITIONS.clear();
+		PREDICATES.clear();
 		for (var el : arr) {
 			if (el.isJsonNull())
 				continue;
@@ -416,11 +426,12 @@ public class ModelOverride
 				continue;
 			}
 
-			AhslPredicate condition;
+			AhslPredicate condition = null;
+			int weight = 1;
 			var prim = el.getAsJsonPrimitive();
 			if (prim.isBoolean()) {
-				boolean bool = prim.getAsBoolean();
-				condition = ahsl -> bool;
+				if(prim.getAsBoolean())
+					condition = ahsl -> true;
 			} else if (prim.isNumber()) {
 				try {
 					int targetHsl = prim.getAsInt();
@@ -443,22 +454,30 @@ public class ModelOverride
 
 				final var predicate = expr.toPredicate();
 				condition = predicate::test;
+				weight = expr.variables.size();
 			} else {
 				log.warn("Skipping unexpected HSL condition primitive '{}' in override '{}'", el, description);
 				continue;
 			}
 
-			CONDITIONS.add(condition);
+			if(condition != null)
+				PREDICATES.add(new WeightedPredicate(condition, weight));
 		}
 
-		if (CONDITIONS.isEmpty())
+		if (PREDICATES.isEmpty())
 			return ahsl -> false;
 
-		final int conditionCount = CONDITIONS.size();
+		final int conditionCount = PREDICATES.size();
 		if(conditionCount == 1)
-			return CONDITIONS.get(0);
+			return PREDICATES.get(0).condition;
 
-		final AhslPredicate[] conditions = CONDITIONS.toArray(new AhslPredicate[conditionCount]);
+		// Sort based on weight to push cheaper conditions first
+		PREDICATES.sort(WEIGHTED_PREDICATE_COMPARATOR);
+
+		final AhslPredicate[] conditions = new AhslPredicate[conditionCount];
+		for(int i = 0; i < conditionCount; i++)
+			conditions[i] = PREDICATES.get(i).condition;
+
 		return ahsl -> {
 			for (int i = 0; i < conditionCount; i++) {
 				if (conditions[i].test(ahsl))
