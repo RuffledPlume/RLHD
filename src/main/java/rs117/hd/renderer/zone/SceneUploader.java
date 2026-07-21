@@ -1549,8 +1549,7 @@ public class SceneUploader implements AutoCloseable {
 					}
 				}
 			} else if (modelOverride.colorOverrides != null) {
-				ahslSupplier.ahsl = (0xFF - transparency) << 16 | color1;
-				final var override = modelOverride.testColorOverrides(ahslSupplier);
+				final var override = modelOverride.testColorOverrides(ahslSupplier.ahsl(transparency, color1));
 				if (override != null) {
 					faceOverride = override;
 					material = faceOverride.baseMaterial;
@@ -1870,6 +1869,7 @@ public class SceneUploader implements AutoCloseable {
 		visibleFaces.ensureCapacity(triangleCount);
 		culledFaces.ensureCapacity(triangleCount);
 
+		final int[] color1s = model.getFaceColors1();
 		final int[] color3s = model.getFaceColors3();
 		final int[] indices1 = model.getFaceIndices1();
 		final int[] indices2 = model.getFaceIndices2();
@@ -1927,8 +1927,7 @@ public class SceneUploader implements AutoCloseable {
 					}
 				}
 			} else if (modelOverride.colorOverrides != null) {
-				ahslSupplier.ahsl = (0xFF - transparency) << 16 | model.getFaceColors1()[f];
-				final var override = modelOverride.testColorOverrides(ahslSupplier);
+				final var override = modelOverride.testColorOverrides(ahslSupplier.ahsl(transparency, color1s[f]));
 				if (override != null) {
 					faceOverride = override;
 					material = faceOverride.baseMaterial;

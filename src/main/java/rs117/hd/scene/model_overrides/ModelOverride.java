@@ -362,8 +362,28 @@ public class ModelOverride
 		this.isDummy = isDummy;
 	}
 
-	public static class AHSLSupplier implements VariableSupplier {
-		public int ahsl;
+	@RequiredArgsConstructor
+	public static final class HSLComparison implements AhslPredicate {
+		public final int targetHsl;
+
+		@Override
+		public boolean test(AHSLSupplier vars) { return vars.getInt("hsl") == targetHsl; }
+	}
+
+	public static final class AHSLSupplier implements VariableSupplier {
+		private int alpha;
+		private int h, s, l;
+		private int ahsl, hsl;
+
+		public AHSLSupplier ahsl(int transparency, int color) {
+			ahsl = (0xFF - transparency) << 16 | hsl;
+			alpha = transparency & 0xFF;
+			hsl = color & 0xFFFF;
+			h = ahsl >>> 10 & 0x3F;
+			s = ahsl >>> 7 & 0x7;
+			l = ahsl & 0x7F;
+			return this;
+		}
 
 		@Override
 		public Object get(String name) {
@@ -375,13 +395,13 @@ public class ModelOverride
 			if(name.length() == 1) {
 				switch (name.charAt(0)) {
 					case 'a':
-						return ahsl >>> 16 & 0xFF;
+						return alpha;
 					case 'h':
-						return ahsl >>> 10 & 0x3F;
+						return h;
 					case 's':
-						return ahsl >>> 7 & 0x7;
+						return s;
 					case 'l':
-						return ahsl & 0x7F;
+						return l;
 					default:
 						assert false : "Unexpected variable: " + name;
 						return 0;
@@ -392,7 +412,7 @@ public class ModelOverride
 				case "ahsl":
 					return ahsl;
 				case "hsl":
-					return ahsl & 0xFFFF;
+					return hsl;
 				default:
 					assert false : "Unexpected variable: " + name;
 					return 0;
@@ -434,8 +454,7 @@ public class ModelOverride
 					condition = ahsl -> true;
 			} else if (prim.isNumber()) {
 				try {
-					int targetHsl = prim.getAsInt();
-					condition = vars -> (vars.getInt("ahsl") & 0xFFFF) == targetHsl;
+					condition = new HSLComparison(prim.getAsInt());
 				} catch (Exception ex) {
 					log.warn("Expected integer, but got {} in override '{}'", el, description);
 					continue;
