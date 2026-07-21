@@ -2,6 +2,10 @@ package rs117.hd.utils;
 
 import java.util.function.Function;
 import lombok.RequiredArgsConstructor;
+import rs117.hd.utils.ExpressionParser.BooleanEval;
+import rs117.hd.utils.ExpressionParser.FloatEval;
+import rs117.hd.utils.ExpressionParser.IntEval;
+import rs117.hd.utils.ExpressionParser.Operator;
 
 public class ExpressionParserEvaluators {
 	@RequiredArgsConstructor
@@ -22,7 +26,7 @@ public class ExpressionParserEvaluators {
 
 	@RequiredArgsConstructor
 	public static final class IntToObjectFunction implements Function<VariableSupplier, Object> {
-		private final ExpressionParser.IntEval eval;
+		private final IntEval eval;
 
 		@Override
 		public Object apply(VariableSupplier vars) { return eval.apply(vars); }
@@ -30,7 +34,7 @@ public class ExpressionParserEvaluators {
 
 	@RequiredArgsConstructor
 	public static final class FloatToObjectFunction implements Function<VariableSupplier, Object> {
-		private final ExpressionParser.FloatEval eval;
+		private final FloatEval eval;
 
 		@Override
 		public Object apply(VariableSupplier vars) { return eval.apply(vars); }
@@ -38,7 +42,7 @@ public class ExpressionParserEvaluators {
 
 	@RequiredArgsConstructor
 	public static final class BooleanToObjectFunction implements Function<VariableSupplier, Object> {
-		private final ExpressionParser.BooleanEval eval;
+		private final BooleanEval eval;
 
 		@Override
 		public Object apply(VariableSupplier vars) { return eval.apply(vars); }
@@ -46,7 +50,7 @@ public class ExpressionParserEvaluators {
 
 	@RequiredArgsConstructor
 	public static final class BooleanEvalPredicate implements ExpressionPredicate {
-		private final ExpressionParser.BooleanEval eval;
+		private final BooleanEval eval;
 
 		@Override
 		public boolean test(VariableSupplier vars) { return eval.apply(vars); }
@@ -54,7 +58,7 @@ public class ExpressionParserEvaluators {
 
 	@RequiredArgsConstructor
 	public static final class ObjectTernaryFunction implements Function<VariableSupplier, Object> {
-		private final ExpressionParser.BooleanEval condition;
+		private final BooleanEval condition;
 		private final Function<VariableSupplier, Object> ifTrue, ifFalse;
 
 		@Override
@@ -62,7 +66,7 @@ public class ExpressionParserEvaluators {
 	}
 
 	@RequiredArgsConstructor
-	public static final class IntConstant implements ExpressionParser.IntEval {
+	public static final class IntConstant implements IntEval {
 		private final int value;
 
 		@Override
@@ -70,7 +74,7 @@ public class ExpressionParserEvaluators {
 	}
 
 	@RequiredArgsConstructor
-	public static final class IntVariable implements ExpressionParser.IntEval {
+	public static final class IntVariable implements IntEval {
 		private final String key;
 
 		@Override
@@ -78,7 +82,7 @@ public class ExpressionParserEvaluators {
 	}
 
 	@RequiredArgsConstructor
-	public static final class FloatConstant implements ExpressionParser.FloatEval {
+	public static final class FloatConstant implements FloatEval {
 		private final float value;
 
 		@Override
@@ -86,7 +90,7 @@ public class ExpressionParserEvaluators {
 	}
 
 	@RequiredArgsConstructor
-	public static final class FloatVariable implements ExpressionParser.FloatEval {
+	public static final class FloatVariable implements FloatEval {
 		private final String key;
 
 		@Override
@@ -94,7 +98,7 @@ public class ExpressionParserEvaluators {
 	}
 
 	@RequiredArgsConstructor
-	public static final class BooleanConstant implements ExpressionParser.BooleanEval {
+	public static final class BooleanConstant implements BooleanEval {
 		private final boolean value;
 
 		@Override
@@ -102,7 +106,7 @@ public class ExpressionParserEvaluators {
 	}
 
 	@RequiredArgsConstructor
-	public static final class BooleanVariable implements ExpressionParser.BooleanEval {
+	public static final class BooleanVariable implements BooleanEval {
 		private final String key;
 
 		@Override
@@ -110,35 +114,35 @@ public class ExpressionParserEvaluators {
 	}
 
 	@RequiredArgsConstructor
-	public static final class IntTernary implements ExpressionParser.IntEval {
-		private final ExpressionParser.BooleanEval condition;
-		private final ExpressionParser.IntEval ifTrue, ifFalse;
+	public static final class IntTernary implements IntEval {
+		private final BooleanEval condition;
+		private final IntEval ifTrue, ifFalse;
 
 		@Override
 		public int apply(VariableSupplier vars) { return condition.apply(vars) ? ifTrue.apply(vars) : ifFalse.apply(vars); }
 	}
 
 	@RequiredArgsConstructor
-	public static final class FloatTernary implements ExpressionParser.FloatEval {
-		private final ExpressionParser.BooleanEval condition;
-		private final ExpressionParser.FloatEval ifTrue, ifFalse;
+	public static final class FloatTernary implements FloatEval {
+		private final BooleanEval condition;
+		private final FloatEval ifTrue, ifFalse;
 
 		@Override
 		public float apply(VariableSupplier vars) { return condition.apply(vars) ? ifTrue.apply(vars) : ifFalse.apply(vars); }
 	}
 
 	@RequiredArgsConstructor
-	public static final class BooleanTernary implements ExpressionParser.BooleanEval {
-		private final ExpressionParser.BooleanEval condition, ifTrue, ifFalse;
+	public static final class BooleanTernary implements BooleanEval {
+		private final BooleanEval condition, ifTrue, ifFalse;
 
 		@Override
 		public boolean apply(VariableSupplier vars) { return condition.apply(vars) ? ifTrue.apply(vars) : ifFalse.apply(vars); }
 	}
 
 	@RequiredArgsConstructor
-	public static final class IntMathOperation implements ExpressionParser.IntEval {
-		private final ExpressionParser.Operator op;
-		private final ExpressionParser.IntEval l, r;
+	public static final class IntMathOperation implements IntEval {
+		private final Operator op;
+		private final IntEval l, r;
 
 		@Override
 		public int apply(VariableSupplier vars) {
@@ -163,9 +167,9 @@ public class ExpressionParserEvaluators {
 	}
 
 	@RequiredArgsConstructor
-	public static final class FloatMathOperation implements ExpressionParser.FloatEval {
-		private final ExpressionParser.Operator op;
-		private final ExpressionParser.FloatEval l, r;
+	public static final class FloatMathOperation implements FloatEval {
+		private final Operator op;
+		private final FloatEval l, r;
 
 		@Override
 		public float apply(VariableSupplier vars) {
@@ -190,9 +194,9 @@ public class ExpressionParserEvaluators {
 	}
 
 	@RequiredArgsConstructor
-	public static final class BooleanComparisons implements ExpressionParser.BooleanEval {
-		private final ExpressionParser.Operator op;
-		private final ExpressionParser.BooleanEval l, r;
+	public static final class BooleanComparisons implements BooleanEval {
+		private final Operator op;
+		private final BooleanEval l, r;
 
 		@Override
 		public boolean apply(VariableSupplier vars) {
@@ -214,17 +218,17 @@ public class ExpressionParserEvaluators {
 	}
 
 	@RequiredArgsConstructor
-	public static final class BooleanNot implements ExpressionParser.BooleanEval {
-		private final ExpressionParser.BooleanEval operand;
+	public static final class BooleanNot implements BooleanEval {
+		private final BooleanEval operand;
 
 		@Override
 		public boolean apply(VariableSupplier vars) { return !operand.apply(vars); }
 	}
 
 	@RequiredArgsConstructor
-	public static final class IntComparisons implements ExpressionParser.BooleanEval {
-		private final ExpressionParser.Operator op;
-		private final ExpressionParser.IntEval l, r;
+	public static final class IntComparisons implements BooleanEval {
+		private final Operator op;
+		private final IntEval l, r;
 
 		@Override
 		public boolean apply(VariableSupplier vars) {
@@ -250,9 +254,9 @@ public class ExpressionParserEvaluators {
 	}
 
 	@RequiredArgsConstructor
-	public static final class FloatComparisons implements ExpressionParser.BooleanEval {
-		private final ExpressionParser.Operator op;
-		private final ExpressionParser.FloatEval l, r;
+	public static final class FloatComparisons implements BooleanEval {
+		private final Operator op;
+		private final FloatEval l, r;
 
 		@Override
 		public boolean apply(VariableSupplier vars) {
