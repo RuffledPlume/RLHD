@@ -1,8 +1,11 @@
 package rs117.hd.scene;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Objects;
+import java.util.Random;
 import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
@@ -95,8 +98,10 @@ public class ModelOverrideManager {
 
 				log.debug("Loaded {} model overrides", modelOverrides.size());
 
-				if (first)
+				if (first) {
+					compareLegacyAndNewExpressionParsers();
 					return;
+				}
 
 				plugin.renderer.clearCaches();
 				plugin.renderer.reloadScene();
@@ -107,6 +112,68 @@ public class ModelOverrideManager {
 				log.trace("loadingLock unlocked - holdCount: {}", sceneManager.getLoadingLock().getHoldCount());
 			}
 		}));
+	}
+
+
+	public void compareLegacyAndNewExpressionParsers() {
+		final int[] testSamples = generateSamples(0xC0FFEEL, 200);
+		final ModelOverride.AHSLSupplier vars = new ModelOverride.AHSLSupplier();
+
+		List<ModelOverride> modelOverrides = getAllModelOverrides();
+		int passed = 0;
+		int count = 0;
+		for(ModelOverride override : modelOverrides) {
+			if(override.colorOverrides == null)
+				continue;
+
+			for(ModelOverride inner : override.colorOverrides) {
+				ModelOverride.AhslPredicate legacyPredicate = inner.parseLegacyAhslConditions(inner.colors());
+				ModelOverride.AhslPredicate newPredicate = inner.parseAhslConditions(inner.colors());
+
+				for(int i = 0; i < testSamples.length; i++) {
+					vars.ahsl(testSamples[i]);
+
+					final boolean legacyResult = legacyPredicate.test(vars);
+					final boolean newResult = newPredicate.test(vars);
+
+					count++;
+					if(legacyResult == newResult)
+						passed++;
+				}
+			}
+		}
+		assert passed == count;
+		log.debug("New Expression Parser Passed: {} out of: {}", passed, count);
+	}
+
+	private static int[] generateSamples(long seed, int randomCount) {
+		Random rnd = new Random(seed);
+
+		List<Integer> values = new ArrayList<>(List.of(
+			pack(0, 0, 0, 0),
+			pack(255, 63, 7, 127),
+			pack(0, 63, 0, 127),
+			pack(255, 0, 7, 0),
+			pack(0, 0, 0, 127),
+			pack(0, 63, 7, 0)
+		));
+
+		for (int i = 0; i < randomCount; i++) {
+			int a = rnd.nextInt(256);
+			int h = rnd.nextInt(64);
+			int s = rnd.nextInt(8);
+			int l = rnd.nextInt(128);
+			values.add(pack(a, h, s, l));
+		}
+
+		int[] out = new int[values.size()];
+		for (int i = 0; i < out.length; i++)
+			out[i] = values.get(i);
+		return out;
+	}
+
+	private static int pack(int a, int h, int s, int l) {
+		return a << 16 | h << 10 | s << 7 | l;
 	}
 
 	public void shutDown() {
@@ -124,6 +191,13 @@ public class ModelOverrideManager {
 	public void reload() {
 		shutDown();
 		startUp();
+	}
+
+	public List<ModelOverride> getAllModelOverrides() {
+		ArrayList<ModelOverride> allModelOverrides = new ArrayList<>();
+		for(var pair : modelOverrides)
+			allModelOverrides.add(pair.getValue());
+		return allModelOverrides;
 	}
 
 	private void addOverride(@Nullable ModelOverride override, GamevalManager.Handle gamevals) {

@@ -12,6 +12,7 @@ import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nullable;
 import lombok.AllArgsConstructor;
+import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
@@ -128,6 +129,7 @@ public class ModelOverride
 	public Map<Material, ModelOverride> materialOverrides;
 	public ModelOverride[] colorOverrides;
 
+	@Getter
 	private JsonElement colors;
 
 	public transient boolean isDummy;
@@ -385,6 +387,16 @@ public class ModelOverride
 			return this;
 		}
 
+		public AHSLSupplier ahsl(int ahsl) {
+			this.ahsl = ahsl;
+			alpha = (ahsl >> 16) & 0xFF;
+			hsl = ahsl & 0xFFFF;
+			h = ahsl >>> 10 & 0x3F;
+			s = ahsl >>> 7 & 0x7;
+			l = ahsl & 0x7F;
+			return this;
+		}
+
 		@Override
 		public Object get(String name) {
 			return getInt(name);
@@ -425,7 +437,75 @@ public class ModelOverride
 		}
 	}
 
-	private AhslPredicate parseAhslConditions(JsonElement element) {
+	public AhslPredicate parseLegacyAhslConditions(JsonElement element) {
+		if (element == null)
+			return ahsl -> false;
+
+		JsonArray arr;
+		if (element.isJsonArray()) {
+			arr = element.getAsJsonArray();
+		} else {
+			arr = new JsonArray();
+			arr.add(element);
+		}
+
+		AhslPredicate combinedPredicate = null;
+
+		for (var el : arr) {
+			if (el.isJsonNull())
+				continue;
+			if (!el.isJsonPrimitive()) {
+				log.warn("Skipping unexpected HSL condition '{}' in override '{}'", el, description);
+				continue;
+			}
+
+			AhslPredicate condition;
+			var prim = el.getAsJsonPrimitive();
+			if (prim.isBoolean()) {
+				boolean bool = prim.getAsBoolean();
+				condition = ahsl -> bool;
+			} else if (prim.isNumber()) {
+				try {
+					int targetHsl = prim.getAsInt();
+					condition = ahsl -> ahsl.getInt("hsl") == targetHsl;
+				} catch (Exception ex) {
+					log.warn("Expected integer, but got {} in override '{}'", el, description);
+					continue;
+				}
+			} else if (prim.isString()) {
+				var expr = asExpression(parseExpression(prim.getAsString()));
+
+				if (Props.DEVELOPMENT) {
+					// Ensure all variables are defined
+					final Set<String> knownVariables = Set.of("a", "h", "s", "l", "hsl", "ahsl");
+					for (var variable : expr.variables)
+						if (!knownVariables.contains(variable))
+							throw new IllegalStateException(
+								"Expression '" + prim.getAsString() + "' contains unknown variable '" + variable + "'");
+				}
+
+				var predicate = expr.toPredicate();
+				condition = predicate::test;
+			} else {
+				log.warn("Skipping unexpected HSL condition primitive '{}' in override '{}'", el, description);
+				continue;
+			}
+
+			if (combinedPredicate == null) {
+				combinedPredicate = condition;
+			} else {
+				var prev = combinedPredicate;
+				combinedPredicate = ahsl -> prev.test(ahsl) || condition.test(ahsl);
+			}
+		}
+
+		if (combinedPredicate == null)
+			return ahsl -> false;
+
+		return combinedPredicate;
+	}
+
+	public AhslPredicate parseAhslConditions(JsonElement element) {
 		if (element == null)
 			return ahsl -> false;
 
