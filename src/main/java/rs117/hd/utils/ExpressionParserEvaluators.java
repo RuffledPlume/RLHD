@@ -200,17 +200,17 @@ public class ExpressionParserEvaluators {
 
 		@Override
 		public boolean apply(VariableSupplier vars) {
+			// AND/OR both can short circuit based on lVal value, so rVal is being sampled as part of the check
 			final boolean lVal = l.apply(vars);
-			final boolean rVal = r.apply(vars);
 			switch (op) {
 				case AND:
-					return lVal && rVal;
+					return lVal && r.apply(vars);
 				case OR:
-					return lVal || rVal;
+					return lVal || r.apply(vars);
 				case EQUAL:
-					return lVal == rVal;
+					return lVal == r.apply(vars);
 				case NOTEQUAL:
-					return lVal != rVal;
+					return lVal != r.apply(vars);
 			}
 
 			throw new UnsupportedOperationException("Operator '" + op + "' is not a boolean comparison operator");
