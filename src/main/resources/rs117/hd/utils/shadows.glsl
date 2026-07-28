@@ -149,3 +149,184 @@ float sampleShadowMap(vec3 fragPos, vec2 distortion, float lightDotNormals) {
 #else
 #define sampleShadowMap(fragPos, distortion, lightDotNormals) 0
 #endif
+
+#if POSITIONAL_SHADOWS
+uniform sampler2DArrayShadow shadowCubemapArray;
+
+const float SHADOW_NEAR_PLANE = 10.0;
+
+// Must exactly match ShadowManager's atlas/pack constants on the Java side:
+// ATLAS_SIZE, MIN_FACE_RESOLUTION (-> MIN_SIZE_EXP), and the SIZE_TIER_BITS /
+// GRID_BITS derived from them. If those constants change, these must too.
+const float SHADOW_ATLAS_SIZE = 4096.0;
+const int SHADOW_ATLAS_MIN_SIZE_EXP = 5;  // log2(MIN_FACE_RESOLUTION), i.e. log2(32)
+const int SHADOW_ATLAS_TIER_BITS = 2;
+const int SHADOW_ATLAS_GRID_BITS = 7;
+
+const float NORMAL_BIAS_TEXELS = 10.0;
+
+const vec3 SHADOW_FACE_DIR[6] = vec3[](
+	vec3( 1,  0,  0), vec3(-1,  0,  0),
+	vec3( 0,  1,  0), vec3( 0, -1,  0),
+	vec3( 0,  0,  1), vec3( 0,  0, -1)
+);
+const vec3 SHADOW_FACE_UP[6] = vec3[](
+	vec3(0, -1,  0), vec3(0, -1,  0),
+	vec3(0,  0,  1), vec3(0,  0, -1),
+	vec3(0, -1,  0), vec3(0, -1,  0)
+);
+
+float shadowDistanceToDepth(float dist, float near, float far) {
+	float a = (1.0 + near / far) / (near / far - 1.0);
+	float b = a * near - near;
+	float ndcZ = -a + b / dist;
+	return ndcZ * 0.5 + 0.5;
+}
+
+int shadowSelectFace(vec3 dir) {
+	vec3 a = abs(dir);
+	if (a.x >= a.y && a.x >= a.z)
+		return dir.x > 0.0 ? 0 : 1;
+	if (a.y >= a.z)
+		return dir.y > 0.0 ? 2 : 3;
+	return dir.z > 0.0 ? 4 : 5;
+}
+
+// Inverse of ShadowManager.ShadowData.pack(). Returns false (no shadow) for
+// the sentinel value written when a light has no shadow this frame -- see
+// ShadowManager.update(), where hasShadow == false should map to -1 here.
+// originPx: atlas-space pixel origin of this light's square region (same on all 6 layers).
+// sizePx: edge length in pixels of that region.
+bool unpackShadowAtlasRect(int packedShadowData, out vec2 originPx, out float sizePx) {
+	if (packedShadowData < 0)
+		return false;
+
+	uint p = uint(packedShadowData);
+	uint tierMask = (1u << SHADOW_ATLAS_TIER_BITS) - 1u;
+	uint gridMask = (1u << SHADOW_ATLAS_GRID_BITS) - 1u;
+
+	uint tier  = p & tierMask;
+	uint gridX = (p >> SHADOW_ATLAS_TIER_BITS) & gridMask;
+	uint gridY = (p >> (SHADOW_ATLAS_TIER_BITS + SHADOW_ATLAS_GRID_BITS)) & gridMask;
+
+	int exponent = int(tier) + SHADOW_ATLAS_MIN_SIZE_EXP;
+	sizePx = float(1 << exponent);
+	originPx = vec2(gridX, gridY) * sizePx;
+	return true;
+}
+
+// Core face-select + UV-projection math, shared by sampleShadow() and the
+// debug entry points below, so debugging always exercises the exact same
+// code path as real sampling rather than a parallel reimplementation.
+//
+// dirFromLight: fragPos - lightPos (or a biased variant), NOT normalized --
+//   forwardDist depends on its unnormalized magnitude along the dominant axis.
+// originPx/sizePx: this light's atlas rect, as unpacked by unpackShadowAtlasRect.
+// faceOut: receives the selected cubemap face index (0-5).
+// Returns: vec3(atlasU, atlasV, forwardDist)
+vec3 shadowAtlasUV(vec3 dirFromLight, vec2 originPx, float sizePx, out int faceOut) {
+	int face = shadowSelectFace(dirFromLight);
+	faceOut = face;
+
+	vec3 forward = SHADOW_FACE_DIR[face];
+	vec3 up = SHADOW_FACE_UP[face];
+	vec3 right = normalize(cross(forward, up));
+	vec3 trueUp = cross(right, forward);
+
+	float forwardDist = dot(dirFromLight, forward);
+	float u =  dot(dirFromLight, right)  / forwardDist;
+	float v = -dot(dirFromLight, trueUp) / forwardDist;
+
+	// Face-local UV in [0,1], then remapped into this light's atlas region
+	vec2 faceUV = vec2(u, v) * 0.5 + 0.5;
+	vec2 atlasUV = (originPx + faceUV * sizePx) / SHADOW_ATLAS_SIZE;
+
+	return vec3(atlasUV, forwardDist);
+}
+
+// Debug entry point: computes the *unbiased* atlas UV + face for the vector
+// from lightPos to fragPos (no normal-offset bias applied), for calling
+// directly from the main fragment shader -- e.g. to output atlasUV.xy as a
+// debug color, or faceOut as a color-coded face index, and sanity-check
+// against RenderDoc's texture/mesh inspector for a specific light.
+// Returns false (and leaves originPx/sizePx/faceOut/atlasUV.z untouched
+// aside from a sentinel) if this light has no shadow data this frame.
+bool debugShadowAtlasUV(vec3 fragPos, vec3 lightPos, int packedShadowData, out vec2 atlasUV, out int faceOut) {
+	vec2 originPx;
+	float sizePx;
+	if (!unpackShadowAtlasRect(packedShadowData, originPx, sizePx)) {
+		atlasUV = vec2(-1.0);
+		faceOut = -1;
+		return false;
+	}
+
+	vec3 result = shadowAtlasUV(fragPos - lightPos, originPx, sizePx, faceOut);
+	atlasUV = result.xy;
+	return true;
+}
+
+// Distinct, easy-to-eyeball color per cubemap face, following the common
+// debug-cubemap convention: +X red, -X cyan, +Y green, -Y magenta, +Z blue,
+// -Z yellow. Deliberately maximally separated (not a gradient/index/5.0),
+// so adjacent faces never look similar even at grazing angles near a seam.
+// faceIndex == -1 (no shadow data) renders as neutral gray.
+vec3 debugShadowFaceColor(int faceIndex) {
+	if (faceIndex == 0) return vec3(1, 0, 0); // +X red
+	if (faceIndex == 1) return vec3(0, 1, 1); // -X cyan
+	if (faceIndex == 2) return vec3(0, 1, 0); // +Y green
+	if (faceIndex == 3) return vec3(1, 0, 1); // -Y magenta
+	if (faceIndex == 4) return vec3(0, 0, 1); // +Z blue
+	if (faceIndex == 5) return vec3(1, 1, 0); // -Z yellow
+	return vec3(0.5); // no shadow data this frame
+}
+
+// Convenience wrapper: just want to see which face a light's shadow lookup
+// selected for the current fragment, without wiring up atlasUV separately.
+// Uses the same unbiased (no normal-offset) direction as debugShadowAtlasUV,
+// so face boundaries line up with what debugShadowAtlasUV shows too.
+vec3 debugShadowFace(vec3 fragPos, vec3 lightPos, int packedShadowData) {
+	vec2 unusedUV;
+	int face;
+	debugShadowAtlasUV(fragPos, lightPos, packedShadowData, unusedUV, face);
+	return debugShadowFaceColor(face);
+}
+
+// fragPos, lightPos: world space. normal: world-space surface normal at fragPos.
+// packedShadowData: PointLight.packedShadowData for this light, as-is from the UBO.
+float sampleShadow(vec3 fragPos, vec3 lightPos, vec3 normal, int packedShadowData, float lightRadiusSq) {
+	vec2 originPx;
+	float sizePx;
+	if (!unpackShadowAtlasRect(packedShadowData, originPx, sizePx))
+		return 1.0; // no shadow data for this light this frame -> fully lit
+
+	vec3 toFrag = fragPos - lightPos;
+	float dist = length(toFrag);
+	vec3 dirNorm = toFrag / dist;
+
+	float NdotL = clamp(dot(normal, -dirNorm), 0.0, 1.0);
+	float slopeScale = 1.0 - NdotL;
+
+	// World-space texel size now depends on this light's own resolution tier,
+	// not a fixed compile-time constant, since different lights can be packed
+	// at different sizes.
+	float texelWorldSize = (2.0 * dist) / sizePx;
+	float normalOffset = texelWorldSize * NORMAL_BIAS_TEXELS * slopeScale;
+
+	vec3 biasedFragPos = fragPos + normal * normalOffset;
+	vec3 biasedDir = biasedFragPos - lightPos;
+
+	int face;
+	vec3 uvAndDist = shadowAtlasUV(biasedDir, originPx, sizePx, face);
+	vec2 atlasUV = uvAndDist.xy;
+	float forwardDist = uvAndDist.z;
+
+	float compareDepth = shadowDistanceToDepth(forwardDist, SHADOW_NEAR_PLANE, sqrt(lightRadiusSq));
+
+	// Layer = face index directly: every light on a given face shares that
+	// one atlas layer, packed side by side, rather than each light owning 6
+	// dedicated layers.
+	return texture(shadowCubemapArray, vec4(atlasUV, float(face), compareDepth));
+}
+#else
+#define sampleShadow(fragPos, lightPos, normal, packedShadowData, lightRadiusSq) 1.0
+#endif

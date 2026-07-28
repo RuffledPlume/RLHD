@@ -26,6 +26,7 @@ public class LightDefinition {
 	public int fadeOutDuration = 50;
 	public int spawnDelay;
 	public int despawnDelay;
+	public boolean castShadow;
 	public boolean fixedDespawnTime;
 	public boolean despawnWithParent;
 	public boolean visibleFromOtherPlanes;

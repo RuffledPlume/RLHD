@@ -21752,6 +21752,7 @@
     "type": "FLICKER",
     "duration": 0,
     "range": 20,
+    "castShadow": true,
     "objectIds": [
       "TORCH",
       "TORCH_GRUBBY",
@@ -21787,6 +21788,7 @@
     "offset": [ -10, 155, 0 ],
     "radius": 220,
     "strength": 8.5,
+    "castShadow": true,
     "color": [
       252,
       148,
@@ -23237,6 +23239,7 @@
     "type": "FLICKER",
     "duration": 0,
     "range": 20,
+    "castShadow": true,
     "objectIds": [
       "FAI_VARROCK_SMITHY_HEARTH"
     ]

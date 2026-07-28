@@ -54,12 +54,12 @@ public class WorldViewContext {
 	@Inject
 	private SceneManager sceneManager;
 
-	final int worldViewId;
-	final int sizeX, sizeZ;
+	public final int worldViewId;
+	public final int sizeX, sizeZ;
 	@Nullable
 	WorldViewStruct uboWorldViewStruct;
-	ZoneSceneContext sceneContext;
-	Zone[][] zones;
+	public ZoneSceneContext sceneContext;
+	public Zone[][] zones;
 	GLBuffer vboM;
 	boolean isLoading = true;
 

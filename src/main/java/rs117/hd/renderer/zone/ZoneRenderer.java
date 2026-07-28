@@ -56,6 +56,7 @@ import rs117.hd.scene.EnvironmentManager;
 import rs117.hd.scene.LightManager;
 import rs117.hd.scene.ProceduralGenerator;
 import rs117.hd.scene.SceneContext;
+import rs117.hd.scene.ShadowManager;
 import rs117.hd.scene.lights.Light;
 import rs117.hd.scene.model_overrides.ModelOverride;
 import rs117.hd.utils.Camera;
@@ -120,6 +121,9 @@ public class ZoneRenderer implements Renderer {
 	private LightManager lightManager;
 
 	@Inject
+	private ShadowManager shadowManager;
+
+	@Inject
 	private EnvironmentManager environmentManager;
 
 	@Inject
@@ -135,7 +139,7 @@ public class ZoneRenderer implements Renderer {
 	private SceneShaderProgram sceneProgram;
 
 	@Inject
-	private ShadowShaderProgram.Fast fastShadowProgram;
+	public ShadowShaderProgram.Fast fastShadowProgram;
 
 	@Inject
 	private ShadowShaderProgram.Detailed detailedShadowProgram;
@@ -155,7 +159,10 @@ public class ZoneRenderer implements Renderer {
 	public final CommandBuffer directionalCmd = new CommandBuffer("Directional");
 	public final CommandBuffer gapFillerCmd = new CommandBuffer("GapFiller");
 
-	private GLBuffer indirectDrawCmds;
+	private final float[] lightPosition = new float[4];
+	private final float[] lightColor = new float[3];
+
+	public GLBuffer indirectDrawCmds;
 	public static GpuIntBuffer indirectDrawCmdsStaging;
 
 	public static GLBuffer.EBO eboAlpha;
@@ -195,6 +202,7 @@ public class ZoneRenderer implements Renderer {
 		gapFillerCmd.setFrameTimer(frameTimer);
 
 		jobSystem.startUp(config.cpuUsageLimit());
+		shadowManager.initialize();
 		uboWorldViews.initialize(UNIFORM_BLOCK_WORLD_VIEWS);
 		sceneManager.initialize(uboWorldViews);
 		modelStreamingManager.initialize();
@@ -209,6 +217,7 @@ public class ZoneRenderer implements Renderer {
 		destroyBuffers();
 
 		jobSystem.shutDown();
+		shadowManager.destroy();
 		modelStreamingManager.destroy();
 		sceneManager.destroy();
 		uboWorldViews.destroy();
@@ -230,6 +239,7 @@ public class ZoneRenderer implements Renderer {
 	public void addShaderIncludes(ShaderIncludes includes) {
 		includes
 			.define("MAX_SIMULTANEOUS_WORLD_VIEWS", UBOWorldViews.MAX_SIMULTANEOUS_WORLD_VIEWS)
+			.define("POSITIONAL_SHADOWS", true)
 			.addInclude("WORLD_VIEW_GETTER", () -> plugin.generateGetter("WorldView", UBOWorldViews.MAX_SIMULTANEOUS_WORLD_VIEWS))
 			.addUniformBuffer(uboWorldViews);
 	}
@@ -421,6 +431,7 @@ public class ZoneRenderer implements Renderer {
 
 				frameTimer.begin(Timer.UPDATE_LIGHTS);
 				lightManager.update(ctx.sceneContext, plugin.cameraShift, plugin.cameraFrustum);
+				shadowManager.update();
 				frameTimer.end(Timer.UPDATE_LIGHTS);
 
 				frameTimer.begin(Timer.UPDATE_SCENE);
@@ -522,8 +533,6 @@ public class ZoneRenderer implements Renderer {
 				assert ctx.sceneContext.numVisibleLights <= UBOLights.MAX_LIGHTS;
 
 				frameTimer.begin(Timer.UPDATE_LIGHTS);
-				final float[] lightPosition = new float[4];
-				final float[] lightColor = new float[4];
 				for (int i = 0; i < ctx.sceneContext.numVisibleLights; i++) {
 					final Light light = ctx.sceneContext.lights.get(i);
 					final float lightRadiusSq = light.radius * light.radius;
@@ -535,9 +544,9 @@ public class ZoneRenderer implements Renderer {
 					lightColor[0] = light.color[0] * light.strength;
 					lightColor[1] = light.color[1] * light.strength;
 					lightColor[2] = light.color[2] * light.strength;
-					lightColor[3] = 0.0f;
 
-					plugin.uboLights.setLight(i, lightPosition, lightColor);
+					final int packedShadowData = light.shadowData != null ? light.shadowData.pack() : -1;
+					plugin.uboLights.setLight(i, lightPosition, lightColor, packedShadowData);
 
 					if (plugin.configTiledLighting) {
 						// Pre-calculate the view space position of the light, to save having to do the multiplication in the culling shader
@@ -689,6 +698,7 @@ public class ZoneRenderer implements Renderer {
 
 		// Upload world views before rendering
 		uboWorldViews.upload();
+		shadowManager.buildDrawLists();
 
 		if (eboAlphaWriter != null)
 			eboAlphaWriter.flush();
@@ -877,6 +887,8 @@ public class ZoneRenderer implements Renderer {
 			zone.inSceneFrustum = sceneCamera.intersectsAABB(
 				minX - PADDING, minY, minZ - PADDING, maxX + PADDING, maxY, maxZ + PADDING);
 
+			final boolean isShadowVisible = shadowManager.izZoneVisible(ctx, zone, zx, zz, minX, minY, minZ, maxX, maxY, maxZ);
+
 			if (zone.inSceneFrustum) {
 				if (plugin.enableDetailedTimers)
 					frameTimer.end(Timer.VISIBILITY_CHECK);
@@ -893,7 +905,7 @@ public class ZoneRenderer implements Renderer {
 				}
 				if (plugin.enableDetailedTimers)
 					frameTimer.end(Timer.VISIBILITY_CHECK);
-				return zone.inShadowFrustum;
+				return zone.inShadowFrustum || isShadowVisible;
 			}
 
 			if (plugin.enableDetailedTimers)
@@ -1140,6 +1152,12 @@ public class ZoneRenderer implements Renderer {
 
 			frameTimer.begin(Timer.DRAW_SUBMIT);
 			if (shouldRenderScene) {
+				shadowManager.renderShadows(renderState);
+
+				// TODO: This is needed due to ShadowManager reusing the Directional Shadow Shader
+				plugin.uboGlobal.lightProjectionMatrix.set(directionalCamera.getViewProjMatrix());
+				plugin.uboGlobal.upload();
+
 				tiledLightingPass();
 				directionalShadowPass();
 				scenePass();

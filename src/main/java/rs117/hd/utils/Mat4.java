@@ -88,6 +88,58 @@ public class Mat4 {
 	}
 
 	/**
+	 * Builds a rotation-only matrix (no translation) from a forward direction
+	 * and an up hint, using the standard gluLookAt basis construction:
+	 *   right   = normalize(forward x up)
+	 *   trueUp  = right x forward
+	 * This produces the correct roll around the view axis, unlike a
+	 * yaw/pitch-only rotation, which has no representation for roll at all.
+	 * <p>
+	 * Needed for cases like cubemap face rendering, where the +Y/-Y faces
+	 * require a different roll than the +X/-X/+Z/-Z faces to match the
+	 * hardware's cubemap face/UV convention.
+	 * <p>
+	 * dir and up must not be parallel (or nearly so), or the cross product
+	 * used to derive "right" will be degenerate.
+	 *
+	 * @param dirX forward direction X (need not be normalized)
+	 * @param dirY forward direction Y
+	 * @param dirZ forward direction Z
+	 * @param upX  up hint X
+	 * @param upY  up hint Y
+	 * @param upZ  up hint Z
+	 * @return a column-major 4x4 rotation matrix (translation = identity),
+	 *         combine with Mat4.mul(view, Mat4.translate(-eyeX, -eyeY, -eyeZ))
+	 *         to get a full view matrix.
+	 */
+	public static float[] lookAtRotation(float dirX, float dirY, float dirZ, float upX, float upY, float upZ) {
+		float fLen = (float) Math.sqrt(dirX * dirX + dirY * dirY + dirZ * dirZ);
+		float fx = dirX / fLen, fy = dirY / fLen, fz = dirZ / fLen;
+
+		// right = forward x up
+		float sx = fy * upZ - fz * upY;
+		float sy = fz * upX - fx * upZ;
+		float sz = fx * upY - fy * upX;
+		float sLen = (float) Math.sqrt(sx * sx + sy * sy + sz * sz);
+		sx /= sLen;
+		sy /= sLen;
+		sz /= sLen;
+
+		// true up = right x forward
+		float ux = sy * fz - sz * fy;
+		float uy = sz * fx - sx * fz;
+		float uz = sx * fy - sy * fx;
+
+		// Column-major storage (m[col*4+row]), matching rotateX/rotateY's convention
+		return new float[] {
+			sx, ux, -fx, 0,
+			sy, uy, -fy, 0,
+			sz, uz, -fz, 0,
+			0,  0,   0, 1,
+		};
+	}
+
+	/**
 	 * Infinite far plane, Reverse-Z perspective matrix.
 	 * Depth = 1 at near plane, 0 infinitely far away.
 	 */
@@ -95,9 +147,9 @@ public class Mat4 {
 		// @formatter:off
 		return new float[] {
 			2 / w,      0,     0, 0,
-			    0, -2 / h,     0, 0,
-			    0,      0,     0, 1,
-			    0,      0, 2 * n, 0
+			0, -2 / h,     0, 0,
+			0,      0,     0, 1,
+			0,      0, 2 * n, 0
 		};
 		// @formatter:on
 	}
@@ -110,9 +162,9 @@ public class Mat4 {
 		// @formatter:off
 		return new float[] {
 			2 / w,      0,      0,  0,
-			    0, -2 / h,      0,  0,
-			    0,      0,     -1, -1,
-			    0,      0, -2 * n,  0
+			0, -2 / h,      0,  0,
+			0,      0,     -1, -1,
+			0,      0, -2 * n,  0
 		};
 		// @formatter:on
 	}
@@ -164,9 +216,9 @@ public class Mat4 {
 		// @formatter:off
 		return new float[] {
 			2 / w,      0,     0, 0,
-			    0, -2 / h,     0, 0,
-			    0,      0, 2 / n, 0,
-			    0,      0,     0, 1
+			0, -2 / h,     0, 0,
+			0,      0, 2 / n, 0,
+			0,      0,     0, 1
 		};
 		// @formatter:on
 	}
@@ -175,9 +227,9 @@ public class Mat4 {
 		// @formatter:off
 		return new float[] {
 			2 / w,      0,                  0, 0,
-			    0, -2 / h,                  0, 0,
-			    0,      0,        1 / (f - n), 0,
-			    0,      0, -(f + n) / (f - n), 1
+			0, -2 / h,                  0, 0,
+			0,      0,        1 / (f - n), 0,
+			0,      0, -(f + n) / (f - n), 1
 		};
 		// @formatter:on
 	}
@@ -186,9 +238,9 @@ public class Mat4 {
 		// @formatter:off
 		return new float[] {
 			2 / w,      0,           0, 0,
-			    0, -2 / h,           0, 0,
-			    0,      0, 1 / (n - f), 0,
-			    0,      0, f / (f - n), 1
+			0, -2 / h,           0, 0,
+			0,      0, 1 / (n - f), 0,
+			0,      0, f / (f - n), 1
 		};
 		// @formatter:on
 	}
