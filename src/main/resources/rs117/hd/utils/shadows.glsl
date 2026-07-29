@@ -160,7 +160,11 @@ const float SHADOW_NEAR_PLANE = 10.0;
 // GRID_BITS derived from them. If those constants change, these must too.
 const float SHADOW_ATLAS_SIZE = 4096.0;
 const int SHADOW_ATLAS_MIN_SIZE_EXP = 5;  // log2(MIN_FACE_RESOLUTION), i.e. log2(32)
-const int SHADOW_ATLAS_TIER_BITS = 2;
+// Java derives this as bitLength(SIZE_TIER_COUNT - 1). With sizes 32..512
+// inclusive there are five tiers (0..4), which requires three bits. Keeping
+// this in sync is also necessary for the temporary 4096-sized diagnostic slot
+// (tier 7).
+const int SHADOW_ATLAS_TIER_BITS = 3;
 const int SHADOW_ATLAS_GRID_BITS = 7;
 
 const float NORMAL_BIAS_TEXELS = 10.0;
@@ -225,17 +229,18 @@ bool unpackShadowAtlasRect(int packedShadowData, out vec2 originPx, out float si
 // faceOut: receives the selected cubemap face index (0-5).
 // Returns: vec3(atlasU, atlasV, forwardDist)
 vec3 shadowAtlasUV(vec3 dirFromLight, vec2 originPx, float sizePx, out int faceOut) {
-	int face = shadowSelectFace(dirFromLight);
-	faceOut = face;
+	faceOut = shadowSelectFace(dirFromLight);
 
-	vec3 forward = SHADOW_FACE_DIR[face];
-	vec3 up = SHADOW_FACE_UP[face];
+	vec3 forward = SHADOW_FACE_DIR[faceOut];
+	vec3 up = SHADOW_FACE_UP[faceOut];
 	vec3 right = normalize(cross(forward, up));
 	vec3 trueUp = cross(right, forward);
 
 	float forwardDist = dot(dirFromLight, forward);
 	float u =  dot(dirFromLight, right)  / forwardDist;
-	float v = -dot(dirFromLight, trueUp) / forwardDist;
+	// Match the face view matrix: its Y row is trueUp, and framebuffer
+	// texture coordinates use the same bottom-to-top orientation as NDC.
+	float v = dot(dirFromLight, trueUp) / forwardDist;
 
 	// Face-local UV in [0,1], then remapped into this light's atlas region
 	vec2 faceUV = vec2(u, v) * 0.5 + 0.5;
@@ -280,17 +285,6 @@ vec3 debugShadowFaceColor(int faceIndex) {
 	return vec3(0.5); // no shadow data this frame
 }
 
-// Convenience wrapper: just want to see which face a light's shadow lookup
-// selected for the current fragment, without wiring up atlasUV separately.
-// Uses the same unbiased (no normal-offset) direction as debugShadowAtlasUV,
-// so face boundaries line up with what debugShadowAtlasUV shows too.
-vec3 debugShadowFace(vec3 fragPos, vec3 lightPos, int packedShadowData) {
-	vec2 unusedUV;
-	int face;
-	debugShadowAtlasUV(fragPos, lightPos, packedShadowData, unusedUV, face);
-	return debugShadowFaceColor(face);
-}
-
 // fragPos, lightPos: world space. normal: world-space surface normal at fragPos.
 // packedShadowData: PointLight.packedShadowData for this light, as-is from the UBO.
 float sampleShadow(vec3 fragPos, vec3 lightPos, vec3 normal, int packedShadowData, float lightRadiusSq) {
@@ -327,6 +321,18 @@ float sampleShadow(vec3 fragPos, vec3 lightPos, vec3 normal, int packedShadowDat
 	// dedicated layers.
 	return texture(shadowCubemapArray, vec4(atlasUV, float(face), compareDepth));
 }
+
+vec3 debugShadow(vec3 fragPos, vec3 lightPos, vec3 normal, int packedShadowData, float lightRadiusSq) {
+    vec2 atlasUV;
+	int face;
+	debugShadowAtlasUV(fragPos, lightPos, packedShadowData, atlasUV, face);
+#if 0
+	return debugShadowFaceColor(face) * 100.0;
+#else
+    return vec3(atlasUV, 0) * 100.0;
+#endif
+}
+
 #else
 #define sampleShadow(fragPos, lightPos, normal, packedShadowData, lightRadiusSq) 1.0
 #endif

@@ -16,7 +16,6 @@ import rs117.hd.scene.lights.Light;
 import rs117.hd.utils.Camera;
 import rs117.hd.utils.CommandBuffer;
 import rs117.hd.utils.HDUtils;
-import rs117.hd.utils.Mat4;
 import rs117.hd.utils.RenderState;
 import rs117.hd.utils.ShadowAtlasPacker;
 import rs117.hd.utils.ShadowAtlasPacker.Rect;
@@ -58,7 +57,6 @@ import static org.lwjgl.opengl.GL30.glGenFramebuffers;
 import static rs117.hd.HdPlugin.TEXTURE_UNIT_POSITIONAL_SHADOW_MAP;
 import static rs117.hd.HdPlugin.TEXTURE_UNIT_UI;
 import static rs117.hd.opengl.uniforms.UBOLights.MAX_LIGHTS;
-import static rs117.hd.utils.Mat4.mul;
 import static rs117.hd.utils.MathUtils.*;
 
 @Slf4j
@@ -68,18 +66,12 @@ public class ShadowManager implements LightManager.Listener {
 	private static final int ATLAS_SIZE = 4096;
 	private static final int NUM_FACES = 6;
 
-	private static final int MAX_FACE_RESOLUTION = 512; // full-res slot, i.e. old RESOLUTION
+	private static final int MAX_FACE_RESOLUTION = 512;
 	private static final int MIN_FACE_RESOLUTION = 32;
 
 	private static final float SHADOW_NEAR_PLANE = 10.0f;
 	private static final float CUBEMAP_FACE_FRUSTUM_EXTENT = 2f; // yields exactly 90 degree FOV per axis, independent of resolution
 
-	// Bit-packing layout for ShadowData.pack(): since the ladder packer only
-	// ever places a light's rect at a multiple of its own (power-of-two) size,
-	// x/y can be stored as grid coordinates (pixelCoord >> log2(size)) instead
-	// of raw pixels, and size itself as a small tier index rather than a full
-	// value. Must be mirrored exactly by the GLSL unpack code (matching
-	// SHADOW_ATLAS_* macros need to be injected at shader-compile time).
 	private static final int MIN_SIZE_EXP = Integer.numberOfTrailingZeros(MIN_FACE_RESOLUTION);
 	private static final int MAX_SIZE_EXP = Integer.numberOfTrailingZeros(MAX_FACE_RESOLUTION);
 	private static final int SIZE_TIER_COUNT = MAX_SIZE_EXP - MIN_SIZE_EXP + 1;
@@ -88,7 +80,6 @@ public class ShadowManager implements LightManager.Listener {
 	private static final int GRID_CELLS = ATLAS_SIZE / MIN_FACE_RESOLUTION;
 	private static final int GRID_BITS = 32 - Integer.numberOfLeadingZeros(GRID_CELLS - 1);
 	private static final int PACKED_TOTAL_BITS = SIZE_TIER_BITS + 2 * GRID_BITS; // informational; verified <= 32 by construction
-
 
 	private static final float[][] FACE_DIRECTIONS = {
 		{  1,  0,  0 }, { -1,  0,  0 },
@@ -125,22 +116,7 @@ public class ShadowManager implements LightManager.Listener {
 	private final int[] packSizes = new int[MAX_LIGHTS];
 	private final Rect[] packRects = new Rect[MAX_LIGHTS];
 
-	// The rotation part of a cubemap face's view matrix never depends on the
-	// light -- only the translation column does -- so it's computed once here
-	// rather than recomputed (via Camera/Mat4.lookAtRotation) 6 times per
-	// light, every frame. Columns 0-2 (indices 0-11) hold the rotation basis;
-	// column 3 (indices 12-15) is left as identity/unused here and gets
-	// overwritten per-light in buildShadowViewMatrix().
-	private final float[][] faceRotation = new float[6][16];
-
-	// Perspective matrix template: since every cubemap face uses an exact 90
-	// degree FOV (CUBEMAP_FACE_FRUSTUM_EXTENT == 2 for width and height ->
-	// m00 = m11 = 2/2 = 1), only indices 10 (a) and 14 (b) vary per-light,
-	// based on that light's far plane. Constant entries are set once in the
-	// constructor and never touched again.
-	private final float[] shadowProj = new float[16];
-	private final float[] shadowView = new float[16];
-	private final float[] viewProj = new float[16];
+	private final Camera camera = new Camera();
 
 	private int fboShadow;
 	private int texShadowCubemapArray;
@@ -148,16 +124,6 @@ public class ShadowManager implements LightManager.Listener {
 	public ShadowManager() {
 		for (int i = 0; i < packRects.length; i++)
 			packRects[i] = new Rect();
-
-		for (int face = 0; face < 6; face++) {
-			final float[] dir = FACE_DIRECTIONS[face];
-			final float[] up = FACE_UP_VECTORS[face];
-			faceRotation[face] = Mat4.lookAtRotation(dir[0], dir[1], dir[2], up[0], up[1], up[2]);
-		}
-
-		shadowProj[0] = 1f;
-		shadowProj[5] = 1f;
-		shadowProj[11] = -1f;
 	}
 
 	public void initialize() {
@@ -192,6 +158,9 @@ public class ShadowManager implements LightManager.Listener {
 	}
 
 	public void destroy() {
+		visibleIndices.reset();
+		shadowLights.clear();
+
 		lightManager.removeListener(this);
 
 		if (fboShadow != 0)
@@ -275,24 +244,6 @@ public class ShadowManager implements LightManager.Listener {
 		return size;
 	}
 
-	private static void computeShadowProjection(float[] out, float near, float far) {
-		final float nf = near / far;
-		final float a = (1f + nf) / (nf - 1f);
-		final float b = a * near - near;
-		out[10] = a;
-		out[14] = b;
-	}
-
-	private static void buildShadowViewMatrix(float[] out, float[] rotation, float[] lightPos) {
-		copyTo(out, rotation);
-
-		final float px = lightPos[0], py = lightPos[1], pz = lightPos[2];
-		out[12] = -(rotation[0] * px + rotation[4] * py + rotation[8]  * pz);
-		out[13] = -(rotation[1] * px + rotation[5] * py + rotation[9]  * pz);
-		out[14] = -(rotation[2] * px + rotation[6] * py + rotation[10] * pz);
-		out[15] = 1f;
-	}
-
 	public void buildDrawLists() {
 		final WorldViewContext ctx = sceneManager.getRoot();
 
@@ -336,7 +287,7 @@ public class ShadowManager implements LightManager.Listener {
 	public void renderShadows(RenderState renderState) {
 		frameTimer.begin(Timer.RENDER_POSITIONAL_SHADOWS);
 
-		zoneRenderer.fastShadowProgram.use();
+		zoneRenderer.depthProgram.use();
 
 		renderState.framebuffer.set(GL_FRAMEBUFFER, fboShadow);
 		renderState.disable.set(GL_CULL_FACE);
@@ -347,6 +298,11 @@ public class ShadowManager implements LightManager.Listener {
 
 		glClearDepth(1);
 
+		camera.setZoom(1.0f);
+		camera.setViewportHeight(2);
+		camera.setViewportWidth(2);
+		camera.setNearPlane(SHADOW_NEAR_PLANE);
+
 		boolean hasCleared = false;
 		for (int i = 0; i < visibleIndices.length; i++) {
 			final int lightIndex = visibleIndices.array[i];
@@ -356,31 +312,34 @@ public class ShadowManager implements LightManager.Listener {
 			if (shadowData.atlasRect == null || shadowData.drawBuffer.isEmpty())
 				continue;
 
-			computeShadowProjection(shadowProj, SHADOW_NEAR_PLANE, light.radius);
+			assert light.radius == sqrt(light.radius * light.radius);
+
+			camera.setPositionX(light.pos[0] + plugin.cameraShift[0]);
+			camera.setPositionY(light.pos[1]);
+			camera.setPositionZ(light.pos[2] + plugin.cameraShift[1]);
+			camera.setFarPlane(light.radius);
 
 			// Same pixel-space rect on every face layer for this light
 			renderState.viewport.set(shadowData.atlasRect.x, shadowData.atlasRect.y, shadowData.atlasRect.size, shadowData.atlasRect.size);
 
 			for (int face = 0; face < 6; face++) {
-				buildShadowViewMatrix(shadowView, faceRotation[face], light.pos);
+				camera.setLookDirection(FACE_DIRECTIONS[face], FACE_UP_VECTORS[face]);
+				zoneRenderer.depthProgram.uniViewProjection.set(camera.getViewProjMatrix());
 
-				copyTo(viewProj, shadowProj);
-				mul(viewProj, shadowView);
-
-				plugin.uboGlobal.lightProjectionMatrix.set(viewProj);
-				plugin.uboGlobal.upload();
-
-				// Layer = face index directly; all lights on this face share the one layer, packed side by side
 				renderState.framebufferTextureLayer.set(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, texShadowCubemapArray, 0, face);
 				renderState.apply();
 
-				if(!hasCleared)
+				// Each array layer is one cubemap face shared by every light. The
+				// first light must therefore clear every face once; later lights
+				// must preserve the depth already written to their other atlas rects.
+				if (!hasCleared)
 					glClear(GL_DEPTH_BUFFER_BIT);
 
 				shadowData.drawBuffer.execute(renderState);
 			}
 			hasCleared = true;
 		}
+
 
 		renderState.disable.set(GL_DEPTH_TEST);
 

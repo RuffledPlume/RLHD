@@ -43,6 +43,7 @@ import rs117.hd.HdPluginConfig;
 import rs117.hd.config.ColorFilter;
 import rs117.hd.config.DynamicLights;
 import rs117.hd.config.ShadowMode;
+import rs117.hd.opengl.shader.DepthShaderProgram;
 import rs117.hd.opengl.shader.SceneShaderProgram;
 import rs117.hd.opengl.shader.ShaderException;
 import rs117.hd.opengl.shader.ShaderIncludes;
@@ -136,10 +137,13 @@ public class ZoneRenderer implements Renderer {
 	private FrameTimer frameTimer;
 
 	@Inject
+	public DepthShaderProgram depthProgram;
+
+	@Inject
 	private SceneShaderProgram sceneProgram;
 
 	@Inject
-	public ShadowShaderProgram.Fast fastShadowProgram;
+	private ShadowShaderProgram.Fast fastShadowProgram;
 
 	@Inject
 	private ShadowShaderProgram.Detailed detailedShadowProgram;
@@ -246,6 +250,7 @@ public class ZoneRenderer implements Renderer {
 
 	@Override
 	public void initializeShaders(ShaderIncludes includes) throws ShaderException, IOException {
+		depthProgram.compile(includes);
 		sceneProgram.compile(includes);
 		fastShadowProgram.compile(includes);
 		detailedShadowProgram.compile(includes);
@@ -253,6 +258,7 @@ public class ZoneRenderer implements Renderer {
 
 	@Override
 	public void destroyShaders() {
+		depthProgram.destroy();
 		sceneProgram.destroy();
 		fastShadowProgram.destroy();
 		detailedShadowProgram.destroy();

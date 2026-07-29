@@ -21741,7 +21741,6 @@
   },
   {
     "description": "WALL_TORCH_MID",
-    "areas": [ "LIGHT_TEST" ],
     "offset": [ 0, 185, 0 ],
     "radius": 250,
     "strength": 7.5,
@@ -21789,7 +21788,6 @@
     "offset": [ -10, 155, 0 ],
     "radius": 220,
     "strength": 8.5,
-    "castShadow": true,
     "color": [
       252,
       148,
@@ -23240,7 +23238,6 @@
     "type": "FLICKER",
     "duration": 0,
     "range": 20,
-    "castShadow": true,
     "objectIds": [
       "FAI_VARROCK_SMITHY_HEARTH"
     ]
@@ -33611,6 +33608,7 @@
     "offset": [ 0, 700, -100 ],
     "alignment": "CENTER",
     "radius": 2500,
+    "castShadow": true,
     "strength": 4.5,
     "color": [
       0,
@@ -33628,6 +33626,7 @@
     "plane": 0,
     "offset": [ 0, 150, -50 ],
     "alignment": "CENTER",
+    "castShadow": true,
     "radius": 1000,
     "strength": 7.5,
     "color": [
@@ -33643,6 +33642,7 @@
     "alignment": "CENTER",
     "radius": 300,
     "strength": 5.5,
+    "castShadow": true,
     "color": [
       255,
       255,
@@ -33661,6 +33661,7 @@
     "alignment": "CENTER",
     "radius": 180,
     "strength": 11,
+    "castShadow": true,
     "color": [
       0,
       168.1351,
@@ -33679,6 +33680,7 @@
     "alignment": "CENTER",
     "radius": 150,
     "strength": 7.7,
+    "castShadow": true,
     "color": [
       255,
       182.86261,
@@ -33699,6 +33701,7 @@
     "alignment": "CENTER",
     "radius": 150,
     "strength": 7.7,
+    "castShadow": true,
     "color": [
       0,
       255,
@@ -33719,6 +33722,7 @@
     "alignment": "CENTER",
     "radius": 150,
     "strength": 7.7,
+    "castShadow": true,
     "color": [
       200.19334,
       182.86261,
@@ -33739,6 +33743,8 @@
     "alignment": "CENTER",
     "radius": 150,
     "strength": 7.7,
+
+    "castShadow": true,
     "color": [
       0,
       0,
@@ -33760,6 +33766,8 @@
     "alignment": "CENTER",
     "radius": 150,
     "strength": 7.7,
+
+    "castShadow": true,
     "color": [
       255,
       255,
@@ -33780,6 +33788,8 @@
     "alignment": "CENTER",
     "radius": 150,
     "strength": 7.7,
+
+    "castShadow": true,
     "color": [
       255,
       255,
@@ -33800,6 +33810,8 @@
     "alignment": "CENTER",
     "radius": 150,
     "strength": 7.7,
+
+    "castShadow": true,
     "color": [
       255,
       212.09813,
@@ -33821,6 +33833,8 @@
     "alignment": "CENTER",
     "radius": 150,
     "strength": 7.7,
+
+    "castShadow": true,
     "color": [
       158.46326,
       158.46326,
@@ -33841,6 +33855,8 @@
     "alignment": "CENTER",
     "radius": 150,
     "strength": 7.7,
+
+    "castShadow": true,
     "color": [
       255,
       212.09813,
@@ -33861,6 +33877,8 @@
     "alignment": "CENTER",
     "radius": 150,
     "strength": 7.7,
+
+    "castShadow": true,
     "color": [
       236.88396,
       236.88396,
@@ -33880,6 +33898,7 @@
     "height": 260,
     "alignment": "CENTER",
     "radius": 150,
+    "castShadow": true,
     "strength": 7.7,
     "color": [
       182.86261,
@@ -33900,6 +33919,7 @@
     "height": 260,
     "alignment": "CENTER",
     "radius": 150,
+    "castShadow": true,
     "strength": 7.7,
     "color": [
       255,
@@ -33922,6 +33942,7 @@
     "radius": 200,
     "strength": 8.5,
     "fadeOutDuration": 200,
+    "castShadow": true,
     "fadeInDuration": 150,
     "color": [
       255,
@@ -33941,6 +33962,7 @@
     "height": 140,
     "alignment": "BACK",
     "radius": 1200,
+    "castShadow": true,
     "strength": 12.5,
     "color": [
       70,
@@ -33959,7 +33981,8 @@
     "height": 250,
     "alignment": "SOUTH",
     "radius": 2400,
-    "strength": 25,
+    "castShadow": true,
+    "strength": 75,
     "color": [
       250,
       100,
