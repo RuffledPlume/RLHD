@@ -173,6 +173,9 @@ public class ShadowManager implements LightManager.Listener {
 	}
 
 	public void update() {
+		if(!plugin.configPositionalShadows)
+			return;
+
 		visibleIndices.reset();
 		visibleIndices.ensureCapacity(shadowLights.size());
 
@@ -245,6 +248,9 @@ public class ShadowManager implements LightManager.Listener {
 	}
 
 	public void buildDrawLists() {
+		if(!plugin.configPositionalShadows)
+			return;
+
 		final WorldViewContext ctx = sceneManager.getRoot();
 
 		for (int i = 0; i < visibleIndices.length; i++) {
@@ -260,12 +266,22 @@ public class ShadowManager implements LightManager.Listener {
 				final int zx = shadowData.overlappingZones.array[z] / ctx.sizeX;
 				final int zz = shadowData.overlappingZones.array[z] % ctx.sizeX;
 
-				ctx.zones[zx][zz].renderOpaque(shadowData.drawBuffer, 0, 0, 3, Collections.EMPTY_SET);
+				final Zone zone = ctx.zones[zx][zz];
+				if(!zone.initialized || zone.sizeO == 0)
+					continue;
+
+				zone.renderOpaque(shadowData.drawBuffer, 0, 0, 3, Collections.EMPTY_SET);
 			}
+
+			shadowData.drawBuffer.ExecuteSubCommandBuffer(ctx.vaoSceneCmd);
+			shadowData.drawBuffer.ExecuteSubCommandBuffer(ctx.vaoDirectionalCmd);
 		}
 	}
 
 	public boolean izZoneVisible(WorldViewContext context, Zone zone, int zx, int zz, int minX, int minY, int minZ, int maxX, int maxY, int maxZ) {
+		if(!plugin.configPositionalShadows)
+			return false;
+
 		boolean isVisible = false;
 		for(int i = 0; i < visibleIndices.length; i++) {
 			final Light light = shadowLights.get(visibleIndices.array[i]);
@@ -285,6 +301,9 @@ public class ShadowManager implements LightManager.Listener {
 	}
 
 	public void renderShadows(RenderState renderState) {
+		if(!plugin.configPositionalShadows)
+			return;
+
 		frameTimer.begin(Timer.RENDER_POSITIONAL_SHADOWS);
 
 		zoneRenderer.depthProgram.use();

@@ -408,6 +408,7 @@ public class HdPlugin extends Plugin {
 	public boolean configModelBatching;
 	public boolean configModelCaching;
 	public boolean configShadowsEnabled;
+	public boolean configPositionalShadows;
 	public boolean configRoofShadows;
 	public boolean configExpandShadowDraw;
 	public boolean configUseFasterModelHashing;
@@ -1647,6 +1648,7 @@ public class HdPlugin extends Plugin {
 		configExpandedMapLoadingChunks = config.expandedMapLoadingChunks();
 		configShadowMode = config.shadowMode();
 		configShadowsEnabled = configShadowMode != ShadowMode.OFF;
+		configPositionalShadows = config.positionalShadows();
 		configRoofShadows = config.roofShadows();
 		configGroundTextures = config.groundTextures();
 		var groundBlending = config.groundBlending();
@@ -1826,6 +1828,7 @@ public class HdPlugin extends Plugin {
 							case KEY_WIREFRAME:
 							case KEY_SHADOW_FILTERING:
 							case KEY_WINDOWS_HDR_CORRECTION:
+							case KEY_SHADOW_POSITIONAL:
 								recompilePrograms = true;
 								break;
 							case KEY_ANTI_ALIASING_MODE:

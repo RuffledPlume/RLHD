@@ -21769,8 +21769,9 @@
   {
     "description": "Varrock Wall Candelabra",
     "offset": [ 0, 215, 0 ],
-    "radius": 275,
-    "strength": 5.5,
+    "radius": 400,
+    "strength": 50.5,
+    "castShadow": true,
     "color": [
       252,
       148,
@@ -22079,6 +22080,7 @@
     "alignment": "CENTER",
     "radius": 550,
     "strength": 15.5,
+    "castShadow": true,
     "color": [
       252,
       148,
@@ -23230,6 +23232,7 @@
     "alignment": "CENTER",
     "radius": 350,
     "strength": 12.5,
+    "castShadow": true,
     "color": [
       252,
       148,
