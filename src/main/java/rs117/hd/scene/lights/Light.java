@@ -2,6 +2,7 @@ package rs117.hd.scene.lights;
 
 import net.runelite.api.*;
 import net.runelite.api.coords.*;
+import rs117.hd.config.PositionalShadowMode;
 import rs117.hd.scene.ShadowManager;
 
 import static rs117.hd.utils.MathUtils.*;
@@ -33,7 +34,7 @@ public class Light
 	public boolean markedForRemoval;
 	public boolean persistent;
 	public boolean replayable;
-	public boolean castShadows;
+	public PositionalShadowMode shadowMode;
 
 	public final boolean animationSpecific;
 	public final boolean dynamicLifetime;
@@ -79,7 +80,7 @@ public class Light
 		strength = def.strength;
 		alignment = def.alignment;
 		plane = def.plane;
-		castShadows = def.castShadow;
+		shadowMode = def.shadowMode;
 		if (def.type == LightType.PULSE)
 			animation = (float) Math.random();
 

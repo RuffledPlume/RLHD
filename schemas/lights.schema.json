@@ -127,9 +127,10 @@
         "type": "number",
         "description": "The time in milliseconds between the light despawning and the light beginning to fade out."
       },
-      "castShadow": {
-        "type": "boolean",
-        "description": "If enabled, the light will cast a shadow."
+      "shadowMode": {
+        "type": "string",
+        "description": "If enabled, the light will cast a shadow.",
+        "enum": [ "DISABLED", "STATIC", "DYNAMIC", "MOVEABLE" ]
       },
       "fixedDespawnTime": {
         "type": "boolean",

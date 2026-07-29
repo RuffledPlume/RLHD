@@ -6,6 +6,7 @@ import javax.inject.Inject;
 import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 import rs117.hd.HdPlugin;
+import rs117.hd.config.PositionalShadowMode;
 import rs117.hd.overlays.FrameTimer;
 import rs117.hd.overlays.Timer;
 import rs117.hd.renderer.zone.SceneManager;
@@ -16,9 +17,11 @@ import rs117.hd.scene.lights.Light;
 import rs117.hd.utils.Camera;
 import rs117.hd.utils.CommandBuffer;
 import rs117.hd.utils.HDUtils;
+import rs117.hd.utils.Mat4;
 import rs117.hd.utils.RenderState;
 import rs117.hd.utils.ShadowAtlasPacker;
 import rs117.hd.utils.ShadowAtlasPacker.Rect;
+import rs117.hd.utils.collections.IntHashSet;
 import rs117.hd.utils.collections.PrimitiveIntArray;
 
 import static org.lwjgl.opengl.GL11.GL_CULL_FACE;
@@ -27,6 +30,7 @@ import static org.lwjgl.opengl.GL11.GL_DEPTH_COMPONENT;
 import static org.lwjgl.opengl.GL11.GL_DEPTH_TEST;
 import static org.lwjgl.opengl.GL11.GL_FLOAT;
 import static org.lwjgl.opengl.GL11.GL_LINEAR;
+import static org.lwjgl.opengl.GL11.GL_NEAREST;
 import static org.lwjgl.opengl.GL11.GL_NONE;
 import static org.lwjgl.opengl.GL11.GL_TEXTURE_MAG_FILTER;
 import static org.lwjgl.opengl.GL11.GL_TEXTURE_MIN_FILTER;
@@ -49,14 +53,22 @@ import static org.lwjgl.opengl.GL14.GL_TEXTURE_COMPARE_FUNC;
 import static org.lwjgl.opengl.GL14.GL_TEXTURE_COMPARE_MODE;
 import static org.lwjgl.opengl.GL30.GL_COMPARE_REF_TO_TEXTURE;
 import static org.lwjgl.opengl.GL30.GL_DEPTH_ATTACHMENT;
+import static org.lwjgl.opengl.GL30.GL_DRAW_FRAMEBUFFER;
 import static org.lwjgl.opengl.GL30.GL_FRAMEBUFFER;
+import static org.lwjgl.opengl.GL30.GL_READ_FRAMEBUFFER;
 import static org.lwjgl.opengl.GL30.GL_TEXTURE_2D_ARRAY;
 import static org.lwjgl.opengl.GL30.glBindFramebuffer;
 import static org.lwjgl.opengl.GL30.glDeleteFramebuffers;
+import static org.lwjgl.opengl.GL30.glFramebufferTextureLayer;
 import static org.lwjgl.opengl.GL30.glGenFramebuffers;
+import static org.lwjgl.opengl.GL30.glGenerateMipmap;
+import static org.lwjgl.opengl.GL30C.glBlitFramebuffer;
+import static org.lwjgl.opengl.GL43.glCopyImageSubData;
 import static rs117.hd.HdPlugin.TEXTURE_UNIT_POSITIONAL_SHADOW_MAP;
 import static rs117.hd.HdPlugin.TEXTURE_UNIT_UI;
+import static rs117.hd.HdPlugin.checkGLErrors;
 import static rs117.hd.opengl.uniforms.UBOLights.MAX_LIGHTS;
+import static rs117.hd.utils.Mat4.mul;
 import static rs117.hd.utils.MathUtils.*;
 
 @Slf4j
@@ -108,22 +120,31 @@ public class ShadowManager implements LightManager.Listener {
 	@Inject
 	private FrameTimer frameTimer;
 
+	private final ArrayList<Light> pendingLights = new ArrayList<>();
 	private final ArrayList<Light> shadowLights = new ArrayList<>();
 	private final PrimitiveIntArray visibleIndices = new PrimitiveIntArray();
 
-	// Reused per-frame scratch buffers for packing, sized to MAX_SHADOW_LIGHTS
-	// up front to avoid per-frame allocation.
 	private final int[] packSizes = new int[MAX_LIGHTS];
 	private final Rect[] packRects = new Rect[MAX_LIGHTS];
 
-	private final Camera camera = new Camera();
+	private final float[][] faceRotation = new float[6][16];
+	private final float[] shadowView = new float[16];
+	private final float[] viewProjMatrix = new float[16];
+	private final float[] shiftedLightPos = new float[3];
 
+	private int fboShadowBakedRead;
 	private int fboShadow;
 	private int texShadowCubemapArray;
 
 	public ShadowManager() {
 		for (int i = 0; i < packRects.length; i++)
 			packRects[i] = new Rect();
+
+		for (int face = 0; face < 6; face++) {
+			final float[] dir = FACE_DIRECTIONS[face];
+			final float[] up = FACE_UP_VECTORS[face];
+			faceRotation[face] = Mat4.lookAtRotation(dir[0], dir[1], dir[2], up[0], up[1], up[2]);
+		}
 	}
 
 	public void initialize() {
@@ -154,11 +175,21 @@ public class ShadowManager implements LightManager.Listener {
 		glDrawBuffer(GL_NONE);
 		glReadBuffer(GL_NONE);
 
+		fboShadowBakedRead = glGenFramebuffers();
+		glBindFramebuffer(GL_FRAMEBUFFER, fboShadowBakedRead);
+
+		glDrawBuffer(GL_NONE);
+		glReadBuffer(GL_NONE);
+
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	}
 
 	public void destroy() {
 		visibleIndices.reset();
+
+		for (Light light : shadowLights)
+			if (light.shadowData != null)
+				light.shadowData.destroy();
 		shadowLights.clear();
 
 		lightManager.removeListener(this);
@@ -166,6 +197,10 @@ public class ShadowManager implements LightManager.Listener {
 		if (fboShadow != 0)
 			glDeleteFramebuffers(fboShadow);
 		fboShadow = 0;
+
+		if (fboShadowBakedRead != 0)
+			glDeleteFramebuffers(fboShadowBakedRead);
+		fboShadowBakedRead = 0;
 
 		if (texShadowCubemapArray != 0)
 			glDeleteTextures(texShadowCubemapArray);
@@ -176,6 +211,27 @@ public class ShadowManager implements LightManager.Listener {
 		if(!plugin.configPositionalShadows)
 			return;
 
+		for(int i = 0; i < pendingLights.size(); i++) {
+			final Light light = pendingLights.get(i);
+			light.shadowData = new ShadowData();
+			light.shadowData.dirty = true;
+
+			if(light.shadowMode != PositionalShadowMode.MOVEABLE) {
+				light.shadowData.texBakedCubemap = glGenTextures();
+				glBindTexture(GL_TEXTURE_2D_ARRAY, light.shadowData.texBakedCubemap);
+				for (int level = 0; level <= MAX_SIZE_EXP - MIN_SIZE_EXP; level++) {
+					final int resolution = MAX_FACE_RESOLUTION >> level;
+					glTexImage3D(GL_TEXTURE_2D_ARRAY, level, GL_DEPTH_COMPONENT16,
+						resolution, resolution, NUM_FACES,
+						0, GL_DEPTH_COMPONENT, GL_FLOAT, 0);
+				}
+				glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+			}
+
+			shadowLights.add(light);
+		}
+		pendingLights.clear();
+
 		visibleIndices.reset();
 		visibleIndices.ensureCapacity(shadowLights.size());
 
@@ -184,8 +240,11 @@ public class ShadowManager implements LightManager.Listener {
 			light.shadowData.overlappingZones.reset();
 			light.shadowData.atlasRect = null;
 
-			if (light.visible && visibleIndices.length < MAX_LIGHTS)
+			if (light.visible && visibleIndices.length < MAX_LIGHTS) {
 				visibleIndices.put(i);
+
+				computeShadowProjection(light.shadowData.lightProjection, SHADOW_NEAR_PLANE, light.radius);
+			}
 		}
 
 		packShadowAtlas();
@@ -262,19 +321,44 @@ public class ShadowManager implements LightManager.Listener {
 			if (shadowData.atlasRect == null)
 				continue;
 
-			for (int z = 0; z < shadowData.overlappingZones.length; z++) {
-				final int zx = shadowData.overlappingZones.array[z] / ctx.sizeX;
-				final int zz = shadowData.overlappingZones.array[z] % ctx.sizeX;
+			if(light.shadowMode != PositionalShadowMode.MOVEABLE) {
+				for (int z = 0; z < shadowData.overlappingZones.length; z++) {
+					final int zx = shadowData.overlappingZones.array[z] / ctx.sizeX;
+					final int zz = shadowData.overlappingZones.array[z] % ctx.sizeX;
 
-				final Zone zone = ctx.zones[zx][zz];
-				if(!zone.initialized || zone.sizeO == 0)
-					continue;
+					final Zone zone = ctx.zones[zx][zz];
+					if(!zone.initialized || zone.sizeO == 0)
+						continue;
 
-				zone.renderOpaque(shadowData.drawBuffer, 0, 0, 3, Collections.EMPTY_SET);
+					if(!shadowData.bakedZoneHashes.contains(zone.hashCode())) {
+						shadowData.dirty = true;
+						break;
+					}
+				}
 			}
 
-			shadowData.drawBuffer.ExecuteSubCommandBuffer(ctx.vaoSceneCmd);
-			shadowData.drawBuffer.ExecuteSubCommandBuffer(ctx.vaoDirectionalCmd);
+			if(light.shadowMode == PositionalShadowMode.DYNAMIC || shadowData.dirty) {
+				for (int z = 0; z < shadowData.overlappingZones.length; z++) {
+					final int zx = shadowData.overlappingZones.array[z] / ctx.sizeX;
+					final int zz = shadowData.overlappingZones.array[z] % ctx.sizeX;
+
+					final Zone zone = ctx.zones[zx][zz];
+					if (!zone.initialized || zone.sizeO == 0)
+						continue;
+
+					zone.renderOpaque(shadowData.drawBuffer, 0, 0, 3, Collections.EMPTY_SET);
+
+					if (light.shadowMode != PositionalShadowMode.MOVEABLE)
+						shadowData.bakedZoneHashes.add(zone.hashCode());
+				}
+			}
+
+			/*
+			if (light.shadowMode != PositionalShadowMode.STATIC) {
+				// TODO: This is too expensive at the moment, we need to append specific model draws which is tech that the ModelData branch has
+				shadowData.drawBuffer.ExecuteSubCommandBuffer(ctx.vaoSceneCmd);
+				shadowData.drawBuffer.ExecuteSubCommandBuffer(ctx.vaoDirectionalCmd);
+			}*/
 		}
 	}
 
@@ -290,6 +374,7 @@ public class ShadowManager implements LightManager.Listener {
 				minX, minY, minZ,
 				maxX, maxY, maxZ
 			);
+
 			if(!intersectsZone)
 				continue;
 
@@ -300,6 +385,27 @@ public class ShadowManager implements LightManager.Listener {
 		return isVisible;
 	}
 
+	private static void computeShadowProjection(float[] out, float near, float far) {
+		final float nf = near / far;
+		final float a = (1f + nf) / (nf - 1f);
+		final float b = a * near - near;
+		out[0] = 1f;
+		out[5] = 1f;
+		out[11] = -1f;
+		out[10] = a;
+		out[14] = b;
+	}
+
+	private static void buildShadowViewMatrix(float[] out, float[] rotation, float[] lightPos) {
+		copyTo(out, rotation);
+
+		final float px = lightPos[0], py = lightPos[1], pz = lightPos[2];
+		out[12] = -(rotation[0] * px + rotation[4] * py + rotation[8]  * pz);
+		out[13] = -(rotation[1] * px + rotation[5] * py + rotation[9]  * pz);
+		out[14] = -(rotation[2] * px + rotation[6] * py + rotation[10] * pz);
+		out[15] = 1f;
+	}
+
 	public void renderShadows(RenderState renderState) {
 		if(!plugin.configPositionalShadows)
 			return;
@@ -308,7 +414,9 @@ public class ShadowManager implements LightManager.Listener {
 
 		zoneRenderer.depthProgram.use();
 
-		renderState.framebuffer.set(GL_FRAMEBUFFER, fboShadow);
+		// Keep the baked cubemap FBO bound for reads while RenderState updates only
+		// the atlas draw target.
+		renderState.framebuffer.set(GL_DRAW_FRAMEBUFFER, fboShadow);
 		renderState.disable.set(GL_CULL_FACE);
 		renderState.enable.set(GL_DEPTH_TEST);
 		renderState.depthMask.set(true);
@@ -316,49 +424,135 @@ public class ShadowManager implements LightManager.Listener {
 		renderState.ido.set(zoneRenderer.indirectDrawCmds.id);
 
 		glClearDepth(1);
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, fboShadowBakedRead);
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboShadow);
 
-		camera.setZoom(1.0f);
-		camera.setViewportHeight(2);
-		camera.setViewportWidth(2);
-		camera.setNearPlane(SHADOW_NEAR_PLANE);
-
-		boolean hasCleared = false;
+		// Bake Static Lights that are dirty
 		for (int i = 0; i < visibleIndices.length; i++) {
 			final int lightIndex = visibleIndices.array[i];
 			final Light light = shadowLights.get(lightIndex);
-			final ShadowData shadowData = light.shadowData;
-
-			if (shadowData.atlasRect == null || shadowData.drawBuffer.isEmpty())
+			if(light.shadowMode == PositionalShadowMode.MOVEABLE)
 				continue;
 
-			assert light.radius == sqrt(light.radius * light.radius);
+			final ShadowData shadowData = light.shadowData;
+			if(!shadowData.dirty)
+				continue;
 
-			camera.setPositionX(light.pos[0] + plugin.cameraShift[0]);
-			camera.setPositionY(light.pos[1]);
-			camera.setPositionZ(light.pos[2] + plugin.cameraShift[1]);
-			camera.setFarPlane(light.radius);
+			renderState.viewport.set(0, 0, MAX_FACE_RESOLUTION, MAX_FACE_RESOLUTION);
 
-			// Same pixel-space rect on every face layer for this light
-			renderState.viewport.set(shadowData.atlasRect.x, shadowData.atlasRect.y, shadowData.atlasRect.size, shadowData.atlasRect.size);
-
-			for (int face = 0; face < 6; face++) {
-				camera.setLookDirection(FACE_DIRECTIONS[face], FACE_UP_VECTORS[face]);
-				zoneRenderer.depthProgram.uniViewProjection.set(camera.getViewProjMatrix());
-
-				renderState.framebufferTextureLayer.set(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, texShadowCubemapArray, 0, face);
+			for(int face = 0; face < 6; face++) {
+				renderState.framebufferTextureLayer.set(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, shadowData.texBakedCubemap, 0, face);
 				renderState.apply();
 
-				// Each array layer is one cubemap face shared by every light. The
-				// first light must therefore clear every face once; later lights
-				// must preserve the depth already written to their other atlas rects.
-				if (!hasCleared)
-					glClear(GL_DEPTH_BUFFER_BIT);
+				glClear(GL_DEPTH_BUFFER_BIT);
+
+				shiftedLightPos[0] = light.pos[0] + plugin.cameraShift[0];
+				shiftedLightPos[1] = light.pos[1];
+				shiftedLightPos[2] = light.pos[2] + plugin.cameraShift[1];
+
+				buildShadowViewMatrix(shadowView, faceRotation[face], shiftedLightPos);
+
+				copyTo(viewProjMatrix, light.shadowData.lightProjection);
+				mul(viewProjMatrix, shadowView);
+
+				zoneRenderer.depthProgram.uniViewProjection.set(viewProjMatrix);
 
 				shadowData.drawBuffer.execute(renderState);
 			}
-			hasCleared = true;
+			glBindTexture(GL_TEXTURE_2D_ARRAY, shadowData.texBakedCubemap);
+			glGenerateMipmap(GL_TEXTURE_2D_ARRAY);
+			glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+			shadowData.dirty = false;
+		}
+		checkGLErrors();
+
+		final boolean supportsLayeredImageCopy = HdPlugin.GL_CAPS.OpenGL43 || HdPlugin.GL_CAPS.GL_ARB_copy_image;
+
+		// Clear every atlas layer before restoring the cached baked faces.
+		for(int face = 0; face < NUM_FACES; face++) {
+			renderState.framebufferTextureLayer.set(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, texShadowCubemapArray, 0, face);
+			renderState.apply();
+			glClear(GL_DEPTH_BUFFER_BIT);
 		}
 
+		if (supportsLayeredImageCopy) {
+			// The matching mip level has the same dimensions as the atlas rect, so
+			// this copies all six faces without a scaled framebuffer blit.
+			for (int i = 0; i < visibleIndices.length; i++) {
+				final Light light = shadowLights.get(visibleIndices.array[i]);
+				if (light.shadowMode == PositionalShadowMode.MOVEABLE)
+					continue;
+
+				final ShadowData shadowData = light.shadowData;
+				if (shadowData.atlasRect == null)
+					continue;
+
+				final Rect rect = shadowData.atlasRect;
+				final int sourceMipLevel = MAX_SIZE_EXP - Integer.numberOfTrailingZeros(rect.size);
+				glCopyImageSubData(
+					shadowData.texBakedCubemap, GL_TEXTURE_2D_ARRAY, sourceMipLevel, 0, 0, 0,
+					texShadowCubemapArray, GL_TEXTURE_2D_ARRAY, 0, rect.x, rect.y, 0,
+					rect.size, rect.size, NUM_FACES
+				);
+			}
+		}
+
+		for(int face = 0; face < NUM_FACES; face++) {
+			renderState.framebufferTextureLayer.set(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, texShadowCubemapArray, 0, face);
+			renderState.apply();
+
+			for (int i = 0; i < visibleIndices.length; i++) {
+				final int lightIndex = visibleIndices.array[i];
+				final Light light = shadowLights.get(lightIndex);
+				final ShadowData shadowData = light.shadowData;
+
+				if (shadowData.atlasRect == null)
+					continue;
+
+				if(light.shadowMode != PositionalShadowMode.STATIC && !shadowData.drawBuffer.isEmpty()) {
+					shiftedLightPos[0] = light.pos[0] + plugin.cameraShift[0];
+					shiftedLightPos[1] = light.pos[1];
+					shiftedLightPos[2] = light.pos[2] + plugin.cameraShift[1];
+
+					buildShadowViewMatrix(shadowView, faceRotation[face], shiftedLightPos);
+
+					copyTo(viewProjMatrix, light.shadowData.lightProjection);
+					mul(viewProjMatrix, shadowView);
+
+					zoneRenderer.depthProgram.uniViewProjection.set(viewProjMatrix);
+
+					renderState.viewport.set(
+						shadowData.atlasRect.x,
+						shadowData.atlasRect.y,
+						shadowData.atlasRect.size,
+						shadowData.atlasRect.size
+					);
+				}
+				renderState.apply();
+
+				if(light.shadowMode != PositionalShadowMode.MOVEABLE && !supportsLayeredImageCopy) {
+					final Rect rect = shadowData.atlasRect;
+					final int sourceMipLevel = MAX_SIZE_EXP - Integer.numberOfTrailingZeros(rect.size);
+					glFramebufferTextureLayer(GL_READ_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, shadowData.texBakedCubemap, sourceMipLevel, face);
+					glBlitFramebuffer(
+						0, 0, rect.size, rect.size,
+						rect.x, rect.y, rect.x + rect.size, rect.y + rect.size,
+						GL_DEPTH_BUFFER_BIT, GL_NEAREST
+					);
+				}
+
+				if(shadowData.drawBuffer.isEmpty())
+					continue;
+
+				if(light.shadowMode != PositionalShadowMode.STATIC)
+					shadowData.drawBuffer.execute(renderState);
+			}
+		}
+
+		checkGLErrors();
+
+		glBindFramebuffer(GL_READ_FRAMEBUFFER, 0);
+		glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 
 		renderState.disable.set(GL_DEPTH_TEST);
 
@@ -367,11 +561,10 @@ public class ShadowManager implements LightManager.Listener {
 
 	@Override
 	public void onLightAdded(Light light) {
-		if(!light.castShadows)
+		if(light.shadowMode == PositionalShadowMode.DISABLED)
 			return;
 
-		light.shadowData = new ShadowData();
-		shadowLights.add(light);
+		pendingLights.add(light);
 	}
 
 	@Override
@@ -379,15 +572,30 @@ public class ShadowManager implements LightManager.Listener {
 		if(light.shadowData == null)
 			return;
 
+		light.shadowData.destroy();
 		light.shadowData = null;
 		shadowLights.remove(light);
 	}
 
 	public static final class ShadowData {
+		private final IntHashSet bakedZoneHashes = new IntHashSet(); // TODO: This isn't needed for Dynamic Lights
 		private final PrimitiveIntArray overlappingZones = new PrimitiveIntArray();
 		private final CommandBuffer drawBuffer = new CommandBuffer("Shadow::DrawBuffer");
+		private final float[] lightProjection = new float[16];
+		private int texBakedCubemap;
+		private boolean dirty;
 
 		private Rect atlasRect;
+
+		public void init() {
+
+		}
+
+		public void destroy() {
+			if(texBakedCubemap != 0)
+				glDeleteTextures(texBakedCubemap);
+			texBakedCubemap = 0;
+		}
 
 		public int pack() {
 			if(atlasRect == null)
@@ -399,29 +607,7 @@ public class ShadowManager implements LightManager.Listener {
 			final int gridX = atlasRect.x >> exponent;
 			final int gridY = atlasRect.y >> exponent;
 
-			final int packed = tier  | (gridX << SIZE_TIER_BITS) | (gridY << (SIZE_TIER_BITS + GRID_BITS));
-			validate(packed);
-
-			return packed;
-		}
-
-		public void validate(int packed) {
-			final int tierMask = (1 << SIZE_TIER_BITS) - 1;
-			final int gridMask = (1 << GRID_BITS) - 1;
-
-			final int tier = packed & tierMask;
-			final int gridX = (packed >> SIZE_TIER_BITS) & gridMask;
-			final int gridY = (packed >> (SIZE_TIER_BITS + GRID_BITS)) & gridMask;
-
-			final int exponent = tier + MIN_SIZE_EXP;
-
-			final int x = gridX << exponent;
-			final int y = gridY << exponent;
-			final int size = 1 << exponent;
-
-			assert atlasRect.x == x;
-			assert atlasRect.y == y;
-			assert atlasRect.size == size;
+			return tier | (gridX << SIZE_TIER_BITS) | (gridY << (SIZE_TIER_BITS + GRID_BITS));
 		}
 	}
 }

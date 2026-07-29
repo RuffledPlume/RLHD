@@ -21752,7 +21752,7 @@
     "type": "FLICKER",
     "duration": 0,
     "range": 20,
-    "castShadow": true,
+    "shadowMode": "DYNAMIC",
     "objectIds": [
       "TORCH",
       "TORCH_GRUBBY",
@@ -21771,7 +21771,7 @@
     "offset": [ 0, 215, 0 ],
     "radius": 400,
     "strength": 50.5,
-    "castShadow": true,
+    "shadowMode": "DYNAMIC",
     "color": [
       252,
       148,
@@ -21795,6 +21795,7 @@
       3
     ],
     "type": "FLICKER",
+    "shadowMode": "DYNAMIC",
     "duration": 0,
     "range": 20,
     "objectIds": [
@@ -22080,7 +22081,7 @@
     "alignment": "CENTER",
     "radius": 550,
     "strength": 15.5,
-    "castShadow": true,
+    "shadowMode": "DYNAMIC",
     "color": [
       252,
       148,
@@ -23232,7 +23233,7 @@
     "alignment": "CENTER",
     "radius": 350,
     "strength": 12.5,
-    "castShadow": true,
+    "shadowMode": "DYNAMIC",
     "color": [
       252,
       148,
@@ -33611,7 +33612,7 @@
     "offset": [ 0, 700, -100 ],
     "alignment": "CENTER",
     "radius": 2500,
-    "castShadow": true,
+    "shadowMode": "DYNAMIC",
     "strength": 4.5,
     "color": [
       0,
@@ -33629,7 +33630,7 @@
     "plane": 0,
     "offset": [ 0, 150, -50 ],
     "alignment": "CENTER",
-    "castShadow": true,
+    "shadowMode": "DYNAMIC",
     "radius": 1000,
     "strength": 7.5,
     "color": [
@@ -33645,7 +33646,7 @@
     "alignment": "CENTER",
     "radius": 300,
     "strength": 5.5,
-    "castShadow": true,
+    "shadowMode": "DYNAMIC",
     "color": [
       255,
       255,
@@ -33664,7 +33665,7 @@
     "alignment": "CENTER",
     "radius": 180,
     "strength": 11,
-    "castShadow": true,
+    "shadowMode": "DYNAMIC",
     "color": [
       0,
       168.1351,
@@ -33683,7 +33684,7 @@
     "alignment": "CENTER",
     "radius": 150,
     "strength": 7.7,
-    "castShadow": true,
+    "shadowMode": "DYNAMIC",
     "color": [
       255,
       182.86261,
@@ -33704,7 +33705,7 @@
     "alignment": "CENTER",
     "radius": 150,
     "strength": 7.7,
-    "castShadow": true,
+    "shadowMode": "DYNAMIC",
     "color": [
       0,
       255,
@@ -33725,7 +33726,7 @@
     "alignment": "CENTER",
     "radius": 150,
     "strength": 7.7,
-    "castShadow": true,
+    "shadowMode": "DYNAMIC",
     "color": [
       200.19334,
       182.86261,
@@ -33746,8 +33747,7 @@
     "alignment": "CENTER",
     "radius": 150,
     "strength": 7.7,
-
-    "castShadow": true,
+    "shadowMode": "DYNAMIC",
     "color": [
       0,
       0,
@@ -33769,8 +33769,7 @@
     "alignment": "CENTER",
     "radius": 150,
     "strength": 7.7,
-
-    "castShadow": true,
+    "shadowMode": "DYNAMIC",
     "color": [
       255,
       255,
@@ -33791,8 +33790,7 @@
     "alignment": "CENTER",
     "radius": 150,
     "strength": 7.7,
-
-    "castShadow": true,
+    "shadowMode": "DYNAMIC",
     "color": [
       255,
       255,
@@ -33813,8 +33811,7 @@
     "alignment": "CENTER",
     "radius": 150,
     "strength": 7.7,
-
-    "castShadow": true,
+    "shadowMode": "DYNAMIC",
     "color": [
       255,
       212.09813,
@@ -33836,8 +33833,7 @@
     "alignment": "CENTER",
     "radius": 150,
     "strength": 7.7,
-
-    "castShadow": true,
+    "shadowMode": "DYNAMIC",
     "color": [
       158.46326,
       158.46326,
@@ -33858,8 +33854,7 @@
     "alignment": "CENTER",
     "radius": 150,
     "strength": 7.7,
-
-    "castShadow": true,
+    "shadowMode": "DYNAMIC",
     "color": [
       255,
       212.09813,
@@ -33880,8 +33875,7 @@
     "alignment": "CENTER",
     "radius": 150,
     "strength": 7.7,
-
-    "castShadow": true,
+    "shadowMode": "DYNAMIC",
     "color": [
       236.88396,
       236.88396,
@@ -33901,7 +33895,7 @@
     "height": 260,
     "alignment": "CENTER",
     "radius": 150,
-    "castShadow": true,
+    "shadowMode": "DYNAMIC",
     "strength": 7.7,
     "color": [
       182.86261,
@@ -33922,7 +33916,7 @@
     "height": 260,
     "alignment": "CENTER",
     "radius": 150,
-    "castShadow": true,
+    "shadowMode": "DYNAMIC",
     "strength": 7.7,
     "color": [
       255,
@@ -33945,7 +33939,7 @@
     "radius": 200,
     "strength": 8.5,
     "fadeOutDuration": 200,
-    "castShadow": true,
+    "shadowMode": "DYNAMIC",
     "fadeInDuration": 150,
     "color": [
       255,
@@ -33965,7 +33959,7 @@
     "height": 140,
     "alignment": "BACK",
     "radius": 1200,
-    "castShadow": true,
+    "shadowMode": "DYNAMIC",
     "strength": 12.5,
     "color": [
       70,
@@ -33984,7 +33978,7 @@
     "height": 250,
     "alignment": "SOUTH",
     "radius": 2400,
-    "castShadow": true,
+    "shadowMode": "DYNAMIC",
     "strength": 75,
     "color": [
       250,
