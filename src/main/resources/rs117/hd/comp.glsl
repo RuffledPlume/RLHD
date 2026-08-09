@@ -63,7 +63,6 @@ void main() {
         }
     }
 
-    // after:
     ObjectWindSample windSample = computeWindSample(
         vec3(minfo.x, float(minfo.y >> 16), minfo.z),
         minfo.y & 0xffff

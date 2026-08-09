@@ -279,15 +279,15 @@ public class ZoneRenderer implements Renderer {
 		indirectDrawCmds = new GLBuffer("indirectDrawCmds", GL_DRAW_INDIRECT_BUFFER, GL_STREAM_DRAW).initialize(MiB);
 		indirectDrawCmdsStaging = new GpuIntBuffer();
 
-		for(int i = 0; i < FRAMES_IN_FLIGHT; i++) {
+		for (int i = 0; i < FRAMES_IN_FLIGHT; i++) {
 			frameContexts[i] = new FrameContext();
 			frameContexts[i].initBuffers();
 		}
 	}
 
 	private void destroyBuffers() {
-		for(int i = 0; i < FRAMES_IN_FLIGHT; i++) {
-			if(frameContexts[i] != null)
+		for (int i = 0; i < FRAMES_IN_FLIGHT; i++) {
+			if (frameContexts[i] != null)
 				frameContexts[i].destroy();
 			frameContexts[i] = null;
 		}
@@ -345,7 +345,7 @@ public class ZoneRenderer implements Renderer {
 			if (ctx.uboWorldViewStruct != null) {
 				ctx.uboWorldViewStruct.update();
 
-				if(ctx.isBoat)
+				if (ctx.isBoat)
 					displacementManager.addBoat(ctx.uboWorldViewStruct, ctx.boatDisplacementOctagon);
 			}
 
@@ -401,7 +401,6 @@ public class ZoneRenderer implements Renderer {
 		Scene scene,
 		float cameraX, float cameraY, float cameraZ, float cameraPitch, float cameraYaw
 	) {
-
 		scene.setDrawDistance(plugin.getDrawDistance());
 
 		// Ensure that the previous frames commands have finished flushing
@@ -1100,7 +1099,7 @@ public class ZoneRenderer implements Renderer {
 					ctx.drawAll(VAO_PLAYER, ctx.vaoSceneCmd);
 					ctx.vaoSceneCmd.ColorMask(true, true, true, true);
 
-					if(sceneManager.isRoot(ctx)) {
+					if (sceneManager.isRoot(ctx)) {
 						frameTimer.begin(Timer.FRAME_CONTEXT_UNMAP);
 						frameContext().unmap();
 						frameTimer.end(Timer.FRAME_CONTEXT_UNMAP);

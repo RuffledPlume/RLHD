@@ -86,8 +86,16 @@ public class DynamicModelVAO implements Destructible {
 		this.stubMetadata = new GLBuffer("DynamicModel::Metadata", GL_ARRAY_BUFFER, GL_STATIC_DRAW);
 		this.vboWriter = new GLMappedBufferIntWriter(this.vboStaging);
 
-		this.tboF = new GLTextureBuffer("DynamicModel::TexturedFaces::" + name, GL_STREAM_DRAW, STORAGE_PERSISTENT | STORAGE_IMMUTABLE | STORAGE_WRITE);
-		this.tboM = new GLTextureBuffer("DynamicModel::ModelData::" + name, GL_STREAM_DRAW, STORAGE_PERSISTENT | STORAGE_IMMUTABLE | STORAGE_WRITE);
+		this.tboF = new GLTextureBuffer(
+			"DynamicModel::TexturedFaces::" + name,
+			GL_STREAM_DRAW,
+			STORAGE_PERSISTENT | STORAGE_IMMUTABLE | STORAGE_WRITE
+		);
+		this.tboM = new GLTextureBuffer(
+			"DynamicModel::ModelData::" + name,
+			GL_STREAM_DRAW,
+			STORAGE_PERSISTENT | STORAGE_IMMUTABLE | STORAGE_WRITE
+		);
 		this.tboFWriter = new GLMappedBufferIntWriter(this.tboF);
 		this.tboMWriter = new GLMappedBufferIntWriter(this.tboM);
 
@@ -109,7 +117,7 @@ public class DynamicModelVAO implements Destructible {
 		try (MemoryStack stack = MemoryStack.stackPush()) {
 			int intsCount = METADATA_SIZE / Integer.BYTES;
 			IntBuffer buf = stack.mallocInt(intsCount);
-			for(int i = 0; i < intsCount; i++)
+			for (int i = 0; i < intsCount; i++)
 				buf.put(0);
 			stubMetadata.upload(buf);
 		}
@@ -123,7 +131,7 @@ public class DynamicModelVAO implements Destructible {
 
 		// Position
 		glEnableVertexAttribArray(0);
-		glVertexAttribPointer(0, 3, GL_HALF_FLOAT, false, VERT_SIZE, 0);
+		glVertexAttribPointer(0, 4, GL_HALF_FLOAT, false, VERT_SIZE, 0);
 
 		// UVs
 		glEnableVertexAttribArray(1);
@@ -160,7 +168,7 @@ public class DynamicModelVAO implements Destructible {
 	}
 
 	void map() {
-		if(!vboRender.isStorageBuffer())
+		if (!vboRender.isStorageBuffer())
 			vboRender.orphan();
 
 		vboWriter.map(false);

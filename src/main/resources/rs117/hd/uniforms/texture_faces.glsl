@@ -29,13 +29,13 @@ int getFaceOffset(int packedFaceData) {
     return packedFaceData & 0x3FFFFFFF;
 }
 
-BEGIN_BUFFER_PARSER(getStaticFaceData,StaticFaceData, false)
+BEGIN_BUFFER_PARSER(getStaticFaceData, StaticFaceData, false)
     READ_IVEC3(AlphaBiasHsl)
     READ_IVEC3(MaterialData)
     READ_IVEC3(TerrainData)
 END_BUFFER_PARSER()
 
-BEGIN_BUFFER_PARSER(getModelFaceData,ModelFaceData, false)
+BEGIN_BUFFER_PARSER(getModelFaceData, ModelFaceData, false)
     READ_IVEC3(AlphaBiasHsl)
     READ_INT(MaterialData)
 END_BUFFER_PARSER()

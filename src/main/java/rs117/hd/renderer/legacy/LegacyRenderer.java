@@ -111,6 +111,9 @@ public class LegacyRenderer implements Renderer {
 	private ModelOverrideManager modelOverrideManager;
 
 	@Inject
+	private DisplacementManager displacementManager;
+
+	@Inject
 	private LegacySceneUploader sceneUploader;
 
 	@Inject
@@ -124,9 +127,6 @@ public class LegacyRenderer implements Renderer {
 
 	@Inject
 	private NpcDisplacementCache npcDisplacementCache;
-
-	@Inject
-	private DisplacementManager displacementManager;
 
 	@Inject
 	private FrameTimer frameTimer;

@@ -185,10 +185,10 @@ public class SceneUploader implements AutoCloseable {
 	}
 
 	private void ensureVerticesAllocated(boolean allocateInts, boolean allocateFloats, int vertexCount) {
-		if(allocateInts)
+		if (allocateInts)
 			intModelVertices = PooledArrayType.INT.ensureCapacity(intModelVertices, vertexCount * 3);
 
-		if(allocateFloats)
+		if (allocateFloats)
 			floatModelVertices = PooledArrayType.FLOAT.ensureCapacity(floatModelVertices, vertexCount * 3);
 	}
 
@@ -290,7 +290,7 @@ public class SceneUploader implements AutoCloseable {
 		int ridx = 0;
 
 		// upload the roofs and save their positions
-		for (int i = 0; i < roofIds.length; ++i ) {
+		for (int i = 0; i < roofIds.length; ++i) {
 			final int id = roofIds.array[i];
 			int pos = vb != null ? vb.position() : 0;
 
@@ -385,7 +385,7 @@ public class SceneUploader implements AutoCloseable {
 					if (onBeforeProcessTile != null)
 						onBeforeProcessTile.invoke(t, false);
 
-						uploadZoneTile(ctx, zone, t, false, true, vb, null, fb, null);
+					uploadZoneTile(ctx, zone, t, false, true, vb, null, fb, null);
 				}
 			}
 		}
@@ -759,6 +759,7 @@ public class SceneUploader implements AutoCloseable {
 		mightHaveTransparency |= transparencies != null || isVanillaTextured || modelTransparency != 0;
 		if (mightHaveTransparency)
 			z.sizeA += faceCount;
+
 		z.sizeM++;
 	}
 
@@ -1151,7 +1152,7 @@ public class SceneUploader implements AutoCloseable {
 			);
 		}
 
-		if(texturedFaceIdx == -1) {
+		if (texturedFaceIdx == -1) {
 			texturedFaceIdx = tb.putStaticFace(
 				swColor, seColor, nwColor,
 				swMaterialData, seMaterialData, nwMaterialData,
@@ -1477,7 +1478,7 @@ public class SceneUploader implements AutoCloseable {
 				terrainDataA, terrainDataB, terrainDataC
 			);
 
-			if(texturedFaceIdx == -1) {
+			if (texturedFaceIdx == -1) {
 				texturedFaceIdx = tb.putStaticFace(
 					colorA, colorB, colorC,
 					materialDataA, materialDataB, materialDataC,
@@ -1533,7 +1534,17 @@ public class SceneUploader implements AutoCloseable {
 		writeCache.release();
 	}
 
-	private static void writeModelData(IntBuffer modelBuffer, float x, float y, float z, float fade, Model model, ModelOverride override, WorldViewContext viewCtx, Zone zone) {
+	private static void writeModelData(
+		IntBuffer modelBuffer,
+		float x,
+		float y,
+		float z,
+		float fade,
+		Model model,
+		ModelOverride override,
+		WorldViewContext viewCtx,
+		Zone zone
+	) {
 		// Model Data Struct:
 		// int WorldViewIdx
 		// int Flags
@@ -1561,7 +1572,17 @@ public class SceneUploader implements AutoCloseable {
 		return modelIdx + 1;
 	}
 
-	public static int writeDynamicModelData(GLMappedBufferIntWriter.ReservedView view, float x, float y, float z, float fade, Model model, ModelOverride override, WorldViewContext viewCtx, Zone zone) {
+	public static int writeDynamicModelData(
+		GLMappedBufferIntWriter.ReservedView view,
+		float x,
+		float y,
+		float z,
+		float fade,
+		Model model,
+		ModelOverride override,
+		WorldViewContext viewCtx,
+		Zone zone
+	) {
 		final int modelDataSizeInts = Zone.MODEL_DATA_SIZE / Integer.BYTES;
 		final int modelIdx = view.getBufferOffsetInts() / modelDataSizeInts;
 
@@ -1677,10 +1698,10 @@ public class SceneUploader implements AutoCloseable {
 		final Material textureMaterial = modelOverride.textureMaterial;
 
 		int modelX = x, modelZ = z;
-		if(modelOverride.positionTileSnapping > 0) {
+		if (modelOverride.positionTileSnapping > 0) {
 			float snapping = modelOverride.positionTileSnapping * LOCAL_HALF_TILE_SIZE;
-			modelX = (int)(floor(modelX / snapping) * snapping);
-			modelZ = (int)(floor(modelZ / snapping) * snapping);
+			modelX = (int) (floor(modelX / snapping) * snapping);
+			modelZ = (int) (floor(modelZ / snapping) * snapping);
 		}
 
 		final int modelIdx = writeStaticModelData(modelBuffer.getBuffer(), modelX, y, modelZ, model, modelOverride, zone);
@@ -1813,9 +1834,11 @@ public class SceneUploader implements AutoCloseable {
 							if (faceColorIndex != -1) {
 								int color = tileModel.getTriangleColorA()[faceColorIndex];
 								if (color != HIDDEN_HSL) {
-									var override = ctx.getTileOverride(tileZ, tileExX, tileExY,
+									var override = ctx.getTileOverride(
+										tileZ, tileExX, tileExY,
 										faceOverride.inheritTileColorType == InheritTileColorType.OVERLAY ?
-										TILE_OVERRIDE_OVERLAY : TILE_OVERRIDE_UNDERLAY);
+											TILE_OVERRIDE_OVERLAY : TILE_OVERRIDE_UNDERLAY
+									);
 
 									color = override.modifyColor(color);
 									color1 = color2 = color3 = color;
@@ -1919,7 +1942,7 @@ public class SceneUploader implements AutoCloseable {
 
 			// Check if we can reuse an existing model face to dedup the amount of faces written
 			int texturedFaceIdx = tb.findModelFace(color1, color2, color3, materialData);
-			if(texturedFaceIdx == -1)
+			if (texturedFaceIdx == -1)
 				texturedFaceIdx = tb.putModelFace(color1, color2, color3, materialData);
 
 			vb.putVertex(
@@ -2629,7 +2652,8 @@ public class SceneUploader implements AutoCloseable {
 		int vx2, int vy2, int vz2,
 		int vx3, int vy3, int vz3
 	) {
-		calculateFaceNormal(out,
+		calculateFaceNormal(
+			out,
 			Float.intBitsToFloat(vx1), Float.intBitsToFloat(vy1), Float.intBitsToFloat(vz1),
 			Float.intBitsToFloat(vx2), Float.intBitsToFloat(vy2), Float.intBitsToFloat(vz2),
 			Float.intBitsToFloat(vx3), Float.intBitsToFloat(vy3), Float.intBitsToFloat(vz3)

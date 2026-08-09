@@ -603,7 +603,7 @@ public class SceneManager {
 				Zone newZone = injector.getInstance(Zone.class);
 				newZone.dirty = sorted.zone.dirty;
 				if (staggerLoad) {
-					if(!sorted.zone.cull)
+					if (!sorted.zone.cull)
 						newZone.fadingAlpha = saturate(sorted.dist / 15.0f) * 3.0f; // Fade in new chunks that are appearing out of the fog
 
 					// Reuse the old zone while uploading a correct one

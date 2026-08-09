@@ -1,14 +1,15 @@
 package rs117.hd.utils.buffer;
 
 import lombok.Getter;
-import rs117.hd.HdPlugin;
 
 import static org.lwjgl.opengl.GL33C.*;
 import static rs117.hd.HdPlugin.GL_CAPS;
 
 public class GLTextureBuffer extends GLBuffer {
 
-	public static boolean isRGBASupported() { return HdPlugin.GL_CAPS.GL_ARB_texture_buffer_object; }
+	public static boolean isRGBASupported() {
+		return GL_CAPS.GL_ARB_texture_buffer_object;
+	}
 
 	@Getter
 	private int texId;

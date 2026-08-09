@@ -226,8 +226,8 @@ public abstract class UniformBuffer<GLBUFFER extends GLBuffer> {
 			if (isUninitialized())
 				return;
 
-			if(type.elementCount != length) {
-				log("Float setter was provided with incorrect number of elements: " + length + " != " + type.elementCount);
+			if (type.elementCount != length) {
+				log("Int setter was provided with incorrect number of elements: " + length + " != " + type.elementCount);
 				return;
 			}
 
@@ -240,7 +240,7 @@ public abstract class UniformBuffer<GLBUFFER extends GLBuffer> {
 			if (isUninitialized())
 				return;
 
-			if(type.elementCount != length) {
+			if (type.elementCount != length) {
 				log("Float setter was provided with incorrect number of elements: " + length + " != " + type.elementCount);
 				return;
 			}

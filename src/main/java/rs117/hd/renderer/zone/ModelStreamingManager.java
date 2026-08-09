@@ -200,7 +200,7 @@ public class ModelStreamingManager {
 			uuid = ModelHash.packUuid(ModelHash.getType(tileObject.getHash()), impostorId);
 
 			// Cull dynamic models based on detail draw distance
-			if(modelOverrideManager.allowDetailCulling(uuid)) {
+			if (modelOverrideManager.allowDetailCulling(uuid)) {
 				final int detailDrawDistanceTiles = plugin.configDetailDrawDistance * LOCAL_TILE_SIZE;
 				final float squaredDistance = renderer.sceneCamera.squaredDistanceTo(
 					objectWorldPos[0],
@@ -273,7 +273,8 @@ public class ModelStreamingManager {
 				z & 1023
 			) : null;
 
-		final int drawIndex = renderThreadId != -1 ? -1 : renderer.frameContext().obtainDrawIndex(r instanceof Player ? VAO_PLAYER : VAO_OPAQUE);
+		final int drawIndex =
+			renderThreadId != -1 ? -1 : renderer.frameContext().obtainDrawIndex(r instanceof Player ? VAO_PLAYER : VAO_OPAQUE);
 		final boolean isModelPartiallyVisible = sceneManager.isRoot(ctx) && modelClassification == 0;
 		final AsyncCachedModel asyncModelCache = obtainAvailableAsyncCachedModel(m);
 		if (asyncModelCache != null) {
@@ -416,7 +417,17 @@ public class ModelStreamingManager {
 				(!sceneManager.isRoot(ctx) || zone != null && zone.inShadowFrustum)
 			) {
 				final DynamicModelVAO.View shadowView = ctx.beginDraw(VAO_SHADOW, culledFaces.length);
-				final int shadowModelIdx = SceneUploader.writeDynamicModelData(shadowView.tboM, x, y, z, modelFade, m, modelOverride, ctx, zone);
+				final int shadowModelIdx = SceneUploader.writeDynamicModelData(
+					shadowView.tboM,
+					x,
+					y,
+					z,
+					modelFade,
+					m,
+					modelOverride,
+					ctx,
+					zone
+				);
 				sceneUploader.uploadTempModel(
 					culledFaces,
 					m,
@@ -446,8 +457,20 @@ public class ModelStreamingManager {
 				final DynamicModelVAO.View opaqueView = ctx.beginDraw(vaoType, drawIndex, opaqueFaceCount);
 				final DynamicModelVAO.View alphaView = alphaFaceCount > 0 ? ctx.beginDraw(VAO_ALPHA, alphaFaceCount) : opaqueView;
 
-				final int opaqueModelIdx = SceneUploader.writeDynamicModelData(opaqueView.tboM, x, y, z, modelFade, m, modelOverride, ctx, zone);
-				final int alphaModelIdx = alphaFaceCount > 0 ? SceneUploader.writeDynamicModelData(alphaView.tboM, x, y, z, modelFade, m, modelOverride, ctx, zone) : opaqueModelIdx;
+				final int opaqueModelIdx = SceneUploader.writeDynamicModelData(
+					opaqueView.tboM,
+					x,
+					y,
+					z,
+					modelFade,
+					m,
+					modelOverride,
+					ctx,
+					zone
+				);
+				final int alphaModelIdx = alphaFaceCount > 0 ?
+					SceneUploader.writeDynamicModelData(alphaView.tboM, x, y, z, modelFade, m, modelOverride, ctx, zone) :
+					opaqueModelIdx;
 
 				sceneUploader.uploadTempModel(
 					visibleFaces,

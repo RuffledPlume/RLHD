@@ -216,7 +216,7 @@
       },
       "positionTileSnapping": {
         "type": "integer",
-        "description": "Specify the amount of tiles that the models position should be snapped to"
+        "description": "Specify the amount of tiles that the model's position should be snapped to."
       },
       "depthBias": {
         "type": "integer",
@@ -422,7 +422,7 @@
             },
             "positionTileSnapping": {
               "type": "integer",
-              "description": "Specify the amount of tiles that the models position should be snapped to"
+              "description": "Specify the amount of tiles that the model's position should be snapped to."
             },
             "depthBias": {
               "type": "integer",
@@ -634,7 +634,7 @@
             },
             "positionTileSnapping": {
               "type": "integer",
-              "description": "Specify the amount of tiles that the models position should be snapped to"
+              "description": "Specify the amount of tiles that the model's position should be snapped to."
             },
             "invertDisplacementStrength": {
               "type": "boolean",

@@ -245,7 +245,7 @@ public class Zone implements Destructible {
 			vboA.unmap();
 		if (tboF != null)
 			tboF.unmap();
-		if(tboM != null)
+		if (tboM != null)
 			tboM.unmap();
 
 		if (vboO != null) {
@@ -309,7 +309,7 @@ public class Zone implements Destructible {
 		int baseZ = (mz - (sceneContext.sceneOffset >> 3)) << 10;
 
 		try (MemoryStack stack = MemoryStack.stackPush()) {
-			IntBuffer buf = stack.mallocInt(METADATA_SIZE / Integer.BYTES)
+			IntBuffer buf = stack.mallocInt(METADATA_INTS)
 				.put(viewContext.uboWorldViewStruct != null ? viewContext.uboWorldViewStruct.worldViewIdx + 1 : 0)
 				.put(baseX)
 				.put(baseZ)
@@ -354,7 +354,7 @@ public class Zone implements Destructible {
 	}
 
 	void renderOpaque(CommandBuffer cmd, WorldViewContext ctx, boolean roofShadows) {
-		if(fadingAlpha > 1.0)
+		if (fadingAlpha > 1.0)
 			return;
 		drawIdx = 0;
 
@@ -414,7 +414,7 @@ public class Zone implements Destructible {
 	}
 
 	void renderOpaqueLevel(CommandBuffer cmd, int level) {
-		if(fadingAlpha > 1.0)
+		if (fadingAlpha > 1.0)
 			return;
 
 		drawIdx = 0;

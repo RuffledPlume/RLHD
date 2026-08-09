@@ -75,13 +75,13 @@ public class NpcDisplacementCache {
 					}
 				}
 
-				if(entry != null) {
+				if (entry != null) {
 					cache.remove(oldestNpcId);
 					entry.reset();
 				}
 			}
 
-			if(entry == null)
+			if (entry == null)
 				entry = new NpcDisplacementCache.Entry();
 			cache.put(npcId, entry);
 

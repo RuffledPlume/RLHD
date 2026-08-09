@@ -42,10 +42,10 @@ public class WorldViewContext {
 	private HdPlugin plugin;
 
 	@Inject
-	private SceneManager sceneManager;
+	private ZoneRenderer zoneRenderer;
 
 	@Inject
-	private ZoneRenderer zoneRenderer;
+	private SceneManager sceneManager;
 
 	@Inject
 	private DisplacementManager displacementManager;
@@ -210,7 +210,7 @@ public class WorldViewContext {
 				handleZoneSwap(x, z, true);
 
 				final Zone zone = zones[x][z];
-				if(zone.fadingAlpha <= 0)
+				if (zone.fadingAlpha <= 0)
 					continue;
 
 				zone.fadingAlpha = max(0.0f, zone.fadingAlpha - plugin.deltaTime);
@@ -305,18 +305,18 @@ public class WorldViewContext {
 					GameObject[] gameObjects = tile.getGameObjects();
 					for (int g = 0; g < gameObjects.length; g++) {
 						GameObject gameObject = gameObjects[g];
-						if(gameObject == null)
+						if (gameObject == null)
 							continue;
 
 						Renderable renderable = gameObject.getRenderable();
-						if(renderable == null)
+						if (renderable == null)
 							continue;
 
-						if(displacementManager.boatIds.contains(gameObject.getId())) {
+						if (displacementManager.boatIds.contains(gameObject.getId())) {
 							Model model = null;
-							if(renderable instanceof Model) {
+							if (renderable instanceof Model) {
 								model = (Model) renderable;
-							} else if(renderable instanceof DynamicObject) {
+							} else if (renderable instanceof DynamicObject) {
 								model = ((DynamicObject) renderable).getModelZbuf();
 							}
 
@@ -324,7 +324,7 @@ public class WorldViewContext {
 							final int centerY = gameObject.getZ();
 							final int centerZ = gameObject.getY();
 
-							if ( model != null) {
+							if (model != null) {
 								// find all verticies that are under
 								int[] xs = PooledArrayType.INT.borrow(model.getVerticesCount());
 								int[] ys = PooledArrayType.INT.borrow(model.getVerticesCount());
@@ -339,7 +339,7 @@ public class WorldViewContext {
 									final int vertexCount = model.getVerticesCount();
 									final AABB modelAABB = model.getAABB(0);
 
-									final int waterLine = modelAABB.getCenterY() + (int)(modelAABB.getExtremeY() * 0.5f);
+									final int waterLine = modelAABB.getCenterY() + (int) (modelAABB.getExtremeY() * 0.5f);
 
 									for (int i = 0; i < vertexCount; i++) {
 										final float posY = centerY + yVertices[i];
@@ -350,7 +350,7 @@ public class WorldViewContext {
 										}
 									}
 
-									if(underwaterCount > 0) {
+									if (underwaterCount > 0) {
 										// Fill the rest of the array with the last vertex
 										Arrays.fill(xs, underwaterCount, xs.length, xs[underwaterCount - 1]);
 										Arrays.fill(ys, underwaterCount, ys.length, ys[underwaterCount - 1]);

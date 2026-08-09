@@ -20,7 +20,7 @@ public class FrameContext {
 
 	void destroy() {
 		for (int i = 0; i < VAO_COUNT; i++) {
-			if(dynamicModelVaos[i] != null)
+			if (dynamicModelVaos[i] != null)
 				dynamicModelVaos[i].destroy();
 			dynamicModelVaos[i] = null;
 		}

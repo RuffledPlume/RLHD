@@ -132,24 +132,24 @@ vec4 sampleWater(int waterTypeIndex, vec3 viewDir) {
     if (waterType.fresnelAmount == 0.85)
         baseColor *= .75f; // Sailing hack
 
-
     float boatFoamMask = 0.0;
-#if ZONE_RENDERER
-    // TODO: This could be done in the vertex shader to avoid checking per fragment
-    const float boatFoamSize = 128.0;
-    for(int i = 0; i < boatCount; i++) {
-        float dist = boatDistance(boats[i], IN.position.xz);
-        if(dist < boatFoamSize) {
-            boatFoamMask += 1.0 - (dist / boatFoamSize);
-            if(boatFoamMask >= 1.0)
-                break;
+    #if ZONE_RENDERER
+        // TODO: This could be done in the vertex shader to avoid checking per fragment
+        const float boatFoamSize = 128.0;
+        for (int i = 0; i < boatCount; i++) {
+            float dist = boatDistance(boats[i], IN.position.xz);
+            if (dist < boatFoamSize) {
+                boatFoamMask += 1.0 - (dist / boatFoamSize);
+                if (boatFoamMask >= 1.0)
+                    break;
+            }
         }
-    }
-#endif
+    #endif
 
     float shoreLineMask = 1 - dot(IN.texBlend, (fAlphaBiasHsl & 127) / 127.f);
     float maxFoamAmount = 0.8;
-    float foamAmount = min(max(shoreLineMask, boatFoamMask), maxFoamAmount);
+    float foamAmount = max(shoreLineMask, boatFoamMask);
+    foamAmount = min(foamAmount, maxFoamAmount);
     float foamDistance = 0.7;
     vec3 foamColor = waterType.foamColor;
     foamColor = foamColor * foamMask * compositeLight;

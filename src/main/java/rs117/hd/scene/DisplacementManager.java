@@ -67,8 +67,8 @@ public class DisplacementManager {
 
 	public void initialize() {
 		try (var handle = gamevalManager.obtainHandle()) {
-			for(var entry : handle.getObjects().entrySet()) {
-				if(entry.getKey().contains("SAILING_BOAT_HULL_"))
+			for (var entry : handle.getObjects().entrySet()) {
+				if (entry.getKey().contains("SAILING_BOAT_HULL_"))
 					boatIds.add(entry.getValue());
 			}
 		}
@@ -94,16 +94,16 @@ public class DisplacementManager {
 	}
 
 	public void addLocalPlayer() {
-		if(!plugin.configCharacterDisplacement)
+		if (!plugin.configCharacterDisplacement)
 			return;
 
 		var localPlayer = client.getLocalPlayer();
-		if(localPlayer == null)
+		if (localPlayer == null)
 			return;
 
 		// The local player needs to be added first for distance culling
 		var lp = localPlayer.getLocalLocation();
-		if(lp != null) {
+		if (lp != null) {
 			WorldViewContext ctx = sceneManager.getContext(localPlayer.getWorldView().getScene());
 			if (ctx != null && !sceneManager.isRoot(ctx))
 				return;
@@ -113,11 +113,11 @@ public class DisplacementManager {
 	}
 
 	public void addCharacterPosition(Scene scene, int x, int z, Renderable renderable, Model m) {
-		if(!plugin.configCharacterDisplacement)
+		if (!plugin.configCharacterDisplacement)
 			return;
 
 		WorldViewContext ctx = sceneManager.getContext(scene);
-		if(ctx != null && !sceneManager.isRoot(ctx))
+		if (ctx != null && !sceneManager.isRoot(ctx))
 			return;
 
 		if (renderable instanceof NPC) {
@@ -136,11 +136,11 @@ public class DisplacementManager {
 			}
 		} else if (renderable instanceof Player && renderable != client.getLocalPlayer()) {
 			addCharacterPosition(x, z, (int) (LOCAL_TILE_SIZE * 1.33f), 1.0f);
-		} else if (renderable instanceof TileItem){
+		} else if (renderable instanceof TileItem) {
 			int TileExX = clamp(ctx.sceneContext.sceneOffset + (x / 128), 0, EXTENDED_SCENE_SIZE - 1);
 			int TileExY = clamp(ctx.sceneContext.sceneOffset + (z / 128), 0, EXTENDED_SCENE_SIZE - 1);
 			final int tileIdx = TileExX * EXTENDED_SCENE_SIZE + TileExY;
-			if(!groundItems[tileIdx]) {
+			if (!groundItems[tileIdx]) {
 				groundItems[tileIdx] = true;
 				addCharacterPosition(x, z, (int) (LOCAL_TILE_SIZE * 0.5f), 4.0f);
 			}
@@ -148,7 +148,7 @@ public class DisplacementManager {
 	}
 
 	public void addCharacterPosition(int localX, int localZ, int modelRadius, float strength) {
-		if(!plugin.configCharacterDisplacement)
+		if (!plugin.configCharacterDisplacement)
 			return;
 
 		if (plugin.enableDetailedTimers)
@@ -193,7 +193,7 @@ public class DisplacementManager {
 		boatCount.set(count);
 		writtenBoats = 0;
 
-		for(int i = 0; i < count; i++) {
+		for (int i = 0; i < count; i++) {
 			final WorldViewStruct worldViewStruct = boatWorldViews[i];
 			final SimplePolygon polygon = boatDisplacementPolygons[i];
 			final UBODisplacement.BoatStruct boatStruct = boatContours[i];
@@ -203,7 +203,7 @@ public class DisplacementManager {
 
 				packedContour[j % 4] = float16(projected[0]) | (float16(projected[2]) << 16);
 
-				if((j + 1) % 4 == 0)
+				if ((j + 1) % 4 == 0)
 					boatStruct.contour[j / 4].set(packedContour);
 			}
 		}

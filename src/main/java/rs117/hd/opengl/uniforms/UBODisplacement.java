@@ -4,7 +4,7 @@ import javax.inject.Inject;
 import rs117.hd.scene.DisplacementManager;
 import rs117.hd.utils.buffer.GLBuffer;
 
-import static org.lwjgl.opengl.GL15C.GL_DYNAMIC_DRAW;
+import static org.lwjgl.opengl.GL33C.*;
 import static rs117.hd.scene.DisplacementManager.MAX_BOAT_COUNT;
 import static rs117.hd.scene.DisplacementManager.MAX_CHARACTER_POSITION_COUNT;
 

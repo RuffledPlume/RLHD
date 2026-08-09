@@ -288,6 +288,9 @@ public class HdPlugin extends Plugin {
 	private ModelOverrideManager modelOverrideManager;
 
 	@Inject
+	private DisplacementManager displacementManager;
+
+	@Inject
 	private FishingSpotReplacer fishingSpotReplacer;
 
 	@Inject
@@ -325,9 +328,6 @@ public class HdPlugin extends Plugin {
 
 	@Inject
 	public HDVariables vars;
-
-	@Inject
-	private DisplacementManager displacementManager;
 
 	public Renderer renderer;
 
