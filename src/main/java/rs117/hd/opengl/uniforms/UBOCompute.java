@@ -27,7 +27,7 @@ public class UBOCompute extends UniformBuffer<SharedGLBuffer> {
 	public Property windOffset = addProperty(PropertyType.Float, "windOffset");
 
 	private final Property characterPositionCount = addProperty(PropertyType.Int, "characterPositionCount");
-	private final Property[] characterPositions = addPropertyArray(PropertyType.FVec3, "characterPositions", MAX_CHARACTER_POSITION_COUNT);
+	private final Property[] characterPositions = addPropertyArray(PropertyType.FVec4, "characterPositions", MAX_CHARACTER_POSITION_COUNT);
 
 	@Inject
 	private DisplacementManager displacementManager;

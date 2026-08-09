@@ -15,13 +15,12 @@ import rs117.hd.opengl.uniforms.UBOWorldViews.WorldViewStruct;
 import rs117.hd.opengl.uniforms.UniformBuffer.Property;
 import rs117.hd.overlays.FrameTimer;
 import rs117.hd.overlays.Timer;
-import rs117.hd.renderer.zone.SceneManager;
-import rs117.hd.renderer.zone.WorldViewContext;
 import rs117.hd.utils.NpcDisplacementCache;
 import rs117.hd.utils.collections.IntHashSet;
 
 import static net.runelite.api.Constants.*;
 import static net.runelite.api.Perspective.*;
+import static rs117.hd.utils.HDUtils.EXTENDED_SCENE_OFFSET;
 import static rs117.hd.utils.MathUtils.*;
 
 @Singleton
@@ -41,9 +40,6 @@ public class DisplacementManager {
 
 	@Inject
 	private FrameTimer frameTimer;
-
-	@Inject
-	private SceneManager sceneManager;
 
 	@Inject
 	private GamevalManager gamevalManager;
@@ -103,21 +99,15 @@ public class DisplacementManager {
 
 		// The local player needs to be added first for distance culling
 		var lp = localPlayer.getLocalLocation();
-		if (lp != null) {
-			WorldViewContext ctx = sceneManager.getContext(localPlayer.getWorldView().getScene());
-			if (ctx != null && !sceneManager.isRoot(ctx))
-				return;
-
+		if (lp != null)
 			addCharacterPosition(lp.getX(), lp.getY(), (int) (LOCAL_TILE_SIZE * 1.33f), 1.0f);
-		}
 	}
 
 	public void addCharacterPosition(Scene scene, int x, int z, Renderable renderable, Model m) {
 		if (!plugin.configCharacterDisplacement)
 			return;
 
-		WorldViewContext ctx = sceneManager.getContext(scene);
-		if (ctx != null && !sceneManager.isRoot(ctx))
+		if (scene.getWorldViewId() != WorldView.TOPLEVEL)
 			return;
 
 		if (renderable instanceof NPC) {
@@ -137,9 +127,9 @@ public class DisplacementManager {
 		} else if (renderable instanceof Player && renderable != client.getLocalPlayer()) {
 			addCharacterPosition(x, z, (int) (LOCAL_TILE_SIZE * 1.33f), 1.0f);
 		} else if (renderable instanceof TileItem) {
-			int TileExX = clamp(ctx.sceneContext.sceneOffset + (x / 128), 0, EXTENDED_SCENE_SIZE - 1);
-			int TileExY = clamp(ctx.sceneContext.sceneOffset + (z / 128), 0, EXTENDED_SCENE_SIZE - 1);
-			final int tileIdx = TileExX * EXTENDED_SCENE_SIZE + TileExY;
+			int tileExX = clamp(EXTENDED_SCENE_OFFSET + (x / 128), 0, EXTENDED_SCENE_SIZE - 1);
+			int tileExY = clamp(EXTENDED_SCENE_OFFSET + (z / 128), 0, EXTENDED_SCENE_SIZE - 1);
+			final int tileIdx = tileExX * EXTENDED_SCENE_SIZE + tileExY;
 			if (!groundItems[tileIdx]) {
 				groundItems[tileIdx] = true;
 				addCharacterPosition(x, z, (int) (LOCAL_TILE_SIZE * 0.5f), 4.0f);
