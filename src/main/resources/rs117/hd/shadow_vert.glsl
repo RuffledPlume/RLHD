@@ -34,6 +34,7 @@
 
 #include <utils/constants.glsl>
 #include <utils/wind_character_displacement.glsl>
+#include <utils/misc.glsl>
 
 layout (location = 0) in vec3 vPosition;
 
@@ -43,6 +44,9 @@ layout (location = 0) in vec3 vPosition;
     layout (location = 3) in int vPackedTextureFace;
     layout (location = 6) in int vWorldViewId;
     layout (location = 7) in ivec2 vSceneBase;
+    #if DITHER_FADE
+        layout (location = 8) in float vFade;
+    #endif
 
     #if SHADOW_MODE == SHADOW_MODE_DETAILED
         out vec4 fUvw;
@@ -78,17 +82,28 @@ layout (location = 0) in vec3 vPosition;
         vec3 sceneOffset = vec3(vSceneBase.x, 0, vSceneBase.y);
         ModelData modelData;
 
+        int waterTypeIndex = terrainData >> 3 & 0xFF;
+        float opacity = 1 - (alphaBiasHsl >> 24 & 0xFF) / float(0xFF);
+
+        #if DITHER_FADE
+            float fade = vFade;
+        #endif
+
         int modelIdx = int(vNormal.w);
         if (modelIdx > 0) {
             modelData = getModelData(modelIdx);
-            if(isModelDynamic(modelData)) {
+            #if DITHER_FADE
+                fade = modelData.fade;
+            #endif
+            if (isModelDynamic(modelData)) {
                 worldViewIdx = modelData.worldViewIdx;
                 sceneOffset = modelData.position;
             }
         }
 
-        int waterTypeIndex = terrainData >> 3 & 0xFF;
-        float opacity = 1 - (alphaBiasHsl >> 24 & 0xFF) / float(0xFF);
+        #if DITHER_FADE
+            opacity *= saturate(1 - fade);
+        #endif
 
         float opacityThreshold = float(materialData >> MATERIAL_SHADOW_OPACITY_THRESHOLD_SHIFT & 0x3F) / 0x3F;
         if (opacityThreshold == 0)

@@ -969,17 +969,6 @@ public interface HdPluginConfig extends Config
 		return false;
 	}
 
-	String KEY_DITHER_FADING = "ditherFading";
-	@ConfigItem(
-		keyName = KEY_DITHER_FADING,
-		name = "Dither fading",
-		description = "Whether to dither fade things that get too close to the camera.",
-		section = miscellaneousSettings
-	)
-	default boolean ditherFading() {
-		return false;
-	}
-
 
 	/*====== Legacy settings ======*/
 
@@ -1260,6 +1249,17 @@ public interface HdPluginConfig extends Config
 	)
 	default boolean multithreadedModelProcessing() {
 		return true;
+	}
+
+	String KEY_DITHER_FADE = "experimentalDitherFade";
+	@ConfigItem(
+		keyName = KEY_DITHER_FADE,
+		name = "Dither fade",
+		description = "Let objects and chunks fade gradually, at the expense of GPU performance.",
+		section = experimentalSettings
+	)
+	default boolean ditherFade() {
+		return false;
 	}
 
 

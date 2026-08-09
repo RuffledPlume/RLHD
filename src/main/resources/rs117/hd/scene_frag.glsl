@@ -57,7 +57,10 @@ flat in ivec3 fTerrainData;
     #if FLAT_SHADING
         flat in vec3 fFlatNormal;
     #endif
-    flat in float fFade;
+
+    #if DITHER_FADE
+        flat in float fFade;
+    #endif
 #endif
 
 in FragmentData {
@@ -90,16 +93,17 @@ vec2 worldUvs(float scale) {
 
 void main() {
     vec3 downDir = vec3(0, -1, 0);
-#if ZONE_RENDERER && DITHER_FADE
-    float viewZ = 1.0 - gl_FragCoord.z;
-    if (fFade > 0.0 || viewZ < NEAR_PLANE_DITHER_START) {
-        float fadeAmount = mix(1.0 - saturate(viewZ / NEAR_PLANE_DITHER_START), fFade, saturate(fFade));
-        float threshold = smoothstep(0.0, 1.0, pow(fadeAmount, 1.35));
-        float noise = interleavedGradientNoise(gl_FragCoord.xy);
-        if (noise < threshold)
-            discard;
-    }
-#endif
+
+    #if ZONE_RENDERER && DITHER_FADE
+        float viewZ = 1.0 - gl_FragCoord.z;
+        if (fFade > 0.0 || viewZ < NEAR_PLANE_DITHER_START) {
+            float fadeAmount = mix(1.0 - saturate(viewZ / NEAR_PLANE_DITHER_START), fFade, saturate(fFade));
+            float threshold = smoothstep(0.0, 1.0, pow(fadeAmount, 1.35));
+            float noise = interleavedGradientNoise(gl_FragCoord.xy);
+            if (noise < threshold)
+                discard;
+        }
+    #endif
 
     // View & light directions are from the fragment to the camera/light
     vec3 viewDir = normalize(cameraPos - IN.position);
