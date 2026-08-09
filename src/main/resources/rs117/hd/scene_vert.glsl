@@ -73,10 +73,12 @@ layout (location = 0) in vec3 vPosition;
 
     void main() {
         int vertex = gl_VertexID % 3;
-        int alphaBiasHsl;
-        int materialData;
+        if (isFaceWindingReversed(vPackedTextureFace))
+            vertex = 2 - vertex;
 
-        if(isModelFace(vPackedTextureFace)) {
+        int materialData = 0;
+        int alphaBiasHsl = 0;
+        if (isModelFace(vPackedTextureFace)) {
             ModelFaceData faceData = getModelFaceData(getFaceOffset(vPackedTextureFace));
             fAlphaBiasHsl = faceData.AlphaBiasHsl;
             fMaterialData = ivec3(faceData.MaterialData);

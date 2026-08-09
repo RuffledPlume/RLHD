@@ -25,7 +25,6 @@
 package rs117.hd.renderer.zone;
 
 import java.nio.IntBuffer;
-import java.util.Arrays;
 import javax.annotation.Nullable;
 import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
@@ -270,7 +269,7 @@ public class SceneUploader implements AutoCloseable {
 				uploadZoneWater(ctx, zone, mzx, mzz, vb, fb);
 			zone.levelOffsets[Zone.LEVEL_WATER_SURFACE] = vb.position();
 
-			if (ctx.fillGaps && zone.hasGapFiller)
+			if (zone.hasGapFiller)
 				uploadZoneGapFillers(ctx, mzx, mzz, vb, fb);
 			zone.levelOffsets[Zone.LEVEL_GAP_FILLER] = vb.position();
 		}
@@ -417,6 +416,9 @@ public class SceneUploader implements AutoCloseable {
 			} else {
 				z.onlyWater = false;
 			}
+
+			if (tileZ != 0 || override.doubleSidedFaces)
+				z.sizeO += 2;
 		}
 
 		SceneTileModel model = t.getSceneTileModel();
@@ -449,6 +451,9 @@ public class SceneUploader implements AutoCloseable {
 			} else {
 				z.onlyWater = false;
 			}
+
+			if (tileZ != 0 || overlayOverride.doubleSidedFaces || underlayOverride.doubleSidedFaces)
+				z.sizeO += len;
 		}
 
 		WallObject wallObject = t.getWallObject();
@@ -723,25 +728,36 @@ public class SceneUploader implements AutoCloseable {
 
 	private void estimateRenderableSize(Zone z, Renderable r, ModelOverride modelOverride) {
 		boolean mightHaveTransparency = modelOverride.mightHaveTransparency;
+		boolean mightBeDoubleSided = modelOverride.mightBeDoubleSided;
 		Model m = null;
 		if (r instanceof Model) {
 			m = (Model) r;
 		} else if (r instanceof DynamicObject) {
 			var dynamic = (DynamicObject) r;
 			m = dynamic.getModelZbuf();
-			if (dynamic.getRecordedObjectComposition() != null)
+			if (dynamic.getRecordedObjectComposition() != null) {
 				mightHaveTransparency = true;
+				mightBeDoubleSided = true;
+			}
 		}
 		if (m == null)
 			return;
 
 		int faceCount = m.getFaceCount();
 		byte[] transparencies = m.getFaceTransparencies();
-		short[] faceTextures = m.getFaceTextures();
+		boolean isVanillaTextured = m.getFaceTextures() != null;
 		byte modelTransparency = m.getTransparency();
-		z.sizeO += faceCount;
+
 		z.sizeF += faceCount;
-		if (transparencies != null || faceTextures != null || modelTransparency != 0 || mightHaveTransparency)
+
+		mightBeDoubleSided |= isVanillaTextured;
+		if (mightBeDoubleSided)
+			faceCount *= 2; // sizeF remains the same, since the double-sided faces will reuse the textureFaceIdx
+
+		z.sizeO += faceCount;
+
+		mightHaveTransparency |= transparencies != null || isVanillaTextured || modelTransparency != 0;
+		if (mightHaveTransparency)
 			z.sizeA += faceCount;
 		z.sizeM++;
 	}
@@ -1088,21 +1104,21 @@ public class SceneUploader implements AutoCloseable {
 			lx2, neHeight, lz2,
 			uvx, uvy, 0,
 			neNormals[0], neNormals[1], neNormals[2],
-			texturedFaceIdx, 0
+			texturedFaceIdx, false, 0
 		);
 
 		vb.putVertex(
 			lx3, nwHeight, lz3,
 			uvx - uvcos, uvy - uvsin, 0,
 			nwNormals[0], nwNormals[1], nwNormals[2],
-			texturedFaceIdx, 0
+			texturedFaceIdx, false, 0
 		);
 
 		vb.putVertex(
 			lx1, seHeight, lz1,
 			uvx + uvsin, uvy - uvcos, 0,
 			seNormals[0], seNormals[1], seNormals[2],
-			texturedFaceIdx, 0
+			texturedFaceIdx, false, 0
 		);
 
 		texturedFaceIdx = tb.findStaticFace(
@@ -1110,6 +1126,30 @@ public class SceneUploader implements AutoCloseable {
 			swMaterialData, seMaterialData, nwMaterialData,
 			swTerrainData, seTerrainData, nwTerrainData
 		);
+
+		boolean isDoubleSided = !onlyWaterSurface && (tileZ != 0 || override.doubleSidedFaces);
+		if (isDoubleSided) {
+			vb.putVertex(
+				lx1, seHeight, lz1,
+				uvx + uvsin, uvy - uvcos, 0,
+				-seNormals[0], -seNormals[1], -seNormals[2],
+				texturedFaceIdx, true, 0
+			);
+
+			vb.putVertex(
+				lx3, nwHeight, lz3,
+				uvx - uvcos, uvy - uvsin, 0,
+				-nwNormals[0], -nwNormals[1], -nwNormals[2],
+				texturedFaceIdx, true, 0
+			);
+
+			vb.putVertex(
+				lx2, neHeight, lz2,
+				uvx, uvy, 0,
+				-neNormals[0], -neNormals[1], -neNormals[2],
+				texturedFaceIdx, true, 0
+			);
+		}
 
 		if(texturedFaceIdx == -1) {
 			texturedFaceIdx = tb.putStaticFace(
@@ -1123,22 +1163,45 @@ public class SceneUploader implements AutoCloseable {
 			lx0, swHeight, lz0,
 			uvx - uvcos + uvsin, uvy - uvsin - uvcos, 0,
 			swNormals[0], swNormals[1], swNormals[2],
-			texturedFaceIdx, 0
+			texturedFaceIdx, false, 0
 		);
 
 		vb.putVertex(
 			lx1, seHeight, lz1,
 			uvx + uvsin, uvy - uvcos, 0,
 			seNormals[0], seNormals[1], seNormals[2],
-			texturedFaceIdx, 0
+			texturedFaceIdx, false, 0
 		);
 
 		vb.putVertex(
 			lx3, nwHeight, lz3,
 			uvx - uvcos, uvy - uvsin, 0,
 			nwNormals[0], nwNormals[1], nwNormals[2],
-			texturedFaceIdx, 0
+			texturedFaceIdx, false, 0
 		);
+
+		if (isDoubleSided) {
+			vb.putVertex(
+				lx3, nwHeight, lz3,
+				uvx - uvcos, uvy - uvsin, 0,
+				-nwNormals[0], -nwNormals[1], -nwNormals[2],
+				texturedFaceIdx, true, 0
+			);
+
+			vb.putVertex(
+				lx1, seHeight, lz1,
+				uvx + uvsin, uvy - uvcos, 0,
+				-seNormals[0], -seNormals[1], -seNormals[2],
+				texturedFaceIdx, true, 0
+			);
+
+			vb.putVertex(
+				lx0, swHeight, lz0,
+				uvx - uvcos + uvsin, uvy - uvsin - uvcos, 0,
+				-swNormals[0], -swNormals[1], -swNormals[2],
+				texturedFaceIdx, true, 0
+			);
+		}
 
 		writeCache.release();
 	}
@@ -1426,22 +1489,46 @@ public class SceneUploader implements AutoCloseable {
 				lx0, ly0, lz0,
 				uvAx, uvAy, 0,
 				normalsA[0], normalsA[1], normalsA[2],
-				texturedFaceIdx, 0
+				texturedFaceIdx, false, 0
 			);
 
 			vb.putVertex(
 				lx1, ly1, lz1,
 				uvBx, uvBy, 0,
 				normalsB[0], normalsB[1], normalsB[2],
-				texturedFaceIdx, 0
+				texturedFaceIdx, false, 0
 			);
 
 			vb.putVertex(
 				lx2, ly2, lz2,
 				uvCx, uvCy, 0,
 				normalsC[0], normalsC[1], normalsC[2],
-				texturedFaceIdx, 0
+				texturedFaceIdx, false, 0
 			);
+
+			boolean isDoubleSided = !onlyWaterSurface && (tileZ != 0 || override.doubleSidedFaces);
+			if (isDoubleSided) {
+				vb.putVertex(
+					lx2, ly2, lz2,
+					uvCx, uvCy, 0,
+					-normalsC[0], -normalsC[1], -normalsC[2],
+					texturedFaceIdx, true, 0
+				);
+
+				vb.putVertex(
+					lx1, ly1, lz1,
+					uvBx, uvBy, 0,
+					-normalsB[0], -normalsB[1], -normalsB[2],
+					texturedFaceIdx, true, 0
+				);
+
+				vb.putVertex(
+					lx0, ly0, lz0,
+					uvAx, uvAy, 0,
+					-normalsA[0], -normalsA[1], -normalsA[2],
+					texturedFaceIdx, true, 0
+				);
+			}
 		}
 		writeCache.release();
 	}
@@ -1680,7 +1767,6 @@ public class SceneUploader implements AutoCloseable {
 					continue;
 
 				if (faceOverride.inheritTileColorType != InheritTileColorType.NONE) {
-					final Scene scene = ctx.scene;
 					SceneTileModel tileModel = tile.getSceneTileModel();
 					SceneTilePaint tilePaint = tile.getSceneTilePaint();
 
@@ -1840,22 +1926,45 @@ public class SceneUploader implements AutoCloseable {
 				vx1, vy1, vz1,
 				faceUVs[0], faceUVs[1], faceUVs[2],
 				modelNormals[0], modelNormals[1], modelNormals[2],
-				texturedFaceIdx, modelIdx
+				texturedFaceIdx, false, modelIdx
 			);
 
 			vb.putVertex(
 				vx2, vy2, vz2,
 				faceUVs[4], faceUVs[5], faceUVs[6],
 				modelNormals[3], modelNormals[4], modelNormals[5],
-				texturedFaceIdx, modelIdx
+				texturedFaceIdx, false, modelIdx
 			);
 
 			vb.putVertex(
 				vx3, vy3, vz3,
 				faceUVs[8], faceUVs[9], faceUVs[10],
 				modelNormals[6], modelNormals[7], modelNormals[8],
-				texturedFaceIdx, modelIdx
+				texturedFaceIdx, false, modelIdx
 			);
+
+			if (faceOverride.doubleSidedFaces || material.doubleSidedFaces) {
+				vb.putVertex(
+					vx3, vy3, vz3,
+					faceUVs[8], faceUVs[9], faceUVs[10],
+					-modelNormals[6], -modelNormals[7], -modelNormals[8],
+					texturedFaceIdx, true, modelIdx
+				);
+
+				vb.putVertex(
+					vx2, vy2, vz2,
+					faceUVs[4], faceUVs[5], faceUVs[6],
+					-modelNormals[3], -modelNormals[4], -modelNormals[5],
+					texturedFaceIdx, true, modelIdx
+				);
+
+				vb.putVertex(
+					vx1, vy1, vz1,
+					faceUVs[0], faceUVs[1], faceUVs[2],
+					-modelNormals[0], -modelNormals[1], -modelNormals[2],
+					texturedFaceIdx, true, modelIdx
+				);
+			}
 			len += 3;
 		}
 		writeCache.release();
@@ -1881,11 +1990,8 @@ public class SceneUploader implements AutoCloseable {
 		final float[] verticesY = model.getVerticesY();
 		final float[] verticesZ = model.getVerticesZ();
 
-		final boolean[] visibility = PooledArrayType.BOOL.borrow(vertexCount);
+		final boolean[] visibility = isModelPartiallyVisible ? PooledArrayType.BOOL.borrow(vertexCount) : null;
 		final float[] modelProjected = PooledArrayType.FLOAT.borrow(vertexCount * 3);
-
-		if (isModelPartiallyVisible)
-			Arrays.fill(visibility, 0, vertexCount, true);
 
 		// Identity orient, will result in no rotation
 		float orientSinf = 0;
@@ -1981,6 +2087,12 @@ public class SceneUploader implements AutoCloseable {
 		final int radius = model.getRadius();
 		final byte modelTransparency = model.getTransparency();
 
+		int cachedVanillaTexturedId = -1;
+		ModelOverride cachedVanillaTextureOverride = null;
+
+		int cachedAhsl = -1;
+		ModelOverride cachedAhslOverride = null;
+
 		faceOverrides.ensureCapacity(triangleCount);
 		faceMaterials.ensureCapacity(triangleCount);
 		faceUVTypes.ensureCapacity(triangleCount);
@@ -2010,7 +2122,12 @@ public class SceneUploader implements AutoCloseable {
 				} else {
 					material = materialManager.fromVanillaTexture(textureId);
 					if (modelOverride.materialOverrides != null) {
-						var override = modelOverride.materialOverrides.get(material);
+						final var override = cachedVanillaTexturedId == textureId ?
+							cachedVanillaTextureOverride :
+							modelOverride.materialOverrides.get(material);
+						cachedVanillaTexturedId = textureId;
+						cachedVanillaTextureOverride = override;
+
 						if (override != null) {
 							faceOverride = override;
 							material = faceOverride.textureMaterial;
@@ -2019,7 +2136,12 @@ public class SceneUploader implements AutoCloseable {
 				}
 			} else if (modelOverride.colorOverrides != null) {
 				final int ahsl = (0xFF - transparency) << 16 | model.getFaceColors1()[f];
-				final var override = modelOverride.testColorOverrides(ahsl);
+				final var override = cachedAhsl == ahsl ?
+					cachedAhslOverride :
+					modelOverride.testColorOverrides(ahsl);
+				cachedAhsl = ahsl;
+				cachedAhslOverride = override;
+
 				if (override != null) {
 					faceOverride = override;
 					material = faceOverride.baseMaterial;
@@ -2051,7 +2173,7 @@ public class SceneUploader implements AutoCloseable {
 			int offsetB = indices2[f];
 			int offsetC = indices3[f];
 
-			if (!allVertsVisible && !visibility[offsetA] && !visibility[offsetB] && !visibility[offsetC]) {
+			if (isModelPartiallyVisible && !allVertsVisible && !visibility[offsetA] && !visibility[offsetB] && !visibility[offsetC]) {
 				// TODO: If a triangle is large enough to encompass the entire screen, this will need an additional plane test
 				culledFaces.put(f);
 				continue;
@@ -2284,21 +2406,21 @@ public class SceneUploader implements AutoCloseable {
 				intModelVertices[vertexOffsetA], intModelVertices[vertexOffsetA + 1], intModelVertices[vertexOffsetA + 2],
 				faceUVs[0], faceUVs[1], faceUVs[2],
 				faceNormals[0], faceNormals[1], faceNormals[2],
-				texturedFaceIdx, modelIdx
+				texturedFaceIdx, false, modelIdx
 			);
 
 			vb.putVertex(
 				intModelVertices[vertexOffsetB], intModelVertices[vertexOffsetB + 1], intModelVertices[vertexOffsetB + 2],
 				faceUVs[4], faceUVs[5], faceUVs[6],
 				faceNormals[3], faceNormals[4], faceNormals[5],
-				texturedFaceIdx, modelIdx
+				texturedFaceIdx, false, modelIdx
 			);
 
 			vb.putVertex(
 				intModelVertices[vertexOffsetC], intModelVertices[vertexOffsetC + 1], intModelVertices[vertexOffsetC + 2],
 				faceUVs[8], faceUVs[9], faceUVs[10],
 				faceNormals[6], faceNormals[7], faceNormals[8],
-				texturedFaceIdx, modelIdx
+				texturedFaceIdx, false, modelIdx
 			);
 		}
 
@@ -2496,9 +2618,9 @@ public class SceneUploader implements AutoCloseable {
 			packedMaterial, packedMaterial, packedMaterial,
 			terrainData, terrainData, terrainData
 		);
-		vb.putVertex(x0, y0, z0, u0, v0, 0, 0, -1, 0, faceIdx, 0);
-		vb.putVertex(x1, y1, z1, u1, v1, 0, 0, -1, 0, faceIdx, 0);
-		vb.putVertex(x2, y2, z2, u2, v2, 0, 0, -1, 0, faceIdx, 0);
+		vb.putVertex(x0, y0, z0, u0, v0, 0, 0, -1, 0, faceIdx, false, 0);
+		vb.putVertex(x1, y1, z1, u1, v1, 0, 0, -1, 0, faceIdx, false, 0);
+		vb.putVertex(x2, y2, z2, u2, v2, 0, 0, -1, 0, faceIdx, false, 0);
 	}
 
 	public static void calculateFaceNormalInt(
@@ -2705,7 +2827,7 @@ public class SceneUploader implements AutoCloseable {
 		}
 	}
 
-	private static int readFaceTransparency(byte modelTransparency, byte[] transparencies, int f) {
+	public static int readFaceTransparency(byte modelTransparency, byte[] transparencies, int f) {
 		// Based on https://github.com/runelite/runelite/commit/a88ac64d5a154020cdc21612fc0f1eb32aa8d0f8#diff-2495d11499767f573d041baf080ee6b50dddd325e37b34a402f4c23efc3c2324R464-R478
 		if (modelTransparency == -1)
 			return 255;

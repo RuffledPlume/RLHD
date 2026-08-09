@@ -55,12 +55,14 @@ layout (location = 0) in vec3 vPosition;
 
     void main() {
         int vertex = gl_VertexID % 3;
+        if (isFaceWindingReversed(vPackedTextureFace))
+            vertex = 2 - vertex;
+
         int alphaBiasHsl;
         int materialData;
         int terrainData;
         int faceDataOffset;
-
-        if(isModelFace(vPackedTextureFace)) {
+        if (isModelFace(vPackedTextureFace)) {
             ModelFaceData faceData = getModelFaceData(getFaceOffset(vPackedTextureFace));
             alphaBiasHsl = faceData.AlphaBiasHsl[vertex];
             materialData = faceData.MaterialData;

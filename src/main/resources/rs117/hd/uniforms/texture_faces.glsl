@@ -17,12 +17,16 @@ struct ModelFaceData {
     int MaterialData;
 };
 
+bool isFaceWindingReversed(int packedFaceData) {
+    return (packedFaceData & 0x80000000) != 0;
+}
+
 bool isModelFace(int packedFaceData) {
-    return (packedFaceData & 1) == 1;
+    return (packedFaceData & 0x40000000) != 0;
 }
 
 int getFaceOffset(int packedFaceData) {
-    return packedFaceData >> 1;
+    return packedFaceData & 0x3FFFFFFF;
 }
 
 BEGIN_BUFFER_PARSER(getStaticFaceData,StaticFaceData, false)

@@ -70,7 +70,7 @@ public final class VertexWriteCache {
 			    && stagingBuffer[i + 7] == terrainDataB
 			    && stagingBuffer[i + 8] == terrainDataC) {
 				final int textureFaceIdx = outputBuffer.position() + i;
-				return textureFaceIdx << 1;
+				return textureFaceIdx;
 			}
 		}
 
@@ -103,7 +103,7 @@ public final class VertexWriteCache {
 
 		this.stagingPosition += 9;
 
-		return textureFaceIdx << 1;
+		return textureFaceIdx;
 	}
 
 	public int findModelFace(int alphaBiasHslA, int alphaBiasHslB, int alphaBiasHslC, int materialData) {
@@ -116,7 +116,7 @@ public final class VertexWriteCache {
 			    && stagingBuffer[i + 2] == alphaBiasHslC
 			    && stagingBuffer[i + 3] == materialData) {
 				final int textureFaceIdx = outputBuffer.position() + i;
-				return 1 | textureFaceIdx << 1;
+				return (1 << 30) | textureFaceIdx;
 			}
 		}
 
@@ -138,14 +138,14 @@ public final class VertexWriteCache {
 		stagingBuffer[stagingPosition + 3] = materialData;
 
 		this.stagingPosition += 4;
-		return 1 | textureFaceIdx << 1;
+		return (1 << 30) | textureFaceIdx;
 	}
 
 	public void putVertex(
 		int x, int y, int z,
 		float u, float v, float w,
 		int nx, int ny, int nz,
-		int textureFaceIdx, int modelIdx
+		int textureFaceIdx, boolean windingReversed, int modelIdx
 	) {
 		if (stagingPosition + 7 > stagingBuffer.length)
 			flushAndGrow();
@@ -160,7 +160,7 @@ public final class VertexWriteCache {
 		// Unnormalized normals, assumed to be within short max
 		stagingBuffer[stagingPosition + 4] = (ny & 0xFFFF) << 16 | nx & 0xFFFF;
 		stagingBuffer[stagingPosition + 5] = (modelIdx & 0xFFFF) << 16 | nz & 0xFFFF;
-		stagingBuffer[stagingPosition + 6] = textureFaceIdx;
+		stagingBuffer[stagingPosition + 6] = (windingReversed ? 1 << 31 : 0) | textureFaceIdx;
 
 		this.stagingPosition += 7;
 	}
