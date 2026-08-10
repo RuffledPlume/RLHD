@@ -15170,8 +15170,6 @@
       "BRAVEKDOORSHUT",
       "BRAVEKDOOROPEN",
       "REHNISONDOORSHUT",
-      "BRAVEKDOORSHUT",
-      "BRAVEKDOOROPEN",
       "PETE_TREASUREDOOR",
       "PETE_SIDEDOOR",
       "GRUBORDOOR",
@@ -48679,16 +48677,25 @@
     "baseMaterial": "ROPE",
     "uvType": "BOX",
     "uvScale": 0.3,
+    "windDisplacementMode": "OBJECT_NO_GROUND_DISPLACEMENT",
+    "invertDisplacementStrength": true,
+    "windDisplacementModifier": -3,
     "colorOverrides": [
       {
         "colors": "h == 0",
-        "baseMaterial": "METALLIC_1_LIGHT"
+        "baseMaterial": "METALLIC_1_LIGHT",
+        "windDisplacementMode": "OBJECT_NO_GROUND_DISPLACEMENT",
+        "invertDisplacementStrength": true,
+        "windDisplacementModifier": -3
       },
       {
         "colors": "h == 7",
         "baseMaterial": "BURLAP",
         "uvType": "BOX",
-        "uvScale": 0.4
+        "uvScale": 0.4,
+        "windDisplacementMode": "OBJECT_NO_GROUND_DISPLACEMENT",
+        "invertDisplacementStrength": true,
+        "windDisplacementModifier": -3
       }
     ]
   },
