@@ -5,6 +5,8 @@ import lombok.extern.slf4j.Slf4j;
 import rs117.hd.utils.buffer.GpuIntBuffer;
 import rs117.hd.utils.collections.PooledArrayType;
 
+import static rs117.hd.renderer.zone.Zone.TEXTURE_FACE_IS_MODEL;
+import static rs117.hd.renderer.zone.Zone.TEXTURE_FACE_IS_WINDING_REVERSED;
 import static rs117.hd.utils.MathUtils.*;
 
 @Slf4j
@@ -58,17 +60,18 @@ public final class VertexWriteCache {
 		final int stagingPosition = this.stagingPosition;
 
 		for (int i = 0; i < stagingPosition; i += 9) {
-			if (stagingBuffer[i] == alphaBiasHslA
-			    && stagingBuffer[i + 1] == alphaBiasHslB
-			    && stagingBuffer[i + 2] == alphaBiasHslC
+			if (stagingBuffer[i] == alphaBiasHslA &&
+				stagingBuffer[i + 1] == alphaBiasHslB &&
+				stagingBuffer[i + 2] == alphaBiasHslC &&
 
-			    && stagingBuffer[i + 3] == materialDataA
-			    && stagingBuffer[i + 4] == materialDataB
-			    && stagingBuffer[i + 5] == materialDataC
+				stagingBuffer[i + 3] == materialDataA &&
+				stagingBuffer[i + 4] == materialDataB &&
+				stagingBuffer[i + 5] == materialDataC &&
 
-			    && stagingBuffer[i + 6] == terrainDataA
-			    && stagingBuffer[i + 7] == terrainDataB
-			    && stagingBuffer[i + 8] == terrainDataC) {
+				stagingBuffer[i + 6] == terrainDataA &&
+				stagingBuffer[i + 7] == terrainDataB &&
+				stagingBuffer[i + 8] == terrainDataC
+			) {
 				final int textureFaceIdx = outputBuffer.position() + i;
 				return textureFaceIdx;
 			}
@@ -89,6 +92,7 @@ public final class VertexWriteCache {
 		final int[] stagingBuffer = this.stagingBuffer;
 		final int stagingPosition = this.stagingPosition;
 
+		// STATIC_FACE_FORMAT
 		stagingBuffer[stagingPosition] = alphaBiasHslA;
 		stagingBuffer[stagingPosition + 1] = alphaBiasHslB;
 		stagingBuffer[stagingPosition + 2] = alphaBiasHslC;
@@ -111,12 +115,13 @@ public final class VertexWriteCache {
 		final int stagingPosition = this.stagingPosition;
 
 		for (int i = 0; i < stagingPosition; i += 4) {
-			if (stagingBuffer[i] == alphaBiasHslA
-			    && stagingBuffer[i + 1] == alphaBiasHslB
-			    && stagingBuffer[i + 2] == alphaBiasHslC
-			    && stagingBuffer[i + 3] == materialData) {
+			if (stagingBuffer[i] == alphaBiasHslA &&
+				stagingBuffer[i + 1] == alphaBiasHslB &&
+				stagingBuffer[i + 2] == alphaBiasHslC &&
+				stagingBuffer[i + 3] == materialData
+			) {
 				final int textureFaceIdx = outputBuffer.position() + i;
-				return (1 << 30) | textureFaceIdx;
+				return TEXTURE_FACE_IS_MODEL | textureFaceIdx;
 			}
 		}
 
@@ -132,13 +137,14 @@ public final class VertexWriteCache {
 		final int[] stagingBuffer = this.stagingBuffer;
 		final int stagingPosition = this.stagingPosition;
 
+		// MODEL_FACE_FORMAT
 		stagingBuffer[stagingPosition] = alphaBiasHslA;
 		stagingBuffer[stagingPosition + 1] = alphaBiasHslB;
 		stagingBuffer[stagingPosition + 2] = alphaBiasHslC;
 		stagingBuffer[stagingPosition + 3] = materialData;
 
 		this.stagingPosition += 4;
-		return (1 << 30) | textureFaceIdx;
+		return TEXTURE_FACE_IS_MODEL | textureFaceIdx;
 	}
 
 	public void putVertex(
@@ -153,6 +159,7 @@ public final class VertexWriteCache {
 		final int[] stagingBuffer = this.stagingBuffer;
 		final int stagingPosition = this.stagingPosition;
 
+		// ZONE_VERTEX_FORMAT
 		stagingBuffer[stagingPosition] = (y & 0xFFFF) << 16 | x & 0xFFFF;
 		stagingBuffer[stagingPosition + 1] = z & 0xFFFF;
 		stagingBuffer[stagingPosition + 2] = float16(v) << 16 | float16(u);
@@ -160,7 +167,7 @@ public final class VertexWriteCache {
 		// Unnormalized normals, assumed to be within short max
 		stagingBuffer[stagingPosition + 4] = (ny & 0xFFFF) << 16 | nx & 0xFFFF;
 		stagingBuffer[stagingPosition + 5] = (modelIdx & 0xFFFF) << 16 | nz & 0xFFFF;
-		stagingBuffer[stagingPosition + 6] = (windingReversed ? 1 << 31 : 0) | textureFaceIdx;
+		stagingBuffer[stagingPosition + 6] = (windingReversed ? TEXTURE_FACE_IS_WINDING_REVERSED : 0) | textureFaceIdx;
 
 		this.stagingPosition += 7;
 	}

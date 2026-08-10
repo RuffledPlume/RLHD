@@ -8,6 +8,7 @@
 uniform isamplerBuffer modelData;
 
 struct ModelData {
+    // MODEL_DATA_FORMAT
     int worldViewIdx;
     int flags;
     vec3 position;
@@ -15,6 +16,7 @@ struct ModelData {
     float fade; // Used by Dynamic Models
 };
 
+// MODEL_DATA_FORMAT
 BEGIN_BUFFER_PARSER(readModelData, ModelData, true)
     READ_INT(worldViewIdx)
     READ_INT(flags)
@@ -32,7 +34,7 @@ bool isModelStatic(in ModelData modelData) {
 }
 
 bool isModelDynamic(in ModelData modelData) {
-    return (modelData.flags & 1) == 0;
+    return !isModelStatic(modelData);
 }
 
 #undef PARSER_TARGET_BUFFER

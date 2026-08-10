@@ -708,9 +708,9 @@ public class SceneManager {
 			nextSceneContext.totalMapZones,
 			blockingCount,
 			totalOpaque,
-			(totalOpaque * Zone.VERT_SIZE * 3L) / KiB,
+			(totalOpaque * Zone.ZONE_VERTEX_NUM_BYTES * 3L) / KiB,
 			totalAlpha,
-			(totalAlpha * Zone.VERT_SIZE * 3L) / KiB
+			(totalAlpha * Zone.ZONE_VERTEX_NUM_BYTES * 3L) / KiB
 		);
 
 		for (int x = 0; x < ctx.sizeX; ++x) {

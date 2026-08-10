@@ -56,6 +56,7 @@ import rs117.hd.utils.collections.PrimitiveIntArray;
 
 import static net.runelite.api.Constants.*;
 import static net.runelite.api.Perspective.*;
+import static rs117.hd.renderer.zone.Zone.MODEL_DATA_IS_STATIC;
 import static rs117.hd.scene.SceneContext.TILE_OVERRIDE_MAIN;
 import static rs117.hd.scene.SceneContext.TILE_OVERRIDE_OVERLAY;
 import static rs117.hd.scene.SceneContext.TILE_OVERRIDE_UNDERLAY;
@@ -1545,16 +1546,10 @@ public class SceneUploader implements AutoCloseable {
 		WorldViewContext viewCtx,
 		Zone zone
 	) {
-		// Model Data Struct:
-		// int WorldViewIdx
-		// int Flags
-		// vec3 Position
-		// int Height
-		// float Fade
-
+		// MODEL_DATA_FORMAT
 		modelBuffer
 			.put(viewCtx != null && viewCtx.uboWorldViewStruct != null ? viewCtx.uboWorldViewStruct.worldViewIdx + 1 : 0)
-			.put(viewCtx != null ? 0 : 1)
+			.put(viewCtx != null ? 0 : MODEL_DATA_IS_STATIC)
 			.put(Float.floatToIntBits(x))
 			.put(Float.floatToIntBits(y))
 			.put(Float.floatToIntBits(z))
@@ -1563,7 +1558,7 @@ public class SceneUploader implements AutoCloseable {
 	}
 
 	public static int writeStaticModelData(IntBuffer modelBuffer, int x, int y, int z, Model model, ModelOverride override, Zone zone) {
-		final int modelDataSizeInts = Zone.MODEL_DATA_SIZE / Integer.BYTES;
+		final int modelDataSizeInts = Zone.MODEL_DATA_NUM_INTS;
 		final int modelIdx = modelBuffer.position() / modelDataSizeInts;
 
 		writeModelData(modelBuffer, x, y, z, 0.0f, model, override, null, zone);
@@ -1583,7 +1578,7 @@ public class SceneUploader implements AutoCloseable {
 		WorldViewContext viewCtx,
 		Zone zone
 	) {
-		final int modelDataSizeInts = Zone.MODEL_DATA_SIZE / Integer.BYTES;
+		final int modelDataSizeInts = Zone.MODEL_DATA_NUM_INTS;
 		final int modelIdx = view.getBufferOffsetInts() / modelDataSizeInts;
 
 		writeModelData(view.getBuffer(), x, y, z, fade, model, override, viewCtx, zone);

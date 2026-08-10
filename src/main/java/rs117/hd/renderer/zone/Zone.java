@@ -47,32 +47,48 @@ public class Zone implements Destructible {
 	@Inject
 	private Client client;
 
-	// Zone vertex format
-	// pos short vec3(x, y, z)
-	// uvw short vec3(u, v, w)
-	// normal/modelIdx short vec4(nx, ny, nz, modelIdx)
-	// texturedFaceIdx int
-	public static final int VERT_SIZE = 28;
-	public static final int VERT_SIZE_INTS = VERT_SIZE / Integer.BYTES;
+	// ZONE_VERTEX_FORMAT
+	// position: int16 vec3
+	// pad16
+	// uvw: float16 vec3
+	// pad16
+	// normal: int16 vec3
+	// modelIdx: int16
+	// texturedFaceIdx int32 (windingReversed << 31 | modelface << 30 | idx)
+	public static final int ZONE_VERTEX_NUM_BYTES = 28;
+	public static final int ZONE_VERTEX_NUM_INTS = ZONE_VERTEX_NUM_BYTES / Integer.BYTES;
+	public static final int TEXTURE_FACE_IS_WINDING_REVERSED = 1 << 31;
+	public static final int TEXTURE_FACE_IS_MODEL = 1 << 30;
 
-	// alphaBiasHsl ivec3
-	// materialData ivec3
-	// terrainData ivec3
-	public static final int TEXTURE_SIZE = 36;
-	public static final int TEXTURE_INTS = TEXTURE_SIZE / Integer.BYTES;
+	// STATIC_FACE_FORMAT
+	// alphaBiasHsl: int32 vec3
+	// materialData: int32 vec3
+	// terrainData: int32 vec3
+	public static final int STATIC_FACE_NUM_BYTES = 36;
+	public static final int STATIC_FACE_NUM_INTS = STATIC_FACE_NUM_BYTES / Integer.BYTES;
 
-	// position vec3
-	// height float
-	// fade float
-	public static final int MODEL_DATA_SIZE = 28;
-	public static final int MODEL_DATA_INTS = MODEL_DATA_SIZE / Integer.BYTES;
+	// MODEL_FACE_FORMAT
+	// alphaBiasHsl: int32 vec3
+	// materialData: int32
+	public static final int MODEL_FACE_NUM_BYTES = 16;
+	public static final int MODEL_FACE_NUM_INTS = MODEL_FACE_NUM_BYTES / Integer.BYTES;
 
-	// Metadata format
-	// worldViewIndex int int
-	// sceneOffset int vec2(x, y)
-	// fade float float
-	public static final int METADATA_SIZE = 16;
-	public static final int METADATA_INTS = METADATA_SIZE / Integer.BYTES;
+	// MODEL_DATA_FORMAT
+	// worldViewIdx: int32
+	// flags: int32
+	// position: float32 vec3
+	// height: int32
+	// fade: float32
+	public static final int MODEL_DATA_NUM_BYTES = 28;
+	public static final int MODEL_DATA_NUM_INTS = MODEL_DATA_NUM_BYTES / Integer.BYTES;
+	public static final int MODEL_DATA_IS_STATIC = 1;
+
+	// METADATA_FORMAT
+	// worldViewIndex: int32
+	// sceneOffset: int32 vec2
+	// fade: float32
+	public static final int METADATA_NUM_BYTES = 16;
+	public static final int METADATA_NUM_INTS = METADATA_NUM_BYTES / Integer.BYTES;
 
 	public static int LEVEL_COUNT = MAX_Z;
 	public static final int LEVEL_WATER_SURFACE = LEVEL_COUNT++;
@@ -124,7 +140,7 @@ public class Zone implements Destructible {
 			return;
 
 		vboM = new GLBuffer("ZoneMetadata", GL_ARRAY_BUFFER, GL_DYNAMIC_DRAW);
-		vboM.initialize(METADATA_SIZE);
+		vboM.initialize(METADATA_NUM_BYTES);
 
 		if (o != null) {
 			vboO = o;
@@ -249,11 +265,11 @@ public class Zone implements Destructible {
 			tboM.unmap();
 
 		if (vboO != null) {
-			this.bufLen = vboO.mapped().byteView().position() / VERT_SIZE;
+			this.bufLen = vboO.mapped().byteView().position() / ZONE_VERTEX_NUM_BYTES;
 		}
 
 		if (vboA != null) {
-			this.bufLenA = vboA.mapped().byteView().position() / VERT_SIZE;
+			this.bufLenA = vboA.mapped().byteView().position() / ZONE_VERTEX_NUM_BYTES;
 		}
 	}
 
@@ -263,36 +279,36 @@ public class Zone implements Destructible {
 
 		// Position
 		glEnableVertexAttribArray(0);
-		glVertexAttribPointer(0, 4, GL_SHORT, false, VERT_SIZE, 0);
+		glVertexAttribPointer(0, 4, GL_SHORT, false, ZONE_VERTEX_NUM_BYTES, 0);
 
 		// UVs
 		glEnableVertexAttribArray(1);
-		glVertexAttribPointer(1, 4, GL_HALF_FLOAT, false, VERT_SIZE, 8);
+		glVertexAttribPointer(1, 4, GL_HALF_FLOAT, false, ZONE_VERTEX_NUM_BYTES, 8);
 
 		// Normals
 		glEnableVertexAttribArray(2);
-		glVertexAttribPointer(2, 4, GL_SHORT, false, VERT_SIZE, 16);
+		glVertexAttribPointer(2, 4, GL_SHORT, false, ZONE_VERTEX_NUM_BYTES, 16);
 
 		// TextureFaceIdx
 		glEnableVertexAttribArray(3);
-		glVertexAttribIPointer(3, 1, GL_INT, VERT_SIZE, 24);
+		glVertexAttribIPointer(3, 1, GL_INT, ZONE_VERTEX_NUM_BYTES, 24);
 
 		glBindBuffer(GL_ARRAY_BUFFER, metadata);
 
 		// WorldView index (not ID)
 		glEnableVertexAttribArray(6);
 		glVertexAttribDivisor(6, 1);
-		glVertexAttribIPointer(6, 1, GL_INT, METADATA_SIZE, 0);
+		glVertexAttribIPointer(6, 1, GL_INT, METADATA_NUM_BYTES, 0);
 
 		// Scene offset
 		glEnableVertexAttribArray(7);
 		glVertexAttribDivisor(7, 1);
-		glVertexAttribIPointer(7, 2, GL_INT, METADATA_SIZE, 4);
+		glVertexAttribIPointer(7, 2, GL_INT, METADATA_NUM_BYTES, 4);
 
 		// Scene offset
 		glEnableVertexAttribArray(8);
 		glVertexAttribDivisor(8, 1);
-		glVertexAttribPointer(8, 1, GL_FLOAT, false, METADATA_SIZE, 12);
+		glVertexAttribPointer(8, 1, GL_FLOAT, false, METADATA_NUM_BYTES, 12);
 
 		checkGLErrors();
 
@@ -309,7 +325,8 @@ public class Zone implements Destructible {
 		int baseZ = (mz - (sceneContext.sceneOffset >> 3)) << 10;
 
 		try (MemoryStack stack = MemoryStack.stackPush()) {
-			IntBuffer buf = stack.mallocInt(METADATA_INTS)
+			// METADATA_FORMAT
+			IntBuffer buf = stack.mallocInt(METADATA_NUM_INTS)
 				.put(viewContext.uboWorldViewStruct != null ? viewContext.uboWorldViewStruct.worldViewIdx + 1 : 0)
 				.put(baseX)
 				.put(baseZ)
@@ -598,7 +615,7 @@ public class Zone implements Destructible {
 			shift++;
 		}
 
-		final int intsPerVertex = VERT_SIZE / Integer.BYTES;
+		final int intsPerVertex = ZONE_VERTEX_NUM_BYTES / Integer.BYTES;
 		final int writtenAlphaFaceCount = (endpos - startpos) / (3 * intsPerVertex);
 		final int bucketCapacity = ceil(writtenAlphaFaceCount / 32.0f);
 
@@ -892,7 +909,7 @@ public class Zone implements Destructible {
 			}
 			alphaFaceCount = 0;
 		} else if (drawIdx != 0) {
-			convertForDraw(VERT_SIZE);
+			convertForDraw(ZONE_VERTEX_NUM_BYTES);
 			cmd.BindVertexArray(lastVao);
 			cmd.BindTextureUnit(GL_TEXTURE_BUFFER, lastTboF, TEXTURE_UNIT_TEXTURED_FACES);
 			cmd.BindTextureUnit(GL_TEXTURE_BUFFER, lastTboM, TEXTURE_UNIT_MODEL_DATA);

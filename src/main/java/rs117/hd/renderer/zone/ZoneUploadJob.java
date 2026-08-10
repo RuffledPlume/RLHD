@@ -54,14 +54,14 @@ public final class ZoneUploadJob extends Job {
 	private void mapZoneVertexBuffers() {
 		try {
 			GLBuffer o = null, a = null;
-			int sz = zone.sizeO * Zone.VERT_SIZE * 3;
+			int sz = zone.sizeO * Zone.ZONE_VERTEX_NUM_BYTES * 3;
 			if (sz > 0) {
 				o = new GLBuffer("Zone::VBO::Opaque", GL_ARRAY_BUFFER, GL_STATIC_DRAW);
 				o.initialize(sz);
 				o.map(MAP_WRITE);
 			}
 
-			sz = zone.sizeA * Zone.VERT_SIZE * 3;
+			sz = zone.sizeA * Zone.ZONE_VERTEX_NUM_BYTES * 3;
 			if (sz > 0) {
 				a = new GLBuffer("Zone::VBO::Alpha", GL_ARRAY_BUFFER, GL_STATIC_DRAW);
 				a.initialize(sz);
@@ -69,7 +69,7 @@ public final class ZoneUploadJob extends Job {
 			}
 
 			GLTextureBuffer f = null;
-			sz = zone.sizeF * Zone.TEXTURE_SIZE;
+			sz = zone.sizeF * Zone.STATIC_FACE_NUM_BYTES;
 			if (sz > 0) {
 				f = new GLTextureBuffer("Zone::TexturedFaces", GL_STATIC_DRAW);
 				f.initialize(sz);
@@ -77,7 +77,7 @@ public final class ZoneUploadJob extends Job {
 			}
 
 			GLTextureBuffer m = null;
-			sz = zone.sizeM * Zone.MODEL_DATA_SIZE;
+			sz = zone.sizeM * Zone.MODEL_DATA_NUM_BYTES;
 			if (sz > 0) {
 				m = new GLTextureBuffer("Zone::ModelData", GL_STATIC_DRAW);
 				m.initialize(sz);

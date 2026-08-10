@@ -17,10 +17,11 @@ import static org.lwjgl.opengl.GL33C.*;
 import static rs117.hd.HdPlugin.GL_CAPS;
 import static rs117.hd.HdPlugin.SUPPORTS_INDIRECT_DRAW;
 import static rs117.hd.HdPlugin.SUPPORTS_STORAGE_BUFFERS;
-import static rs117.hd.renderer.zone.Zone.METADATA_SIZE;
-import static rs117.hd.renderer.zone.Zone.MODEL_DATA_INTS;
-import static rs117.hd.renderer.zone.Zone.VERT_SIZE;
-import static rs117.hd.renderer.zone.Zone.VERT_SIZE_INTS;
+import static rs117.hd.renderer.zone.Zone.METADATA_NUM_BYTES;
+import static rs117.hd.renderer.zone.Zone.METADATA_NUM_INTS;
+import static rs117.hd.renderer.zone.Zone.MODEL_DATA_NUM_INTS;
+import static rs117.hd.renderer.zone.Zone.ZONE_VERTEX_NUM_BYTES;
+import static rs117.hd.renderer.zone.Zone.ZONE_VERTEX_NUM_INTS;
 import static rs117.hd.renderer.zone.ZoneRenderer.TEXTURE_UNIT_MODEL_DATA;
 import static rs117.hd.renderer.zone.ZoneRenderer.TEXTURE_UNIT_TEXTURED_FACES;
 import static rs117.hd.utils.MathUtils.*;
@@ -113,9 +114,9 @@ public class DynamicModelVAO implements Destructible {
 			vboStaging.initialize(INITIAL_SIZE);
 
 		// Build Stub Metadata
-		stubMetadata.initialize(METADATA_SIZE);
+		stubMetadata.initialize(METADATA_NUM_BYTES);
 		try (MemoryStack stack = MemoryStack.stackPush()) {
-			int intsCount = METADATA_SIZE / Integer.BYTES;
+			int intsCount = METADATA_NUM_INTS;
 			IntBuffer buf = stack.mallocInt(intsCount);
 			for (int i = 0; i < intsCount; i++)
 				buf.put(0);
@@ -131,36 +132,36 @@ public class DynamicModelVAO implements Destructible {
 
 		// Position
 		glEnableVertexAttribArray(0);
-		glVertexAttribPointer(0, 4, GL_HALF_FLOAT, false, VERT_SIZE, 0);
+		glVertexAttribPointer(0, 4, GL_HALF_FLOAT, false, ZONE_VERTEX_NUM_BYTES, 0);
 
 		// UVs
 		glEnableVertexAttribArray(1);
-		glVertexAttribPointer(1, 4, GL_HALF_FLOAT, false, VERT_SIZE, 8);
+		glVertexAttribPointer(1, 4, GL_HALF_FLOAT, false, ZONE_VERTEX_NUM_BYTES, 8);
 
 		// Normals
 		glEnableVertexAttribArray(2);
-		glVertexAttribPointer(2, 4, GL_SHORT, false, VERT_SIZE, 16);
+		glVertexAttribPointer(2, 4, GL_SHORT, false, ZONE_VERTEX_NUM_BYTES, 16);
 
 		// TextureFaceIdx
 		glEnableVertexAttribArray(3);
-		glVertexAttribIPointer(3, 1, GL_INT, VERT_SIZE, 24);
+		glVertexAttribIPointer(3, 1, GL_INT, ZONE_VERTEX_NUM_BYTES, 24);
 
 		glBindBuffer(GL_ARRAY_BUFFER, stubMetadata.id);
 
 		// WorldView index (not ID)
 		glEnableVertexAttribArray(6);
 		glVertexAttribDivisor(6, 1);
-		glVertexAttribIPointer(6, 1, GL_INT, METADATA_SIZE, 0);
+		glVertexAttribIPointer(6, 1, GL_INT, METADATA_NUM_BYTES, 0);
 
 		// Scene offset
 		glEnableVertexAttribArray(7);
 		glVertexAttribDivisor(7, 1);
-		glVertexAttribIPointer(7, 2, GL_INT, METADATA_SIZE, 4);
+		glVertexAttribIPointer(7, 2, GL_INT, METADATA_NUM_BYTES, 4);
 
 		// Scene offset
 		glEnableVertexAttribArray(8);
 		glVertexAttribDivisor(8, 1);
-		glVertexAttribPointer(8, 1, GL_FLOAT, false, METADATA_SIZE, 12);
+		glVertexAttribPointer(8, 1, GL_FLOAT, false, METADATA_NUM_BYTES, 12);
 
 
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -242,9 +243,9 @@ public class DynamicModelVAO implements Destructible {
 		View view = freeViews.poll();
 		if (view == null)
 			view = new View();
-		view.vbo = vboWriter.reserve(faceCount * 3 * VERT_SIZE_INTS);
+		view.vbo = vboWriter.reserve(faceCount * 3 * ZONE_VERTEX_NUM_INTS);
 		view.tboF = tboFWriter.reserve(faceCount * 4);
-		view.tboM = tboMWriter.reserve(MODEL_DATA_INTS);
+		view.tboM = tboMWriter.reserve(MODEL_DATA_NUM_INTS);
 		view.vao = vao;
 		view.tboFId = tboF.getTexId();
 		view.tboMId = tboM.getTexId();
@@ -260,7 +261,7 @@ public class DynamicModelVAO implements Destructible {
 		);
 		assert isMapped : "beginDraw called while not mapped, this is not allowed!";
 
-		drawOffsets[view.drawIdx] = view.getStartOffset() / VERT_SIZE_INTS;
+		drawOffsets[view.drawIdx] = view.getStartOffset() / ZONE_VERTEX_NUM_INTS;
 		drawCounts[view.drawIdx] = view.getVertexCount();
 		writtenRangeCount = max(writtenRangeCount, view.drawIdx + 1);
 
@@ -273,9 +274,9 @@ public class DynamicModelVAO implements Destructible {
 	}
 
 	private void addPendingCopy(int srcOffsetInts, int dstOffsetInts, int countInts) {
-		long srcBytes = srcOffsetInts * (long) VERT_SIZE;
-		long dstBytes = dstOffsetInts * (long) VERT_SIZE;
-		long numBytes = countInts * (long) VERT_SIZE;
+		long srcBytes = srcOffsetInts * (long) ZONE_VERTEX_NUM_BYTES;
+		long dstBytes = dstOffsetInts * (long) ZONE_VERTEX_NUM_BYTES;
+		long numBytes = countInts * (long) ZONE_VERTEX_NUM_BYTES;
 
 		if (pendingCopyCount > 0) {
 			int last = pendingCopyCount - 1;
@@ -398,7 +399,7 @@ public class DynamicModelVAO implements Destructible {
 		}
 
 		public int getVertexCount() {
-			return (getEndOffset() - getStartOffset()) / VERT_SIZE_INTS;
+			return (getEndOffset() - getStartOffset()) / ZONE_VERTEX_NUM_INTS;
 		}
 
 		public void end() {
