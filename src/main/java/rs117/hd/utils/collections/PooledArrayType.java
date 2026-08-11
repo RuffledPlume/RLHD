@@ -1,7 +1,10 @@
 package rs117.hd.utils.collections;
 
+import java.lang.ref.Cleaner;
+import java.lang.ref.Cleaner.Cleanable;
 import java.lang.reflect.Array;
 import java.util.ArrayDeque;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.StampedLock;
 import javax.annotation.Nonnull;
@@ -35,6 +38,9 @@ public enum PooledArrayType {
 	private static final double ALPHA = 0.1;
 
 	private static final AtomicLong CURRENT_POOL_BYTES = new AtomicLong();
+	private static final AtomicLong TOTAL_POOL_BYTES = new AtomicLong();
+
+	private static final Cleaner CLEANER = Cleaner.create();
 
 	public final ArraySupplier<?> supplier;
 	public final int stride;
@@ -79,6 +85,12 @@ public enum PooledArrayType {
 						if (full) {
 							bucket.inUse = 0;
 							bucket.isEmpty = true;
+							for (PooledArray<Object> wrapper : bucket.stack) {
+								wrapper.pooled.set(false);
+								// We know for certain this array is being discarded - account for
+								// it immediately instead of waiting on GC to run the cleaner.
+								wrapper.cleanable.clean();
+							}
 							bucket.stack.clear();
 						} else {
 							type.maybeCleanup(b, s, bucket, true);
@@ -101,6 +113,11 @@ public enum PooledArrayType {
 			for (int b = 0; b < VALUES[v].buckets.length; b++) {
 				for (int s = 0; s < STRIPES; s++) {
 					final Bucket bucket = type.buckets[b][s];
+
+					for (PooledArray<Object> wrapper : bucket.stack) {
+						wrapper.pooled.set(false);
+						wrapper.cleanable.clean();
+					}
 					bucket.stack.clear();
 					bucket.isEmpty = true;
 
@@ -116,9 +133,9 @@ public enum PooledArrayType {
 		}
 	}
 
-	public static long getCurrentTotalCacheSize() {
-		return CURRENT_POOL_BYTES.get();
-	}
+	public static long getCurrentTotalCacheSize() { return CURRENT_POOL_BYTES.get(); }
+
+	public static long getTotalPoolBytes() { return TOTAL_POOL_BYTES.get(); }
 
 	private void maybeCleanup(int b, int s, Bucket bucket) {
 		maybeCleanup(b, s, bucket, false);
@@ -149,20 +166,20 @@ public enum PooledArrayType {
 		int excess = bucket.stack.size() - target;
 
 		while (excess-- > 0) {
-			Object arr = bucket.poll(bytesFor(bucket.size));
-			if (arr == null)
+			PooledArray<Object> wrapper = bucket.poll(bytesFor(bucket.size));
+			if (wrapper == null)
 				break;
 
-			spill(b, s, arr);
+			spill(b, s, wrapper);
 		}
 
 		bucket.lastOverTargetTime = now;
 	}
 
-	private boolean spill(int b, int fromStripe, Object array) {
+	private boolean spill(int b, int fromStripe, PooledArray<Object> wrapper) {
 		final Bucket[] stripes = buckets[b];
 
-		final long bytes = bytesFor(Array.getLength(array));
+		final long bytes = bytesFor(Array.getLength(wrapper.array));
 
 		for (int i = 1; i < STRIPES; i++) {
 			final int s = (fromStripe + i) & STRIPES_MASK;
@@ -177,14 +194,13 @@ public enum PooledArrayType {
 
 			try {
 				if (other.stack.size() <= other.avgDemand) {
-					other.add(array, bytes);
+					other.add(wrapper, bytes);
 					return true;
 				}
 			} finally {
 				other.lock.unlockWrite(stamp);
 			}
 		}
-
 		return false;
 	}
 
@@ -193,33 +209,51 @@ public enum PooledArrayType {
 	}
 
 	@SuppressWarnings("unchecked")
-	public <T> T create(int requestedSize) {
-		return (T) supplier.get(ceilPow2(requestedSize));
-	}
+	public <T> PooledArray<T> create(int requestedSize) {
+		final int cap = ceilPow2(requestedSize);
+		final long bytes = bytesFor(cap);
+		final Object array = supplier.get(cap);
 
-	@SuppressWarnings("unchecked")
-	public <T> T ensureCapacity(Object array, int requestedSize) {
-		final int len = array != null ? Array.getLength(array) : 0;
-		if (len >= requestedSize)
-			return (T) array;
+		final PooledArray<Object> wrapper = new PooledArray<>(this, array, bytes);
+		TOTAL_POOL_BYTES.addAndGet(bytes);
 
-		release(array);
-		return borrow(requestedSize);
+		return (PooledArray<T>) wrapper;
 	}
 
 	@SuppressWarnings("SuspiciousSystemArraycopy")
-	public <T> T cache(@Nonnull Object array, int offset, int size) {
-		final T cached = borrow(size);
-		System.arraycopy(array, offset, cached, 0, size);
+	public <T> PooledArray<T> cache(String context, @Nonnull Object array, int offset, int size) {
+		final PooledArray<T> cached = borrow(context, size);
+		System.arraycopy(array, offset, cached.array, 0, size);
 		return cached;
 	}
 
-	public <T> T borrow(int requestedSize) {
-		return borrow(requestedSize, true);
+	public <T> PooledArray<T> borrow(String context, int requestedSize) {
+		return borrow(context, requestedSize, true);
+	}
+
+	public <T> PooledArray<T> ensureCapacity(PooledArray<T> current, int requestedSize) {
+		if (current != null && current.array != null && Array.getLength(current.array) >= requestedSize)
+			return current;
+
+		final PooledArray<T> grown = borrow(current != null ? current.borrowInfo.context : null, requestedSize);
+		release(current);
+		return grown;
+	}
+
+	@SuppressWarnings("SuspiciousSystemArraycopy")
+	public <T> PooledArray<T> ensureCapacity(PooledArray<T> current, int requestedSize, int offset, int count) {
+		if (current != null && current.array != null && Array.getLength(current.array) >= requestedSize)
+			return current;
+
+		final PooledArray<T> grown = borrow(current != null ? current.borrowInfo.context : null, requestedSize);
+		if (current != null && current.array != null && count > 0)
+			System.arraycopy(current.array, offset, grown.array, 0, count);
+		release(current);
+		return grown;
 	}
 
 	@SuppressWarnings("unchecked")
-	public <T> T borrow(int requestedSize, boolean createIfMissing) {
+	public <T> PooledArray<T> borrow(String context, int requestedSize, boolean createIfMissing) {
 		final int roundedSize = ceilPow2(requestedSize);
 		final int b = bucket(roundedSize);
 
@@ -238,26 +272,37 @@ public enum PooledArrayType {
 				continue;
 
 			try {
-				final T arr = (T) bucket.poll(bytes);
-				if (arr != null) {
+				final PooledArray<Object> wrapper = bucket.poll(bytes);
+				if (wrapper != null) {
+					wrapper.borrowInfo.context = context;
 					bucket.inUse++;
 					bucket.peakInUse = Math.max(bucket.peakInUse, bucket.inUse);
 					maybeCleanup(b, s, bucket);
-					return arr;
+					return (PooledArray<T>) wrapper;
 				}
 			} finally {
 				bucket.lock.unlockWrite(stamp);
 			}
 		}
 
-		return createIfMissing ? (T) supplier.get(roundedSize) : null;
+		if (!createIfMissing)
+			return null;
+
+		return create(roundedSize);
 	}
 
-	public void release(Object array) {
-		if (array == null)
+	@SuppressWarnings("unchecked")
+	public void release(PooledArray<?> wrapper) {
+		if (wrapper == null || wrapper.array == null)
 			return;
 
-		final int len = Array.getLength(array);
+		if (wrapper.pooled.get()) {
+			if (Props.DEVELOPMENT)
+				log.warn("Attempted to release a PooledArray that's already back in the pool: {}", wrapper.array);
+			return;
+		}
+
+		final int len = Array.getLength(wrapper.array);
 		if (len != ceilPow2(len))
 			return;
 
@@ -266,6 +311,8 @@ public enum PooledArrayType {
 		final long bytes = bytesFor(len);
 		if (isPoolFull(bytes))
 			return;
+
+		final PooledArray<Object> objWrapper = (PooledArray<Object>) wrapper;
 
 		final int startStripe = stripeIndex();
 
@@ -286,7 +333,7 @@ public enum PooledArrayType {
 					return;
 
 				bucket.inUse = max(0, bucket.inUse - 1);
-				bucket.add(array, bytes);
+				bucket.add(objWrapper, bytes);
 				maybeCleanup(b, s, bucket);
 				return;
 			} finally {
@@ -302,7 +349,7 @@ public enum PooledArrayType {
 
 	@RequiredArgsConstructor
 	private static final class Bucket {
-		private final ArrayDeque<Object> stack = new ArrayDeque<>();
+		private final ArrayDeque<PooledArray<Object>> stack = new ArrayDeque<>();
 		private final StampedLock lock = new StampedLock();
 
 		private final int size;
@@ -314,20 +361,83 @@ public enum PooledArrayType {
 
 		private volatile boolean isEmpty = true;
 
-		public void add(Object array, long bytes) {
-			if (Props.DEVELOPMENT && !isEmpty && stack.contains(array))
-				throw new IllegalStateException("Duplicate array: " + array);
-			stack.add(array);
+		public void add(PooledArray<Object> wrapper, long bytes) {
+			if (!wrapper.pooled.compareAndSet(false, true)) {
+				log.warn("Duplicate release of pooled array: " + wrapper.array);
+				return;
+			}
+
+			wrapper.borrowInfo.context = null;
+			stack.add(wrapper);
 			CURRENT_POOL_BYTES.addAndGet(bytes);
 			isEmpty = false;
 		}
 
-		public Object poll(long bytes) {
-			Object arr = stack.poll();
-			if (arr != null)
+		public PooledArray<Object> poll(long bytes) {
+			PooledArray<Object> wrapper = stack.poll();
+			if (wrapper != null) {
+				wrapper.pooled.set(false);
 				CURRENT_POOL_BYTES.addAndGet(-bytes);
+			}
 			isEmpty = stack.isEmpty();
-			return arr;
+			return wrapper;
 		}
+	}
+
+	public static class PooledArray<T> implements AutoCloseable {
+		private final PooledArrayType arrayType;
+		private final T array;
+		private final Cleanable cleanable;
+		private final AtomicBoolean pooled = new AtomicBoolean(false);
+
+		private final BorrowInfo borrowInfo = new BorrowInfo();
+
+		private PooledArray(PooledArrayType arrayType, T array, long bytes) {
+			this.arrayType = arrayType;
+			this.array = array;
+
+			final BorrowInfo borrowInfo = this.borrowInfo;
+			final AtomicBoolean pooledFlag = pooled;
+			final String typeName = arrayType.name();
+
+			this.cleanable = CLEANER.register(this, () -> {
+				TOTAL_POOL_BYTES.addAndGet(-bytes);
+
+				final String context = borrowInfo.context;
+				if (!pooledFlag.get() && context != null) {
+					log.warn(
+						"A {} PooledArray ({} bytes) was garbage collected while still borrowed by {}. " +
+						"This usually means close()/release() was never called - check for a leak.",
+						typeName, bytes, context
+					);
+				}
+			});
+		}
+
+		public T getArray() {
+			if (pooled.get()) {
+				log.warn("Attempted to use a PooledArray after it was released back to the pool");
+				return null;
+			}
+
+			return array;
+		}
+
+		public PooledArray<T> ensureCapacity(int requestedSize) {
+			return arrayType.ensureCapacity(this, requestedSize);
+		}
+
+		public PooledArray<T> ensureCapacity(int requestedSize, int offset, int count) {
+			return arrayType.ensureCapacity(this, requestedSize, offset, count);
+		}
+
+		@Override
+		public void close() {
+			arrayType.release(this);
+		}
+	}
+
+	private static class BorrowInfo {
+		public String context;
 	}
 }

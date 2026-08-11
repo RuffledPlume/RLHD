@@ -48,6 +48,7 @@ import rs117.hd.utils.ModelHash;
 import rs117.hd.utils.buffer.GpuIntBuffer;
 import rs117.hd.utils.collections.ConcurrentPool;
 import rs117.hd.utils.collections.PooledArrayType;
+import rs117.hd.utils.collections.PooledArrayType.PooledArray;
 import rs117.hd.utils.collections.PooledObjectArray;
 import rs117.hd.utils.collections.PrimitiveCharArray;
 import rs117.hd.utils.collections.PrimitiveIntArray;
@@ -133,7 +134,7 @@ public class SceneUploader implements AutoCloseable {
 	private final int[] modelNormals = new int[9];
 	private final short[][] tileNormals = new short[4][3];
 
-	private int[] modelVertices;
+	private PooledArray<int[]> modelVertices;
 	public int tempModelAlphaFaces = 0;
 
 	private final PooledObjectArray<ModelOverride> faceOverrides = new PooledObjectArray<>();
@@ -177,8 +178,9 @@ public class SceneUploader implements AutoCloseable {
 		faceUVTypes.release();
 	}
 
-	private void ensureVerticesAllocated(int vertexCount) {
+	private int[] ensureVerticesAllocated(int vertexCount) {
 		modelVertices = PooledArrayType.INT.ensureCapacity(modelVertices, vertexCount * 3);
+		return modelVertices.getArray();
 	}
 
 	public void estimateZoneSize(ZoneSceneContext ctx, Zone zone, int mzx, int mzz) throws InterruptedException {
@@ -1546,7 +1548,7 @@ public class SceneUploader implements AutoCloseable {
 			orientCos = COSINE[orientation];
 		}
 
-		ensureVerticesAllocated(vertexCount);
+		final int[] modelVertices = ensureVerticesAllocated(vertexCount);
 
 		for (int v = 0, vertexOffset = 0; v < vertexCount; ++v) {
 			int vx = (int) vertexX[v];
@@ -1896,239 +1898,239 @@ public class SceneUploader implements AutoCloseable {
 	) {
 		final int vertexCount = model.getVerticesCount();
 
-		final float[] verticesX = model.getVerticesX();
-		final float[] verticesY = model.getVerticesY();
-		final float[] verticesZ = model.getVerticesZ();
+		try(PooledArray<boolean[]> visibilityArray = isModelPartiallyVisible ? PooledArrayType.BOOL.borrow("SceneUploader::preprocessTempModel::visibilityArray", vertexCount) : null;
+			PooledArray<float[]> modelProjectedArray = PooledArrayType.FLOAT.borrow("SceneUploader::preprocessTempModel::modelProjectedArray", vertexCount * 3)) {
 
-		final boolean[] visibility = isModelPartiallyVisible ? PooledArrayType.BOOL.borrow(vertexCount) : null;
-		final float[] modelProjected = PooledArrayType.FLOAT.borrow(vertexCount * 3);
+			final int[] modelVertices = ensureVerticesAllocated(vertexCount);
+			final boolean[] visibility = visibilityArray != null ? visibilityArray.getArray() : null;
+			final float[] modelProjected = modelProjectedArray.getArray();
 
-		// Identity orient, will result in no rotation
-		float orientSinf = 0;
-		float orientCosf = 1;
+			final float[] verticesX = model.getVerticesX();
+			final float[] verticesY = model.getVerticesY();
+			final float[] verticesZ = model.getVerticesZ();
 
-		if (orientation != 0) {
-			orientation = mod(orientation, 2048);
-			orientSinf = SINE[orientation] / 65536f;
-			orientCosf = COSINE[orientation] / 65536f;
-		}
-
-		ensureVerticesAllocated(vertexCount);
-
-		boolean shouldSort = true;
-		boolean allVertsVisible = true;
-		for (int v = 0, vertexOffset = 0; v < vertexCount; ++v) {
-			float vertexX = verticesX[v];
-			float vertexY = verticesY[v];
-			float vertexZ = verticesZ[v];
+			// Identity orient, will result in no rotation
+			float orientSinf = 0;
+			float orientCosf = 1;
 
 			if (orientation != 0) {
-				final float x0 = vertexX;
-				vertexX = vertexZ * orientSinf + x0 * orientCosf;
-				vertexZ = vertexZ * orientCosf - x0 * orientSinf;
+				orientation = mod(orientation, 2048);
+				orientSinf = SINE[orientation] / 65536f;
+				orientCosf = COSINE[orientation] / 65536f;
 			}
 
-			vertexX += x;
-			vertexY += y;
-			vertexZ += z;
+			boolean shouldSort = true;
+			boolean allVertsVisible = true;
+			for (int v = 0, vertexOffset = 0; v < vertexCount; ++v) {
+				float vertexX = verticesX[v];
+				float vertexY = verticesY[v];
+				float vertexZ = verticesZ[v];
 
-			proj.project(vertexX, vertexY, vertexZ, projected);
-
-			if (isModelPartiallyVisible) {
-				// Ignore near & far plane, only test against the side planes
-				if (!(visibility[v] = HDUtils.isPointWithinFrustum(vertexX, vertexY, vertexZ, sceneFrustumPlanes, 4)))
-					allVertsVisible = false;
-			}
-
-			final float pX = projected[0];
-			final float pY = projected[1];
-			float pZ = projected[2];
-
-			// Vertex is behind the camera and therefore isn't visible
-			if (pZ <= 0.0f) {
-				if (pZ == 0.0f)
-					pZ = -1e-6f; // Avoid division by zero
-				if (isModelPartiallyVisible)
-					visibility[v] = allVertsVisible = false;
-			}
-
-			modelVertices[vertexOffset] = Float.floatToRawIntBits(vertexX);
-			modelProjected[vertexOffset] = pX / pZ;
-			vertexOffset++;
-
-			modelVertices[vertexOffset] = Float.floatToRawIntBits(vertexY);
-			modelProjected[vertexOffset] = pY / pZ;
-			vertexOffset++;
-
-			modelVertices[vertexOffset] = Float.floatToRawIntBits(vertexZ);
-			modelProjected[vertexOffset] = pZ;
-			vertexOffset++;
-
-			shouldSort &= pZ >= 50;
-		}
-
-		visibleFaces.reset();
-		culledFaces.reset();
-
-		final int triangleCount = model.getFaceCount();
-		visibleFaces.ensureCapacity(triangleCount);
-		culledFaces.ensureCapacity(triangleCount);
-
-		final int[] color3s = model.getFaceColors3();
-		final int[] indices1 = model.getFaceIndices1();
-		final int[] indices2 = model.getFaceIndices2();
-		final int[] indices3 = model.getFaceIndices3();
-		final byte[] transparencies = model.getFaceTransparencies();
-		final short[] faceTextures = model.getFaceTextures();
-		final byte[] textureFaces = model.getTextureFaces();
-
-		final Material baseMaterial = modelOverride.baseMaterial;
-		final Material textureMaterial = modelOverride.textureMaterial;
-
-		final boolean isVanillaTextured = faceTextures != null;
-		final boolean isVanillaUVMapped =
-			isVanillaTextured && // Vanilla UV mapped models don't always have sensible UVs for untextured faces
-			textureFaces != null;
-
-		final int zero = (int) proj.project(x, y, z, projected)[2];
-		final int radius = model.getRadius();
-		final byte modelTransparency = model.getTransparency();
-
-		int cachedVanillaTexturedId = -1;
-		ModelOverride cachedVanillaTextureOverride = null;
-
-		int cachedAhsl = -1;
-		ModelOverride cachedAhslOverride = null;
-
-		faceOverrides.ensureCapacity(triangleCount);
-		faceMaterials.ensureCapacity(triangleCount);
-		faceUVTypes.ensureCapacity(triangleCount);
-
-		tempModelAlphaFaces = 0;
-		for (char f = 0; f < triangleCount; f++) {
-			if (color3s[f] == -2)
-				continue;
-
-			int transparency = readFaceTransparency(modelTransparency, transparencies, f);
-			if (transparency == 255)
-				continue;
-
-			// Hide fake shadows or lighting that is often baked into models by making the fake shadow transparent
-			if (plugin.configHideFakeShadows && modelOverride.hideVanillaShadows && HDUtils.isBakedGroundShading(model, f))
-				continue;
-
-			UvType uvType = UvType.GEOMETRY;
-			Material material = baseMaterial;
-			ModelOverride faceOverride = modelOverride;
-
-			final int textureId = isVanillaTextured ? faceTextures[f] : -1;
-			if (textureId != -1) {
-				uvType = UvType.VANILLA;
-				if (textureMaterial != Material.NONE) {
-					material = textureMaterial;
-				} else {
-					material = materialManager.fromVanillaTexture(textureId);
-					if (modelOverride.materialOverrides != null) {
-						final var override = cachedVanillaTexturedId == textureId ?
-							cachedVanillaTextureOverride :
-							modelOverride.materialOverrides.get(material);
-						cachedVanillaTexturedId = textureId;
-						cachedVanillaTextureOverride = override;
-
-						if (override != null) {
-							faceOverride = override;
-							material = faceOverride.textureMaterial;
-						}
-					}
+				if (orientation != 0) {
+					final float x0 = vertexX;
+					vertexX = vertexZ * orientSinf + x0 * orientCosf;
+					vertexZ = vertexZ * orientCosf - x0 * orientSinf;
 				}
-			} else if (modelOverride.colorOverrides != null) {
-				final int ahsl = (0xFF - transparency) << 16 | model.getFaceColors1()[f];
-				final var override = cachedAhsl == ahsl ?
-					cachedAhslOverride :
-					modelOverride.testColorOverrides(ahsl);
-				cachedAhsl = ahsl;
-				cachedAhslOverride = override;
 
-				if (override != null) {
-					faceOverride = override;
-					material = faceOverride.baseMaterial;
+				vertexX += x;
+				vertexY += y;
+				vertexZ += z;
+
+				proj.project(vertexX, vertexY, vertexZ, projected);
+
+				if (isModelPartiallyVisible) {
+					// Ignore near & far plane, only test against the side planes
+					if (!(visibility[v] = HDUtils.isPointWithinFrustum(vertexX, vertexY, vertexZ, sceneFrustumPlanes, 4)))
+						allVertsVisible = false;
 				}
+
+				final float pX = projected[0];
+				final float pY = projected[1];
+				float pZ = projected[2];
+
+				// Vertex is behind the camera and therefore isn't visible
+				if (pZ <= 0.0f) {
+					if (pZ == 0.0f)
+						pZ = -1e-6f; // Avoid division by zero
+					if (isModelPartiallyVisible)
+						visibility[v] = allVertsVisible = false;
+				}
+
+				modelVertices[vertexOffset] = Float.floatToRawIntBits(vertexX);
+				modelProjected[vertexOffset] = pX / pZ;
+				vertexOffset++;
+
+				modelVertices[vertexOffset] = Float.floatToRawIntBits(vertexY);
+				modelProjected[vertexOffset] = pY / pZ;
+				vertexOffset++;
+
+				modelVertices[vertexOffset] = Float.floatToRawIntBits(vertexZ);
+				modelProjected[vertexOffset] = pZ;
+				vertexOffset++;
+
+				shouldSort &= pZ >= 50;
 			}
 
-			if (faceOverride.hide)
-				continue;
+			visibleFaces.reset();
+			culledFaces.reset();
 
-			if (material != Material.NONE) {
-				uvType = faceOverride.uvType;
-				if (uvType == UvType.VANILLA || (textureId != -1 && faceOverride.retainVanillaUvs)) {
-					final int textureFace = textureFaces != null ? textureFaces[f] : -1;
-					uvType = isVanillaUVMapped && textureFace != -1 ? UvType.VANILLA : UvType.GEOMETRY;
-				}
-			}
+			final int triangleCount = model.getFaceCount();
+			visibleFaces.ensureCapacity(triangleCount);
+			culledFaces.ensureCapacity(triangleCount);
 
-			if (faceOverride.modifiesAlpha) {
-				transparency = 255 - faceOverride.modifyAlpha(255 - transparency);
+			final int[] color3s = model.getFaceColors3();
+			final int[] indices1 = model.getFaceIndices1();
+			final int[] indices2 = model.getFaceIndices2();
+			final int[] indices3 = model.getFaceIndices3();
+			final byte[] transparencies = model.getFaceTransparencies();
+			final short[] faceTextures = model.getFaceTextures();
+			final byte[] textureFaces = model.getTextureFaces();
+
+			final Material baseMaterial = modelOverride.baseMaterial;
+			final Material textureMaterial = modelOverride.textureMaterial;
+
+			final boolean isVanillaTextured = faceTextures != null;
+			final boolean isVanillaUVMapped =
+				isVanillaTextured && // Vanilla UV mapped models don't always have sensible UVs for untextured faces
+				textureFaces != null;
+
+			final int zero = (int) proj.project(x, y, z, projected)[2];
+			final int radius = model.getRadius();
+			final byte modelTransparency = model.getTransparency();
+
+			int cachedVanillaTexturedId = -1;
+			ModelOverride cachedVanillaTextureOverride = null;
+
+			int cachedAhsl = -1;
+			ModelOverride cachedAhslOverride = null;
+
+			faceOverrides.ensureCapacity(triangleCount);
+			faceMaterials.ensureCapacity(triangleCount);
+			faceUVTypes.ensureCapacity(triangleCount);
+
+			tempModelAlphaFaces = 0;
+			for (char f = 0; f < triangleCount; f++) {
+				if (color3s[f] == -2)
+					continue;
+
+				int transparency = readFaceTransparency(modelTransparency, transparencies, f);
 				if (transparency == 255)
 					continue;
-			}
 
-			faceOverrides.set(f, faceOverride);
-			faceMaterials.set(f, material);
-			faceUVTypes.set(f, uvType);
+				// Hide fake shadows or lighting that is often baked into models by making the fake shadow transparent
+				if (plugin.configHideFakeShadows && modelOverride.hideVanillaShadows && HDUtils.isBakedGroundShading(model, f))
+					continue;
 
-			int offsetA = indices1[f];
-			int offsetB = indices2[f];
-			int offsetC = indices3[f];
+				UvType uvType = UvType.GEOMETRY;
+				Material material = baseMaterial;
+				ModelOverride faceOverride = modelOverride;
 
-			if (isModelPartiallyVisible && !allVertsVisible && !visibility[offsetA] && !visibility[offsetB] && !visibility[offsetC]) {
-				// TODO: If a triangle is large enough to encompass the entire screen, this will need an additional plane test
-				culledFaces.put(f);
-				continue;
-			}
+				final int textureId = isVanillaTextured ? faceTextures[f] : -1;
+				if (textureId != -1) {
+					uvType = UvType.VANILLA;
+					if (textureMaterial != Material.NONE) {
+						material = textureMaterial;
+					} else {
+						material = materialManager.fromVanillaTexture(textureId);
+						if (modelOverride.materialOverrides != null) {
+							final var override = cachedVanillaTexturedId == textureId ?
+								cachedVanillaTextureOverride :
+								modelOverride.materialOverrides.get(material);
+							cachedVanillaTexturedId = textureId;
+							cachedVanillaTextureOverride = override;
 
-			offsetA *= 3;
-			offsetB *= 3;
-			offsetC *= 3;
+							if (override != null) {
+								faceOverride = override;
+								material = faceOverride.textureMaterial;
+							}
+						}
+					}
+				} else if (modelOverride.colorOverrides != null) {
+					final int ahsl = (0xFF - transparency) << 16 | model.getFaceColors1()[f];
+					final var override = cachedAhsl == ahsl ?
+						cachedAhslOverride :
+						modelOverride.testColorOverrides(ahsl);
+					cachedAhsl = ahsl;
+					cachedAhslOverride = override;
 
-			// Face is completely behind the projection view
-			final float aX = modelProjected[offsetA];
-			final float aY = modelProjected[offsetA + 1];
-
-			final float bX = modelProjected[offsetB];
-			final float bY = modelProjected[offsetB + 1];
-
-			final float cX = modelProjected[offsetC];
-			final float cY = modelProjected[offsetC + 1];
-
-			// back face culling
-			if ((aX - bX) * (cY - bY) - (cX - bX) * (aY - bY) <= 0) {
-				culledFaces.put(f);
-				continue;
-			}
-
-			if (material.hasTransparency || transparency != 0)
-				tempModelAlphaFaces++;
-
-			// store distance for face sorting
-			if (faceDistances != null) {
-				if (shouldSort && (sortAllFaces || material.hasTransparency || transparency != 0)) {
-					final float aZ = modelProjected[offsetA + 2];
-					final float bZ = modelProjected[offsetB + 2];
-					final float cZ = modelProjected[offsetC + 2];
-
-					faceDistances[f] = radius + ((int) ((aZ + bZ + cZ) / 3.0f) - zero);
-				} else {
-					faceDistances[f] = Integer.MIN_VALUE;
+					if (override != null) {
+						faceOverride = override;
+						material = faceOverride.baseMaterial;
+					}
 				}
+
+				if (faceOverride.hide)
+					continue;
+
+				if (material != Material.NONE) {
+					uvType = faceOverride.uvType;
+					if (uvType == UvType.VANILLA || (textureId != -1 && faceOverride.retainVanillaUvs)) {
+						final int textureFace = textureFaces != null ? textureFaces[f] : -1;
+						uvType = isVanillaUVMapped && textureFace != -1 ? UvType.VANILLA : UvType.GEOMETRY;
+					}
+				}
+
+				if (faceOverride.modifiesAlpha) {
+					transparency = 255 - faceOverride.modifyAlpha(255 - transparency);
+					if (transparency == 255)
+						continue;
+				}
+
+				faceOverrides.set(f, faceOverride);
+				faceMaterials.set(f, material);
+				faceUVTypes.set(f, uvType);
+
+				int offsetA = indices1[f];
+				int offsetB = indices2[f];
+				int offsetC = indices3[f];
+
+				if (isModelPartiallyVisible && !allVertsVisible && !visibility[offsetA] && !visibility[offsetB] && !visibility[offsetC]) {
+					// TODO: If a triangle is large enough to encompass the entire screen, this will need an additional plane test
+					culledFaces.put(f);
+					continue;
+				}
+
+				offsetA *= 3;
+				offsetB *= 3;
+				offsetC *= 3;
+
+				// Face is completely behind the projection view
+				final float aX = modelProjected[offsetA];
+				final float aY = modelProjected[offsetA + 1];
+
+				final float bX = modelProjected[offsetB];
+				final float bY = modelProjected[offsetB + 1];
+
+				final float cX = modelProjected[offsetC];
+				final float cY = modelProjected[offsetC + 1];
+
+				// back face culling
+				if ((aX - bX) * (cY - bY) - (cX - bX) * (aY - bY) <= 0) {
+					culledFaces.put(f);
+					continue;
+				}
+
+				if (material.hasTransparency || transparency != 0)
+					tempModelAlphaFaces++;
+
+				// store distance for face sorting
+				if (faceDistances != null) {
+					if (shouldSort && (sortAllFaces || material.hasTransparency || transparency != 0)) {
+						final float aZ = modelProjected[offsetA + 2];
+						final float bZ = modelProjected[offsetB + 2];
+						final float cZ = modelProjected[offsetC + 2];
+
+						faceDistances[f] = radius + ((int) ((aZ + bZ + cZ) / 3.0f) - zero);
+					} else {
+						faceDistances[f] = Integer.MIN_VALUE;
+					}
+				}
+
+				visibleFaces.put(f);
 			}
 
-			visibleFaces.put(f);
+			return shouldSort;
 		}
-
-		PooledArrayType.BOOL.release(visibility);
-		PooledArrayType.FLOAT.release(modelProjected);
-
-		return shouldSort;
 	}
 
 	// temp draw
@@ -2169,6 +2171,7 @@ public class SceneUploader implements AutoCloseable {
 		final byte[] textureFaces = model.getTextureFaces();
 		final byte[] bias = model.getFaceBias();
 		final int[] faceNormals = isShadow ? EMPTY_NORMALS : modelNormals;
+		final int[] modelVertices = this.modelVertices.getArray();
 
 		final int faceCount = model.getFaceCount();
 		final boolean hasBias = bias != null;

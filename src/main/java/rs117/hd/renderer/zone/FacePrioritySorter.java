@@ -29,6 +29,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import rs117.hd.utils.collections.ConcurrentPool;
 import rs117.hd.utils.collections.PooledArrayType;
+import rs117.hd.utils.collections.PooledArrayType.PooledArray;
 import rs117.hd.utils.collections.PrimitiveCharArray;
 
 import static rs117.hd.renderer.zone.Zone.VERT_SIZE;
@@ -48,10 +49,10 @@ public final class FacePrioritySorter implements AutoCloseable {
 	private final int[] eq11 = new int[MAX_FACES_PER_PRIORITY];
 	private final int[] lt10 = new int[PRIORITY_COUNT];
 
-	private char[] orderedFaces;
-	private int[] zsortHead;
-	private int[] zsortTail;
-	private int[] zsortNext;
+	private PooledArray<char[]> orderedFaces;
+	private PooledArray<int[]> zsortHead;
+	private PooledArray<int[]> zsortTail;
+	private PooledArray<int[]> zsortNext;
 
 	private void ensureCapacity(int diameter, int faceCount) {
 		zsortHead = PooledArrayType.INT.ensureCapacity(zsortHead, min(MAX_DIAMETER, diameter + 1));
@@ -73,6 +74,11 @@ public final class FacePrioritySorter implements AutoCloseable {
 		boolean needsClear = true;
 
 		ensureCapacity(diameter, model.getFaceCount());
+
+		final char[] orderedFaces = this.orderedFaces.getArray();
+		final int[] zsortHead = this.zsortHead.getArray();
+		final int[] zsortTail = this.zsortTail.getArray();
+		final int[] zsortNext = this.zsortNext.getArray();
 
 		// Build the z-sorted linked list of faces
 		for (int i = 0; i < visibleFaceCount; ++i) {
@@ -216,10 +222,10 @@ public final class FacePrioritySorter implements AutoCloseable {
 
 		final int[] packedFaces = m.packedFaces;
 		final int[] doubleSidedBitSet = m.doubleSidedBitSet;
-		final int[] sortedFaces = m.tempSortedFaces;
-		final int[] zsortHead = this.zsortHead;
-		final int[] zsortTail = this.zsortTail;
-		final int[] zsortNext = this.zsortNext;
+		final int[] sortedFaces = m.sortedFaced.getArray();
+		final int[] zsortHead = this.zsortHead.getArray();
+		final int[] zsortTail = this.zsortTail.getArray();
+		final int[] zsortNext = this.zsortNext.getArray();
 
 		Arrays.fill(zsortHead, 0, diameter, -1);
 		Arrays.fill(zsortTail, 0, diameter, -1);
