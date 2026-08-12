@@ -70,9 +70,9 @@ public class Zone implements Destructible {
 	public static final int LEVEL_WATER_SURFACE = LEVEL_COUNT++;
 	public static final int LEVEL_GAP_FILLER = LEVEL_COUNT++;
 
-	public static final int SCENE_VISIBILITY = 0;
-	public static final int SCENE_LEVEL_VISIBILITY = 1;
-	public static final int DIRECTIONAL_VISIBILITY = MAX_Z;
+	public static final int DIRECTIONAL_VISIBILITY = 0;
+	public static final int SCENE_VISIBILITY = 1;
+	public static final int SCENE_LEVEL_VISIBILITY = 2;
 
 	public int glVao;
 	int bufLen;
