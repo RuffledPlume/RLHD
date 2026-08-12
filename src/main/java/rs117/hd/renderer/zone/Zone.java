@@ -46,6 +46,9 @@ public class Zone implements Destructible {
 	@Inject
 	private Client client;
 
+	@Inject
+	private HdPlugin plugin;
+
 	// Zone vertex format
 	// pos short vec3(x, y, z)
 	// uvw short vec3(u, v, w)
@@ -67,6 +70,10 @@ public class Zone implements Destructible {
 	public static final int LEVEL_WATER_SURFACE = LEVEL_COUNT++;
 	public static final int LEVEL_GAP_FILLER = LEVEL_COUNT++;
 
+	public static final int SCENE_VISIBILITY = 0;
+	public static final int SCENE_LEVEL_VISIBILITY = 1;
+	public static final int DIRECTIONAL_VISIBILITY = MAX_Z;
+
 	public int glVao;
 	int bufLen;
 	int dist;
@@ -87,9 +94,9 @@ public class Zone implements Destructible {
 	public boolean hasWater; // whether the zone has any water tiles
 	public boolean onlyWater; // whether the zone only contains water tiles
 	public boolean hasGapFiller; // whether the zone has any gap filler geometry
-	public boolean inSceneFrustum; // whether the zone is visible to the scene camera
-	public boolean inShadowFrustum; // whether the zone casts shadows into the visible scene
 	public boolean isFirstLoadingAttempt = true;
+
+	public int visibility = -1;
 
 	public IntHashSet animatedDynamicObjectIds = new IntHashSet();
 
@@ -105,8 +112,6 @@ public class Zone implements Destructible {
 	int[][] roofStart;
 	int[][] roofEnd;
 
-	final boolean[] levelInSceneFrustum = new boolean[LEVEL_COUNT];
-
 	final List<AlphaModel> alphaModels = new ArrayList<>(0);
 	final ConcurrentLinkedQueue<AsyncCachedModel> pendingModelJobs = new ConcurrentLinkedQueue<>();
 
@@ -115,8 +120,6 @@ public class Zone implements Destructible {
 		assert glVaoA == 0;
 		if (o == null && a == null || f == null)
 			return;
-
-		Arrays.fill(levelInSceneFrustum, true);
 
 		vboM = new GLBuffer("ZoneMetadata", GL_ARRAY_BUFFER, GL_DYNAMIC_DRAW);
 		vboM.initialize(METADATA_SIZE);
@@ -204,8 +207,6 @@ public class Zone implements Destructible {
 		hasWater = false;
 		onlyWater = false;
 		hasGapFiller = false;
-		inSceneFrustum = false;
-		inShadowFrustum = false;
 
 		Arrays.fill(levelOffsets, 0);
 		rids = null;
@@ -282,6 +283,27 @@ public class Zone implements Destructible {
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
 	}
 
+	public void resetVisibility() {
+		visibility = 0;
+	}
+
+	public boolean setVisibility(int id, boolean visible) {
+		if(visible) {
+			visibility |= (1 << id);
+		} else {
+			visibility &= ~(1 << id);
+		}
+		return visible;
+	}
+
+	public boolean isVisible(int id) {
+		return plugin.orthographicProjection || (visibility & (1 << id)) != 0;
+	}
+
+	public boolean isVisible() {
+		return plugin.orthographicProjection || visibility != 0;
+	}
+
 	public void setMetadata(WorldViewContext viewContext, SceneContext sceneContext, int mx, int mz) {
 		if (vboM == null)
 			return;
@@ -345,7 +367,7 @@ public class Zone implements Destructible {
 		}
 
 		for (int level = ctx.minLevel; level <= maxLevel; ++level) {
-			if(isSceneDraw && !levelInSceneFrustum[level])
+			if(isSceneDraw && !isVisible(SCENE_LEVEL_VISIBILITY + level))
 				continue;
 
 			int[] rids = this.rids[level];
@@ -748,7 +770,7 @@ public class Zone implements Destructible {
 			if ((m.flags & AlphaModel.SKIP) != 0 || m.isTemp())
 				continue;
 
-			if(isTopLevel && !levelInSceneFrustum[m.level])
+			if(isTopLevel && !isVisible(SCENE_LEVEL_VISIBILITY + m.level))
 				continue;
 
 			m.dist = dist;
@@ -905,7 +927,7 @@ public class Zone implements Destructible {
 						int zx2 = (centerX >> 10) + offset;
 						int zz2 = (centerZ >> 10) + offset;
 						if (zx2 >= 0 && zx2 < zones.length && zz2 >= 0 && zz2 < zones[0].length) {
-							if (zones[zx2][zz2].inSceneFrustum && zones[zx2][zz2].initialized) {
+							if (zones[zx2][zz2].isVisible(SCENE_VISIBILITY) && zones[zx2][zz2].initialized) {
 								max = distance;
 								closestZoneX = centerX >> 10;
 								closestZoneZ = centerZ >> 10;
