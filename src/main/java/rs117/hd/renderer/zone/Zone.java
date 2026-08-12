@@ -96,11 +96,16 @@ public class Zone implements Destructible {
 	final StaticAlphaSortingJob alphaSortingJob = new StaticAlphaSortingJob();
 	ZoneUploadJob uploadJob;
 
-	int[] levelOffsets = new int[LEVEL_COUNT]; // buffer pos in ints for the end of the level
+	final int[] levelMinY = new int[LEVEL_COUNT];
+	final int[] levelMaxY = new int[LEVEL_COUNT];
+
+	final int[] levelOffsets = new int[LEVEL_COUNT]; // buffer pos in ints for the end of the level
 
 	int[][] rids;
 	int[][] roofStart;
 	int[][] roofEnd;
+
+	final boolean[] levelInSceneFrustum = new boolean[LEVEL_COUNT];
 
 	final List<AlphaModel> alphaModels = new ArrayList<>(0);
 	final ConcurrentLinkedQueue<AsyncCachedModel> pendingModelJobs = new ConcurrentLinkedQueue<>();
@@ -110,6 +115,8 @@ public class Zone implements Destructible {
 		assert glVaoA == 0;
 		if (o == null && a == null || f == null)
 			return;
+
+		Arrays.fill(levelInSceneFrustum, true);
 
 		vboM = new GLBuffer("ZoneMetadata", GL_ARRAY_BUFFER, GL_DYNAMIC_DRAW);
 		vboM.initialize(METADATA_SIZE);
@@ -326,7 +333,7 @@ public class Zone implements Destructible {
 		copyTo(glDrawLength, drawEnd, 0, drawIdx);
 	}
 
-	void renderOpaque(CommandBuffer cmd, WorldViewContext ctx, boolean roofShadows) {
+	void renderOpaque(CommandBuffer cmd, WorldViewContext ctx, boolean isSceneDraw, boolean roofShadows) {
 		drawIdx = 0;
 
 		int currentLevel = ctx.level;
@@ -338,6 +345,9 @@ public class Zone implements Destructible {
 		}
 
 		for (int level = ctx.minLevel; level <= maxLevel; ++level) {
+			if(isSceneDraw && !levelInSceneFrustum[level])
+				continue;
+
 			int[] rids = this.rids[level];
 			int[] roofStart = this.roofStart[level];
 			int[] roofEnd = this.roofEnd[level];
@@ -385,7 +395,6 @@ public class Zone implements Destructible {
 
 	void renderOpaqueLevel(CommandBuffer cmd, int level) {
 		drawIdx = 0;
-
 		pushRange(this.levelOffsets[level - 1], this.levelOffsets[level]);
 
 		if (drawIdx == 0)
@@ -733,10 +742,13 @@ public class Zone implements Destructible {
 		quickSort(alphaModels, alphaModelComparator);
 	}
 
-	void alphaStaticModelSort(Camera camera) {
+	void alphaStaticModelSort(Camera camera, boolean isTopLevel) {
 		alphaSortingJob.reset();
 		for (AlphaModel m : alphaModels) {
 			if ((m.flags & AlphaModel.SKIP) != 0 || m.isTemp())
+				continue;
+
+			if(isTopLevel && !levelInSceneFrustum[m.level])
 				continue;
 
 			m.dist = dist;

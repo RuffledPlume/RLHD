@@ -184,7 +184,7 @@ public class WorldViewContext {
 		if (!alphaZones.isEmpty()) {
 			quickSort(alphaZones, alphaSortComparator);
 			for (int i = 0; i < alphaZones.size(); i++)
-				alphaZones.get(i).alphaStaticModelSort(camera);
+				alphaZones.get(i).alphaStaticModelSort(camera, worldViewId == WorldView.TOPLEVEL);
 		}
 	}
 

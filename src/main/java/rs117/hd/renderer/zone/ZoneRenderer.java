@@ -878,6 +878,13 @@ public class ZoneRenderer implements Renderer {
 				minX - PADDING, minY, minZ - PADDING, maxX + PADDING, maxY, maxZ + PADDING);
 
 			if (zone.inSceneFrustum) {
+				for (int level = 0; level < Zone.LEVEL_COUNT; level++) {
+					final int lvlMinY = zone.levelMinY[level];
+					final int lvlMaxY = zone.levelMaxY[level];
+					zone.levelInSceneFrustum[level] = lvlMinY < lvlMaxY && sceneCamera.intersectsAABB(
+						minX - PADDING, lvlMinY, minZ - PADDING, maxX + PADDING, lvlMaxY, maxZ + PADDING);
+				}
+
 				if (plugin.enableDetailedTimers)
 					frameTimer.end(Timer.VISIBILITY_CHECK);
 				return zone.inShadowFrustum = true;
@@ -923,7 +930,7 @@ public class ZoneRenderer implements Renderer {
 
 			frameTimer.begin(Timer.DRAW_ZONE_OPAQUE);
 			if (!sceneManager.isRoot(ctx) || z.inSceneFrustum) {
-				z.renderOpaque(sceneCmd, ctx, false);
+				z.renderOpaque(sceneCmd, ctx, true, false);
 
 				if (z.hasGapFiller)
 					z.renderOpaqueLevel(gapFillerCmd, Zone.LEVEL_GAP_FILLER);
@@ -932,7 +939,7 @@ public class ZoneRenderer implements Renderer {
 			final boolean isSquashed = ctx.uboWorldViewStruct != null && ctx.uboWorldViewStruct.isSquashed();
 			if (!isSquashed && (!sceneManager.isRoot(ctx) || z.inShadowFrustum)) {
 				directionalCmd.SetShader(fastShadowProgram);
-				z.renderOpaque(directionalCmd, ctx, shouldDrawRoofShadows);
+				z.renderOpaque(directionalCmd, ctx, false, shouldDrawRoofShadows);
 			}
 			frameTimer.end(Timer.DRAW_ZONE_OPAQUE);
 
@@ -965,10 +972,11 @@ public class ZoneRenderer implements Renderer {
 			modelStreamingManager.ensureAsyncUploadsComplete(z);
 
 			final boolean hasAlpha = z.sizeA != 0 || !z.alphaModels.isEmpty();
+			final boolean isSceneVisible = !sceneManager.isRoot(ctx) || (z.inSceneFrustum && z.levelInSceneFrustum[level]);
 			if (hasAlpha) {
 				final int offset = ctx.sceneContext.sceneOffset >> 3;
 				// Only sort if the alpha will be directly visible, since shadows don't require sorting
-				if (level == 0 && (!sceneManager.isRoot(ctx) || z.inSceneFrustum))
+				if (level == 0 && isSceneVisible)
 					z.alphaSort(zx - offset, zz - offset, sceneCamera);
 
 				final boolean isSquashed = ctx.uboWorldViewStruct != null && ctx.uboWorldViewStruct.isSquashed();
@@ -977,7 +985,7 @@ public class ZoneRenderer implements Renderer {
 					z.renderAlpha(directionalCmd, zx - offset, zz - offset, level, ctx, true, shouldDrawRoofShadows);
 				}
 
-				if (!sceneManager.isRoot(ctx) || z.inSceneFrustum) {
+				if (isSceneVisible) {
 					if (renderWater) {
 						// Water is currently drawn with depth writes & depth testing enabled, and as such, alpha models and the water plane
 						// can Z-fight depending on draw order. To avoid alpha models above water causing the water surface to fail its
