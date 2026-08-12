@@ -236,8 +236,7 @@ public class SceneUploader implements AutoCloseable {
 		zone.roofStart = new int[4][roofIds.length];
 		zone.roofEnd = new int[4][roofIds.length];
 
-		Arrays.fill(zone.levelMinY, Integer.MAX_VALUE);
-		Arrays.fill(zone.levelMaxY, Integer.MIN_VALUE);
+		Arrays.fill(zone.levelMinMaxY, 0);
 
 		for (int z = 0; z <= 3; ++z) {
 			this.level = z;
@@ -254,8 +253,8 @@ public class SceneUploader implements AutoCloseable {
 				uploadZoneLevel(ctx, zone, mzx, mzz, z, false, vb, ab, fb);
 			}
 
-			zone.levelMinY[z] = minY;
-			zone.levelMaxY[z] = maxY;
+			zone.levelMinMaxY[z * 2] = this.minY;
+			zone.levelMinMaxY[z * 2 + 1] = this.maxY;
 
 			if (vb != null)
 				zone.levelOffsets[z] = vb.position();

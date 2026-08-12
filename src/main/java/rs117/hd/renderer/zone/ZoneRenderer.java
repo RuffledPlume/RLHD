@@ -884,11 +884,13 @@ public class ZoneRenderer implements Renderer {
 
 			if (zone.isVisible(Zone.SCENE_VISIBILITY)) {
 				for (int level = 0; level < Zone.LEVEL_COUNT; level++) {
-					final int lvlMinY = zone.levelMinY[level];
-					final int lvlMaxY = zone.levelMaxY[level];
+					final int lvlMinY = zone.levelMinMaxY[level * 2];
+					final int lvlMaxY = zone.levelMinMaxY[level * 2 + 1];
+					if(lvlMinY == 0 && lvlMaxY == 0)
+						continue;
 					zone.setVisibility(Zone.SCENE_LEVEL_VISIBILITY + level,
-						lvlMinY < lvlMaxY && sceneCamera.intersectsAABB(
-						minX - PADDING, lvlMinY, minZ - PADDING, maxX + PADDING, lvlMaxY, maxZ + PADDING)
+						sceneCamera.intersectsAABB(
+							minX - PADDING, lvlMinY, minZ - PADDING, maxX + PADDING, lvlMaxY, maxZ + PADDING)
 					);
 				}
 

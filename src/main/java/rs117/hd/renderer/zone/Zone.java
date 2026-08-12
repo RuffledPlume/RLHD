@@ -103,9 +103,7 @@ public class Zone implements Destructible {
 	final StaticAlphaSortingJob alphaSortingJob = new StaticAlphaSortingJob();
 	ZoneUploadJob uploadJob;
 
-	final int[] levelMinY = new int[LEVEL_COUNT];
-	final int[] levelMaxY = new int[LEVEL_COUNT];
-
+	final int[] levelMinMaxY = new int[LEVEL_COUNT * 2];
 	final int[] levelOffsets = new int[LEVEL_COUNT]; // buffer pos in ints for the end of the level
 
 	int[][] rids;
