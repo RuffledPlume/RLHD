@@ -8,6 +8,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.StampedLock;
 import javax.annotation.Nonnull;
+import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import rs117.hd.utils.Props;
@@ -220,6 +221,10 @@ public enum PooledArrayType {
 		return (PooledArray<T>) wrapper;
 	}
 
+	public <T> PooledArrayRef<T> ref(String context) {
+		return new PooledArrayRef<>(this, context);
+	}
+
 	@SuppressWarnings("SuspiciousSystemArraycopy")
 	public <T> PooledArray<T> cache(String context, @Nonnull Object array, int offset, int size) {
 		final PooledArray<T> cached = borrow(context, size);
@@ -384,9 +389,54 @@ public enum PooledArrayType {
 		}
 	}
 
+	public static class PooledArrayRef<T> implements AutoCloseable {
+		private final PooledArrayType arrayType;
+		private final String context;
+
+		@Getter
+		private PooledArray<T> pooledArray;
+
+		private PooledArrayRef(PooledArrayType arrayType, String context) {
+			this.arrayType = arrayType;
+	 		this.context = context;
+		}
+
+		public int length() { return pooledArray != null ? pooledArray.length : 0; }
+
+		public T getArray() { return pooledArray != null ? pooledArray.getArray() : null; }
+
+		public T ensureCapacity(int requestedSize) {
+			if(pooledArray == null) {
+				pooledArray = arrayType.borrow(context, requestedSize);
+				return pooledArray.getArray();
+			}
+
+			pooledArray = arrayType.ensureCapacity(pooledArray, requestedSize);
+			return pooledArray.getArray();
+		}
+
+		public T ensureCapacity(int requestedSize, int offset, int count) {
+			if(pooledArray == null) {
+				pooledArray = arrayType.borrow(context, requestedSize);
+				return pooledArray.getArray();
+			}
+
+			pooledArray = pooledArray.ensureCapacity(requestedSize, offset, count);
+			return pooledArray.getArray();
+		}
+
+		@Override
+		public void close() {
+			if(pooledArray != null)
+				pooledArray.close();
+			pooledArray = null;
+		}
+	}
+
 	public static class PooledArray<T> implements AutoCloseable {
 		private final PooledArrayType arrayType;
 		private final T array;
+		@Getter private final int length;
 		private final Cleanable cleanable;
 		private final AtomicBoolean pooled = new AtomicBoolean(false);
 
@@ -395,6 +445,7 @@ public enum PooledArrayType {
 		private PooledArray(PooledArrayType arrayType, T array, long bytes) {
 			this.arrayType = arrayType;
 			this.array = array;
+			this.length = Array.getLength(array);
 
 			final BorrowInfo borrowInfo = this.borrowInfo;
 			final AtomicBoolean pooledFlag = pooled;
