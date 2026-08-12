@@ -84,15 +84,7 @@ public enum PooledArrayType {
 					try {
 						bucket.opCounter = 0;
 						if (full) {
-							bucket.inUse = 0;
-							bucket.isEmpty = true;
-							for (PooledArray<Object> wrapper : bucket.stack) {
-								wrapper.pooled.set(false);
-								// We know for certain this array is being discarded - account for
-								// it immediately instead of waiting on GC to run the cleaner.
-								wrapper.cleanable.clean();
-							}
-							bucket.stack.clear();
+							bucket.empty();
 						} else {
 							type.maybeCleanup(b, s, bucket, true);
 						}
@@ -115,14 +107,8 @@ public enum PooledArrayType {
 				for (int s = 0; s < STRIPES; s++) {
 					final Bucket bucket = type.buckets[b][s];
 
-					for (PooledArray<Object> wrapper : bucket.stack) {
-						wrapper.pooled.set(false);
-						wrapper.cleanable.clean();
-					}
-					bucket.stack.clear();
-					bucket.isEmpty = true;
+					bucket.empty();
 
-					bucket.inUse = 0;
 					bucket.peakInUse = 0;
 					bucket.avgDemand = 0;
 					bucket.lastOverTargetTime = 0;
@@ -365,6 +351,17 @@ public enum PooledArrayType {
 		private long lastOverTargetTime;
 
 		private volatile boolean isEmpty = true;
+
+		public void empty() {
+			PooledArray<Object> wrapper;
+			while ((wrapper = stack.poll()) != null) {
+				wrapper.pooled.set(false);
+				wrapper.cleanable.clean();
+			}
+			stack.clear();
+			inUse = 0;
+			isEmpty = true;
+		}
 
 		public void add(PooledArray<Object> wrapper, long bytes) {
 			if (!wrapper.pooled.compareAndSet(false, true)) {
