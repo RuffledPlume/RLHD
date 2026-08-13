@@ -29,6 +29,7 @@ import rs117.hd.utils.collections.Int2IntHashMap;
 import rs117.hd.utils.collections.IntHashSet;
 import rs117.hd.utils.collections.PooledArrayType;
 import rs117.hd.utils.collections.PooledArrayType.PooledArray;
+import rs117.hd.utils.collections.PooledArrayType.PooledArrayRef;
 
 import static net.runelite.api.Constants.*;
 import static org.lwjgl.opengl.GL33C.*;
@@ -434,7 +435,7 @@ public class Zone implements Destructible {
 		int dist;
 		int asyncSortIdx = -1;
 		int sortedFacesLen;
-		PooledArray<int[]> sortedFaced;
+		PooledArrayRef<int[]> sortedFaces;
 
 		static final int SKIP = 1; // temporary model is in a closer zone
 		static final int TEMP = 2; // temporary model added to a closer zone
@@ -498,6 +499,7 @@ public class Zone implements Destructible {
 		m.tboF = tboF;
 		m.rid = (short) rid;
 		m.level = (byte) level;
+		m.sortedFaces = PooledArrayType.INT.ref("AlphaModel::SortedFaces");
 		if (lx > -1) {
 			m.lx = (byte) lx;
 			m.lz = (byte) lz;
@@ -688,9 +690,8 @@ public class Zone implements Destructible {
 				ALPHA_MODEL_POOL.recycle(m);
 			}
 
-			if (m.sortedFaced != null)
-				m.sortedFaced.close();
-			m.sortedFaced = null;
+			if (m.sortedFaces != null)
+				m.sortedFaces.close();
 		}
 	}
 
@@ -742,7 +743,7 @@ public class Zone implements Destructible {
 				continue;
 
 			m.dist = dist;
-			m.sortedFaced = PooledArrayType.INT.borrow("Zone::alphaStaticModelSort", (m.packedFaces.length + m.doubleSidedCount) * 3);
+			m.sortedFaces.ensureCapacity((m.packedFaces.length + m.doubleSidedCount) * 3);
 			alphaSortingJob.addAlphaModel(m);
 		}
 		alphaSortingJob.queue(camera);
@@ -818,7 +819,7 @@ public class Zone implements Destructible {
 					alphaSortingJob.waitForCompletion(10);
 			}
 
-			if (m.sortedFaced == null || m.sortedFacesLen <= 0)
+			if (m.sortedFaces == null || m.sortedFacesLen <= 0)
 				continue;
 
 			sortedAlphaFacesUpload.alphaModels.add(m);
@@ -938,7 +939,7 @@ public class Zone implements Destructible {
 				m2.radius = m.radius;
 				m2.doubleSidedCount = m.doubleSidedCount;
 				m2.asyncSortIdx = m.asyncSortIdx;
-				m2.sortedFaced = m.sortedFaced;
+				m2.sortedFaces = m.sortedFaces;
 				m2.sortedFacesLen = m.sortedFacesLen;
 
 				m2.flags = AlphaModel.TEMP;

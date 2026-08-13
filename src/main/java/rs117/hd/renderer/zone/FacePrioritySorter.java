@@ -222,7 +222,7 @@ public final class FacePrioritySorter implements AutoCloseable {
 
 		final int[] packedFaces = m.packedFaces;
 		final int[] doubleSidedBitSet = m.doubleSidedBitSet;
-		final int[] sortedFaces = m.sortedFaced.getArray();
+		final int[] sortedFaces = m.sortedFaces.getArray();
 		final int[] zsortHead = this.zsortHead.getArray();
 		final int[] zsortTail = this.zsortTail.getArray();
 		final int[] zsortNext = this.zsortNext.getArray();
