@@ -41,6 +41,7 @@
 #include <uniforms/displacement.glsl>
 
 #include MATERIAL_CONSTANTS
+#include ALLOW_DISCARD
 
 uniform sampler2DArray textureArray;
 uniform sampler2D shadowMap;
@@ -93,6 +94,7 @@ vec2 worldUvs(float scale) {
 
 void main() {
     vec3 downDir = vec3(0, -1, 0);
+    float alphaFrac = 1.0;
 
     #if ZONE_RENDERER && DITHER_FADE
         float viewZ = 1.0 - gl_FragCoord.z;
@@ -100,8 +102,13 @@ void main() {
             float fadeAmount = mix(1.0 - saturate(viewZ / NEAR_PLANE_DITHER_START), fFade, saturate(fFade));
             float threshold = smoothstep(0.0, 1.0, pow(fadeAmount, 1.35));
             float noise = interleavedGradientNoise(gl_FragCoord.xy);
+        #if ALLOW_DISCARD
             if (noise < threshold)
                 discard;
+        #else
+            if(noise < threshold)
+                alphaFrac = 0.0;
+        #endif
         }
     #endif
 
@@ -554,6 +561,7 @@ void main() {
     }
 
     outputColor.rgb = pow(outputColor.rgb, vec3(gammaCorrection));
+    outputColor.a *= alphaFrac;
 
     #if WINDOWS_HDR_CORRECTION
         outputColor.rgb = windowsHdrCorrection(outputColor.rgb);

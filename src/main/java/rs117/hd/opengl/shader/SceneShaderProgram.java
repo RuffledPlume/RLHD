@@ -1,5 +1,7 @@
 package rs117.hd.opengl.shader;
 
+import java.io.IOException;
+
 import static org.lwjgl.opengl.GL33C.*;
 import static rs117.hd.HdPlugin.TEXTURE_UNIT_GAME;
 import static rs117.hd.HdPlugin.TEXTURE_UNIT_SHADOW_MAP;
@@ -14,11 +16,18 @@ public class SceneShaderProgram extends ShaderProgram {
 	protected final UniformTexture uniTextureFaces = addUniformTexture("textureFaces");
 	protected final UniformTexture uniModelData = addUniformTexture("modelData");
 
+	protected boolean allowDiscard = false;
+
 	public SceneShaderProgram() {
 		super(t -> t
 			.add(GL_VERTEX_SHADER, "scene_vert.glsl")
 			.add(GL_FRAGMENT_SHADER, "scene_frag.glsl"));
 		uniTiledLightingTextureArray.ignoreMissing = true;
+	}
+
+	@Override
+	public void compile(ShaderIncludes includes) throws ShaderException, IOException {
+		super.compile(includes.copy().define("ALLOW_DISCARD", allowDiscard));
 	}
 
 	@Override
@@ -28,6 +37,10 @@ public class SceneShaderProgram extends ShaderProgram {
 		uniTiledLightingTextureArray.set(TEXTURE_UNIT_TILED_LIGHTING_MAP);
 		uniTextureFaces.set(TEXTURE_UNIT_TEXTURED_FACES);
 		uniModelData.set(TEXTURE_UNIT_MODEL_DATA);
+	}
+
+	public static class Discard extends SceneShaderProgram {
+		Discard() { this.allowDiscard = true; }
 	}
 
 	public static class Legacy extends SceneShaderProgram {

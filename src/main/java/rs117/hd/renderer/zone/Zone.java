@@ -116,6 +116,7 @@ public class Zone implements Destructible {
 	public boolean hasGapFiller; // whether the zone has any gap filler geometry
 	public boolean inSceneFrustum; // whether the zone is visible to the scene camera
 	public boolean inShadowFrustum; // whether the zone casts shadows into the visible scene
+	public boolean sceneCameraIntersects; // whether the scene camera intersects the zone with a radius of 2 tiles
 	public boolean isFirstLoadingAttempt = true;
 
 	public IntHashSet animatedDynamicObjectIds = new IntHashSet();

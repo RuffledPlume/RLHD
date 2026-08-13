@@ -146,6 +146,9 @@ public class ZoneRenderer implements Renderer {
 	private SceneShaderProgram sceneProgram;
 
 	@Inject
+	private SceneShaderProgram.Discard sceneDiscardProgram;
+
+	@Inject
 	private ShadowShaderProgram.Fast fastShadowProgram;
 
 	@Inject
@@ -260,6 +263,7 @@ public class ZoneRenderer implements Renderer {
 	@Override
 	public void initializeShaders(ShaderIncludes includes) throws ShaderException, IOException {
 		sceneProgram.compile(includes);
+		sceneDiscardProgram.compile(includes);
 		fastShadowProgram.compile(includes);
 		detailedShadowProgram.compile(includes);
 	}
@@ -267,6 +271,7 @@ public class ZoneRenderer implements Renderer {
 	@Override
 	public void destroyShaders() {
 		sceneProgram.destroy();
+		sceneDiscardProgram.destroy();
 		fastShadowProgram.destroy();
 		detailedShadowProgram.destroy();
 	}
@@ -923,6 +928,12 @@ public class ZoneRenderer implements Renderer {
 			zone.inSceneFrustum = sceneCamera.intersectsAABB(
 				minX - PADDING, minY, minZ - PADDING, maxX + PADDING, maxY, maxZ + PADDING);
 
+			// Check if Scene Camera Intersects with the zone
+			zone.sceneCameraIntersects = zone.inSceneFrustum && HDUtils.isSphereIntersectingAABB(
+										 sceneCamera.getPositionX(), sceneCamera.getPositionY(), sceneCamera.getPositionZ(), LOCAL_TILE_SIZE * 2,
+										 minX, minY, minZ, maxX, maxY, maxZ
+									 );
+
 			if (zone.inSceneFrustum) {
 				if (plugin.enableDetailedTimers)
 					frameTimer.end(Timer.VISIBILITY_CHECK);
@@ -969,7 +980,15 @@ public class ZoneRenderer implements Renderer {
 
 			frameTimer.begin(Timer.DRAW_ZONE_OPAQUE);
 			if (!sceneManager.isRoot(ctx) || z.inSceneFrustum) {
+				final boolean allowDiscard = !sceneManager.isRoot(ctx) || z.sceneCameraIntersects;
+
+				if(allowDiscard)
+					sceneCmd.SetShader(sceneDiscardProgram);
+
 				z.renderOpaque(sceneCmd, ctx, false);
+
+				if(allowDiscard)
+					sceneCmd.SetShader(sceneProgram);
 
 				if (z.hasGapFiller)
 					z.renderOpaqueLevel(gapFillerCmd, Zone.LEVEL_GAP_FILLER);
@@ -1076,7 +1095,9 @@ public class ZoneRenderer implements Renderer {
 					directionalCmd.SetShader(fastShadowProgram);
 					directionalCmd.ExecuteSubCommandBuffer(ctx.vaoDirectionalCmd);
 
+					sceneCmd.SetShader(sceneDiscardProgram);
 					sceneCmd.ExecuteSubCommandBuffer(ctx.vaoSceneCmd);
+					sceneCmd.SetShader(sceneProgram);
 					break;
 				case DrawCallbacks.PASS_ALPHA:
 					modelStreamingManager.ensureAsyncUploadsComplete(null);
