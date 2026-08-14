@@ -486,7 +486,15 @@ public final class HDUtils {
 			return "<STACK TRACE UNAVAILABLE>";
 
 		StringBuilder sb = threadLocalStringBuilder.get();
-		for (int i = 1; i < stackTrace.length; i++)
+
+		int rangeEnd = 0;
+		for (int i = 2; i < stackTrace.length; i++) {
+			if(stackTrace[i].getClassName().startsWith("rs117.hd"))
+				rangeEnd = i;
+		}
+		rangeEnd = Math.min(rangeEnd + 2, stackTrace.length);
+
+		for (int i = 2; i < rangeEnd; i++)
 			sb.append('\t').append(stackTrace[i]).append('\n');
 
 		String s = sb.toString();

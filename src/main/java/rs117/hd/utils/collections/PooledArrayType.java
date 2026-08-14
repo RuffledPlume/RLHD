@@ -15,6 +15,7 @@ import lombok.extern.slf4j.Slf4j;
 import static java.lang.Integer.numberOfLeadingZeros;
 import static rs117.hd.utils.HDUtils.formatThreadString;
 import static rs117.hd.utils.HDUtils.getThreadId;
+import static rs117.hd.utils.HDUtils.getThreadStackTrace;
 import static rs117.hd.utils.MathUtils.*;
 
 @Slf4j
@@ -284,11 +285,12 @@ public enum PooledArrayType {
 		if (wrapper == null || wrapper.array == null)
 			return;
 
+		final Thread currentThread = Thread.currentThread();
 		if (wrapper.metadata.pooled) {
 			log.warn(
 				"Attempted to release a PooledArray that's already back in the pool: {} " +
-				"(borrowed by {}, previously released by {}, this release attempted by {})",
-				wrapper, formatThreadString(wrapper.metadata.borrowedByThreadId), formatThreadString(wrapper.metadata.releasedByThreadId), formatThreadString(Thread.currentThread())
+				"(borrowed by {}, previously released by {}, this release attempted by {})\n{}",
+				wrapper, formatThreadString(wrapper.metadata.borrowedByThreadId), formatThreadString(wrapper.metadata.releasedByThreadId), formatThreadString(currentThread), getThreadStackTrace(currentThread)
 			);
 			return;
 		}
@@ -325,7 +327,7 @@ public enum PooledArrayType {
 
 				bucket.inUse = max(0, bucket.inUse - 1);
 				bucket.add(objWrapper, bytes);
-				objWrapper.metadata.releasedByThreadId = getThreadId();
+				objWrapper.metadata.releasedByThreadId = currentThread.getId();
 				maybeCleanup(b, s, bucket);
 				return;
 			} finally {
@@ -479,10 +481,11 @@ public enum PooledArrayType {
 
 		public T getArray() {
 			if (metadata.pooled) {
+				final Thread currentThread = Thread.currentThread();
 				log.warn(
 					"Attempted to use a PooledArray after it was released back to the pool " +
-					"(borrowed by {}, released by {}, attempted access by {})",
-					formatThreadString(metadata.borrowedByThreadId), formatThreadString(metadata.releasedByThreadId), formatThreadString(Thread.currentThread())
+					"(borrowed by {}, released by {}, attempted access by {})\n{}",
+					formatThreadString(metadata.borrowedByThreadId), formatThreadString(metadata.releasedByThreadId), formatThreadString(currentThread), getThreadStackTrace(currentThread)
 				);
 				return null;
 			}
