@@ -8,13 +8,13 @@ import java.lang.reflect.Array;
 import java.util.ArrayDeque;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.StampedLock;
-import javax.annotation.Nonnull;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import rs117.hd.utils.Props;
 
 import static java.lang.Integer.numberOfLeadingZeros;
+import static rs117.hd.utils.HDUtils.formatThreadString;
+import static rs117.hd.utils.HDUtils.getThreadId;
 import static rs117.hd.utils.MathUtils.*;
 
 @Slf4j
@@ -203,6 +203,8 @@ public enum PooledArrayType {
 		final Object array = supplier.get(cap);
 
 		final PooledArray<Object> wrapper = new PooledArray<>(this, array, bytes);
+		wrapper.metadata.borrowedByThreadId = getThreadId();
+		wrapper.metadata.releasedByThreadId = -1L;
 		TOTAL_POOL_BYTES.addAndGet(bytes);
 
 		return (PooledArray<T>) wrapper;
@@ -210,13 +212,6 @@ public enum PooledArrayType {
 
 	public <T> PooledArrayRef<T> ref(String context) {
 		return new PooledArrayRef<>(this, context);
-	}
-
-	@SuppressWarnings("SuspiciousSystemArraycopy")
-	public <T> PooledArray<T> cache(String context, @Nonnull Object array, int offset, int size) {
-		final PooledArray<T> cached = borrow(context, size);
-		System.arraycopy(array, offset, cached.array, 0, size);
-		return cached;
 	}
 
 	public <T> PooledArray<T> borrow(String context, int requestedSize) {
@@ -267,6 +262,7 @@ public enum PooledArrayType {
 				final PooledArray<Object> wrapper = bucket.poll(bytes);
 				if (wrapper != null) {
 					wrapper.metadata.context = context;
+					wrapper.metadata.borrowedByThreadId = getThreadId();
 					bucket.inUse++;
 					bucket.peakInUse = Math.max(bucket.peakInUse, bucket.inUse);
 					maybeCleanup(b, s, bucket);
@@ -289,8 +285,11 @@ public enum PooledArrayType {
 			return;
 
 		if (wrapper.metadata.pooled) {
-			if (Props.DEVELOPMENT)
-				log.warn("Attempted to release a PooledArray that's already back in the pool: {}", wrapper.array);
+			log.warn(
+				"Attempted to release a PooledArray that's already back in the pool: {} " +
+				"(borrowed by {}, previously released by {}, this release attempted by {})",
+				wrapper, formatThreadString(wrapper.metadata.borrowedByThreadId), formatThreadString(wrapper.metadata.releasedByThreadId), formatThreadString(Thread.currentThread())
+			);
 			return;
 		}
 
@@ -326,6 +325,7 @@ public enum PooledArrayType {
 
 				bucket.inUse = max(0, bucket.inUse - 1);
 				bucket.add(objWrapper, bytes);
+				objWrapper.metadata.releasedByThreadId = getThreadId();
 				maybeCleanup(b, s, bucket);
 				return;
 			} finally {
@@ -366,7 +366,10 @@ public enum PooledArrayType {
 
 		public void add(PooledArray<Object> wrapper, long bytes) {
 			if (!wrapper.metadata.compareAndSet(false, true)) {
-				log.warn("Duplicate release of pooled array: " + wrapper.array);
+				log.warn(
+					"Duplicate release of pooled array: {} (borrowed by {})",
+					wrapper, formatThreadString(wrapper.metadata.borrowedByThreadId)
+				);
 				return;
 			}
 
@@ -380,7 +383,10 @@ public enum PooledArrayType {
 			final PooledArray<Object> wrapper = stack.poll();
 			if (wrapper != null) {
 				if(!wrapper.metadata.compareAndSet(true, false)) {
-					log.warn("Pooled Array was not released: " + wrapper.array + " (was in use? " + wrapper.metadata.pooled + ")");
+					log.warn(
+						"Pooled Array was not released: {} (was in use? {}, borrowed by {})",
+						wrapper, wrapper.metadata.pooled, formatThreadString(wrapper.metadata.borrowedByThreadId)
+					);
 					return null;
 				}
 				CURRENT_POOL_BYTES.addAndGet(-bytes);
@@ -399,7 +405,7 @@ public enum PooledArrayType {
 
 		private PooledArrayRef(PooledArrayType arrayType, String context) {
 			this.arrayType = arrayType;
-	 		this.context = context;
+			this.context = context;
 		}
 
 		public int length() { return pooledArray != null ? pooledArray.length : 0; }
@@ -463,8 +469,9 @@ public enum PooledArrayType {
 				if (!metadata.pooled && context != null) {
 					log.warn(
 						"A {} PooledArray ({} bytes) was garbage collected while still borrowed by {}. " +
+						"Borrowed on {}, last accessed on {}. " +
 						"This usually means close()/release() was never called - check for a leak.",
-						metadata.type, bytes, context
+						metadata.type, bytes, context, formatThreadString(metadata.borrowedByThreadId), formatThreadString(metadata.lastAccessThreadId)
 					);
 				}
 			});
@@ -472,9 +479,14 @@ public enum PooledArrayType {
 
 		public T getArray() {
 			if (metadata.pooled) {
-				log.warn("Attempted to use a PooledArray after it was released back to the pool");
+				log.warn(
+					"Attempted to use a PooledArray after it was released back to the pool " +
+					"(borrowed by {}, released by {}, attempted access by {})",
+					formatThreadString(metadata.borrowedByThreadId), formatThreadString(metadata.releasedByThreadId), formatThreadString(Thread.currentThread())
+				);
 				return null;
 			}
+			metadata.lastAccessThreadId = getThreadId();
 			return array;
 		}
 
@@ -488,6 +500,11 @@ public enum PooledArrayType {
 		}
 
 		public PooledArray<T> ensureCapacity(int requestedSize, int offset, int count) { return metadata.type.ensureCapacity(this, requestedSize, offset, count); }
+
+		@Override
+		public String toString() {
+			return metadata.type.toString() + "[" + length + "]@" + Integer.toHexString(System.identityHashCode(array));
+		}
 
 		@Override
 		public void close() {
@@ -508,8 +525,12 @@ public enum PooledArrayType {
 		}
 
 		final PooledArrayType type;
-		volatile boolean pooled;
 		String context;
+
+		volatile boolean pooled;
+		volatile long borrowedByThreadId = -1L;
+		volatile long releasedByThreadId = -1L;
+		volatile long lastAccessThreadId = -1L;
 
 		boolean compareAndSet(boolean expected, boolean update) {
 			return POOLED.compareAndSet(this, expected, update);

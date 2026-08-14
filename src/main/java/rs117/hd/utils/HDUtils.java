@@ -494,6 +494,27 @@ public final class HDUtils {
 		return s;
 	}
 
+	public static long getThreadId() {
+		return Thread.currentThread().getId();
+	}
+
+	public static Thread getThreadById(long id) {
+		for (Thread t : Thread.getAllStackTraces().keySet()) {
+			if (t.getId() == id)
+				return t;
+		}
+		return null;
+	}
+
+	public static String formatThreadString(Thread thread) {
+		return "Thread-" + thread.getId() + "-" + thread.getName();
+	}
+
+	public static String formatThreadString(long id) {
+		final Thread thread = getThreadById(id);
+		return "Thread-" + id + "-" + (thread != null ? thread.getName() : "Unknown");
+	}
+
 	public static boolean isBakedGroundShading(Model model, int face) {
 		final byte[] faceTransparencies = model.getFaceTransparencies();
 		if (faceTransparencies == null || (faceTransparencies[face] & 0xFF) <= 100)
