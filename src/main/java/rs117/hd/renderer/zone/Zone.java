@@ -687,6 +687,7 @@ public class Zone implements Destructible {
 				alphaModels.remove(i);
 				m.packedFaces = null;
 				m.doubleSidedBitSet = null;
+				m.sortedFaces = null;
 				ALPHA_MODEL_POOL.recycle(m);
 			}
 
