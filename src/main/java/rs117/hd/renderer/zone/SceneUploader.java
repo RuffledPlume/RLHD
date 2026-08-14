@@ -49,7 +49,6 @@ import rs117.hd.utils.buffer.GpuIntBuffer;
 import rs117.hd.utils.collections.ConcurrentPool;
 import rs117.hd.utils.collections.PooledArrayType;
 import rs117.hd.utils.collections.PooledArrayType.PooledArrayRef;
-import rs117.hd.utils.collections.PooledObjectArray;
 import rs117.hd.utils.collections.PrimitiveCharArray;
 import rs117.hd.utils.collections.PrimitiveIntArray;
 
@@ -137,12 +136,11 @@ public class SceneUploader implements AutoCloseable {
 	private final PooledArrayRef<int[]> modelVertices = PooledArrayType.INT.ref("SceneUploader::modelVertices");
 	private final PooledArrayRef<boolean[]> visibility = PooledArrayType.BOOL.ref("SceneUploader::visibility");
 	private final PooledArrayRef<float[]> modelProjected = PooledArrayType.FLOAT.ref("SceneUploader::modelProjected");
+	private final PooledArrayRef<ModelOverride[]> faceOverrides = PooledArrayType.OBJECT.ref("SceneUploader::faceOverrides");
+	private final PooledArrayRef<Material[]> faceMaterials = PooledArrayType.OBJECT.ref("SceneUploader::faceMaterials");
+	private final PooledArrayRef<UvType[]> faceUVTypes = PooledArrayType.OBJECT.ref("SceneUploader::faceUVTypes");
 
 	public int tempModelAlphaFaces = 0;
-
-	private final PooledObjectArray<ModelOverride> faceOverrides = new PooledObjectArray<>();
-	private final PooledObjectArray<Material> faceMaterials = new PooledObjectArray<>();
-	private final PooledObjectArray<UvType> faceUVTypes = new PooledObjectArray<>();
 
 	private final int[] tzHaarRecolored = new int[3];
 	private final float[] projected = new float[4];
@@ -176,10 +174,9 @@ public class SceneUploader implements AutoCloseable {
 		modelVertices.close();
 		visibility.close();
 		modelProjected.close();
-
-		faceOverrides.release();
-		faceMaterials.release();
-		faceUVTypes.release();
+		faceOverrides.close();
+		faceMaterials.close();
+		faceUVTypes.close();
 	}
 
 	public void estimateZoneSize(ZoneSceneContext ctx, Zone zone, int mzx, int mzz) throws InterruptedException {

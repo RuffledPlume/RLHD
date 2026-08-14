@@ -402,6 +402,13 @@ public enum PooledArrayType {
 
 		public T getArray() { return pooledArray != null ? pooledArray.getArray() : null; }
 
+		public <E> E get(int idx) { return pooledArray != null ? pooledArray.get(idx) : null; }
+
+		public <E> void set(int idx, E value) {
+			if(pooledArray != null)
+				pooledArray.set(idx, value);
+		}
+
 		public T ensureCapacity(int requestedSize) {
 			if(pooledArray == null) {
 				pooledArray = arrayType.borrow(context, requestedSize);
@@ -470,6 +477,11 @@ public enum PooledArrayType {
 
 			return array;
 		}
+
+		@SuppressWarnings("unchecked")
+		public <E> E get(int idx) { return (E) Array.get(getArray(), idx); }
+
+		public <E> void set(int idx, E value) { Array.set(getArray(), idx, value);}
 
 		public PooledArray<T> ensureCapacity(int requestedSize) {
 			return arrayType.ensureCapacity(this, requestedSize);
