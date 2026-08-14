@@ -95,6 +95,7 @@ public class Zone implements Destructible {
 
 	public IntHashSet animatedDynamicObjectIds = new IntHashSet();
 
+	int[] sortedAlphaIndicies;
 	final StaticAlphaSortingJob alphaSortingJob = new StaticAlphaSortingJob();
 	ZoneUploadJob uploadJob;
 
@@ -442,8 +443,8 @@ public class Zone implements Destructible {
 
 		int dist;
 		int asyncSortIdx = -1;
-		int sortedFacesLen;
-		int[] tempSortedFaces;
+		int sortedIndiciesOffset;
+		int sortedIndiciesCount;
 
 		static final int SKIP = 1; // temporary model is in a closer zone
 		static final int TEMP = 2; // temporary model added to a closer zone
@@ -459,6 +460,10 @@ public class Zone implements Destructible {
 
 		boolean isTemp() {
 			return packedFaces == null;
+		}
+
+		int getSortedFaceCount() {
+			return packedFaces.length + doubleSidedCount;
 		}
 
 		int calculateDepth(int cx, int cy, int cz, int zx, int zz) {
@@ -685,9 +690,14 @@ public class Zone implements Destructible {
 		alphaSortingJob.waitForCompletion();
 		alphaSortingJob.reset();
 
+		if(sortedAlphaIndicies != null)
+			PooledArrayType.INT.release(sortedAlphaIndicies);
+		sortedAlphaIndicies = null;
+
 		for (int i = alphaModels.size() - 1; i >= 0; --i) {
 			AlphaModel m = alphaModels.get(i);
 			m.asyncSortIdx = -1;
+			m.sortedIndiciesOffset = m.sortedIndiciesCount = 0;
 			m.flags &= ~(AlphaModel.SKIP | AlphaModel.SORT_COMPLETED);
 
 			if (m.isTemp() || (m.flags & AlphaModel.TEMP) != 0) {
@@ -696,10 +706,6 @@ public class Zone implements Destructible {
 				m.doubleSidedBitSet = null;
 				ALPHA_MODEL_POOL.recycle(m);
 			}
-
-			if (m.tempSortedFaces != null)
-				PooledArrayType.INT.release(m.tempSortedFaces);
-			m.tempSortedFaces = null;
 		}
 	}
 
@@ -746,15 +752,33 @@ public class Zone implements Destructible {
 
 	void alphaStaticModelSort(Camera camera) {
 		alphaSortingJob.reset();
-		for (AlphaModel m : alphaModels) {
+
+		int sortedAlphaFaceCount = 0;
+		for (int i = 0; i < alphaModels.size(); i++ ) {
+			final AlphaModel m = alphaModels.get(i);
+			if ((m.flags & AlphaModel.SKIP) != 0 || m.isTemp())
+				continue;
+			sortedAlphaFaceCount += m.getSortedFaceCount() + 1;
+		}
+
+		if(sortedAlphaFaceCount == 0)
+			return;
+
+		int sortedAlphaFaceOffset = 0;
+		sortedAlphaIndicies = PooledArrayType.INT.borrow(sortedAlphaFaceCount * 3);
+
+		for (int i = 0; i < alphaModels.size(); i++ ) {
+			final AlphaModel m = alphaModels.get(i);
 			if ((m.flags & AlphaModel.SKIP) != 0 || m.isTemp())
 				continue;
 
 			m.dist = dist;
-			m.tempSortedFaces = PooledArrayType.INT.borrow((m.packedFaces.length + m.doubleSidedCount) * 3);
+			m.sortedIndiciesOffset = sortedAlphaFaceOffset;
 			alphaSortingJob.addAlphaModel(m);
+
+			sortedAlphaFaceOffset += m.getSortedFaceCount() * 3;
 		}
-		alphaSortingJob.queue(camera);
+		alphaSortingJob.queue(camera, sortedAlphaIndicies);
 	}
 
 	void renderAlpha(
@@ -820,25 +844,23 @@ public class Zone implements Destructible {
 				continue;
 			}
 
-			// Check if we the faces have already been sorted, if not then the client will steal the work,
-			// if the model is already being processed then we'll have to wait for the result to finish
-			if (m.needsSorting() && !alphaSortingJob.forceProcessModelClient(m)) {
-				while (m.needsSorting() && !alphaSortingJob.isDone())
-					alphaSortingJob.waitForCompletion(10);
-			}
+			// Wait for the Async Alpha Sorting to complete before, more often than not this should never end up waiting
+			while (m.needsSorting() && !alphaSortingJob.isDone())
+				alphaSortingJob.waitForCompletion(10);
 
-			if (m.tempSortedFaces == null || m.sortedFacesLen <= 0)
+			if (m.sortedIndiciesCount <= 0)
 				continue;
 
 			sortedAlphaFacesUpload.alphaModels.add(m);
 
-			eboAlphaOffset += m.sortedFacesLen;
-			alphaFaceCount += m.sortedFacesLen / 3;
+			eboAlphaOffset += m.sortedIndiciesCount;
+			alphaFaceCount += m.sortedIndiciesCount / 3;
 			lastDrawMode = STATIC;
 		}
 
 		if (eboAlphaOffset > eboAlphaStart && !sortedAlphaFacesUpload.alphaModels.isEmpty()) {
 			sortedAlphaFacesUpload.eboAlphaView = ZoneRenderer.eboAlphaWriter.reserve(eboAlphaOffset - eboAlphaStart);
+			sortedAlphaFacesUpload.sortedAlphaIndicies = sortedAlphaIndicies;
 			sortedAlphaFacesUpload.queue();
 		}
 
@@ -947,8 +969,7 @@ public class Zone implements Destructible {
 				m2.radius = m.radius;
 				m2.doubleSidedCount = m.doubleSidedCount;
 				m2.asyncSortIdx = m.asyncSortIdx;
-				m2.tempSortedFaces = m.tempSortedFaces;
-				m2.sortedFacesLen = m.sortedFacesLen;
+				m2.sortedIndiciesCount = m.sortedIndiciesCount;
 
 				m2.flags = AlphaModel.TEMP;
 				m.flags |= AlphaModel.SKIP;
