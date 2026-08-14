@@ -73,6 +73,9 @@ public class Zone implements Destructible {
 	int bufLen;
 	int dist;
 
+	byte staticAlphaLevelMask = 0;
+	byte alphaLevelMask = 0;
+
 	public int glVaoA;
 	public int bufLenA;
 
@@ -512,6 +515,7 @@ public class Zone implements Destructible {
 		m.tboF = tboF;
 		m.rid = (short) rid;
 		m.level = (byte) level;
+		staticAlphaLevelMask = (byte) (staticAlphaLevelMask | 1 << level);
 		if (lx > -1) {
 			m.lx = (byte) lx;
 			m.lz = (byte) lz;
@@ -681,6 +685,7 @@ public class Zone implements Destructible {
 		m.vao = m.tboF = m.rid = m.lx = m.lz = m.ux = m.uz = -1;
 		m.flags = 0;
 		m.zofx = m.zofz = 0;
+		alphaLevelMask = (byte) (alphaLevelMask | 1 << level);
 		alphaModels.add(m);
 		return m;
 	}
@@ -693,6 +698,8 @@ public class Zone implements Destructible {
 		if(sortedAlphaIndicies != null)
 			PooledArrayType.INT.release(sortedAlphaIndicies);
 		sortedAlphaIndicies = null;
+
+		alphaLevelMask = staticAlphaLevelMask;
 
 		for (int i = alphaModels.size() - 1; i >= 0; --i) {
 			AlphaModel m = alphaModels.get(i);
