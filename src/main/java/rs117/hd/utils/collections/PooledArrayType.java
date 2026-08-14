@@ -377,9 +377,12 @@ public enum PooledArrayType {
 		}
 
 		public PooledArray<Object> poll(long bytes) {
-			PooledArray<Object> wrapper = stack.poll();
+			final PooledArray<Object> wrapper = stack.poll();
 			if (wrapper != null) {
-				wrapper.metadata.pooled = false;
+				if(!wrapper.metadata.compareAndSet(true, false)) {
+					log.warn("Pooled Array was not released: " + wrapper.array + " (was in use? " + wrapper.metadata.pooled + ")");
+					return null;
+				}
 				CURRENT_POOL_BYTES.addAndGet(-bytes);
 			}
 			isEmpty = stack.isEmpty();
@@ -468,23 +471,17 @@ public enum PooledArrayType {
 		}
 
 		public T getArray() {
-			if (metadata.checkIfPooled())
+			if (metadata.pooled) {
+				log.warn("Attempted to use a PooledArray after it was released back to the pool");
 				return null;
+			}
 			return array;
 		}
 
 		@SuppressWarnings("unchecked")
-		public <E> E get(int idx) {
-			if (metadata.checkIfPooled())
-				return null;
-			return (E) boxedArray[idx];
-		}
+		public <E> E get(int idx) { return (E) boxedArray[idx]; }
 
-		public <E> void set(int idx, E value) {
-			if (metadata.checkIfPooled())
-				return;
-			boxedArray[idx] = value;
-		}
+		public <E> void set(int idx, E value) { boxedArray[idx] = value; }
 
 		public PooledArray<T> ensureCapacity(int requestedSize) {
 			return metadata.type.ensureCapacity(this, requestedSize);
@@ -513,14 +510,6 @@ public enum PooledArrayType {
 		final PooledArrayType type;
 		volatile boolean pooled;
 		String context;
-
-		boolean checkIfPooled() {
-			if (pooled) {
-				log.warn("Attempted to use a PooledArray after it was released back to the pool");
-				return true;
-			}
-			return false;
-		}
 
 		boolean compareAndSet(boolean expected, boolean update) {
 			return POOLED.compareAndSet(this, expected, update);
