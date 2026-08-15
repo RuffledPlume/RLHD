@@ -1039,8 +1039,6 @@ public class ZoneRenderer implements Renderer {
 			if (renderWater)
 				z.renderOpaqueLevel(sceneCmd, Zone.LEVEL_WATER_SURFACE);
 
-			modelStreamingManager.ensureAsyncUploadsComplete(z);
-
 			final boolean hasAlpha = z.sizeA != 0 || !z.alphaModels.isEmpty();
 			if (hasAlpha) {
 				final int offset = ctx.sceneContext.sceneOffset >> 3;
@@ -1049,8 +1047,7 @@ public class ZoneRenderer implements Renderer {
 					z.alphaSort(zx - offset, zz - offset, sceneCamera);
 
 				// Check if there is any alpha models for this level in the zone
-				if((z.alphaLevelMask & (1 << level)) != 0)
-				{
+				if((z.alphaLevelMask & (1 << level)) != 0) {
 					if (skyRenderer.castsShadows && !ctx.isSquashed && (!sceneManager.isRoot(ctx) || z.inShadowFrustum)) {
 						directionalCmd.SetShader(
 							plugin.configShadowMode == ShadowMode.DETAILED ? detailedShadowProgram : fastShadowProgram);
@@ -1125,7 +1122,7 @@ public class ZoneRenderer implements Renderer {
 					}
 					break;
 				case DrawCallbacks.PASS_ALPHA:
-					modelStreamingManager.ensureAsyncUploadsComplete(null);
+					modelStreamingManager.ensureAsyncUploadsComplete();
 
 					if (sceneManager.isRoot(ctx))
 						frameTimer.begin(Timer.UNMAP_ROOT_CTX);

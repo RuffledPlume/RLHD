@@ -6,7 +6,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import javax.annotation.Nullable;
 import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
@@ -115,7 +114,6 @@ public class Zone implements Destructible {
 	int[][] roofEnd;
 
 	final List<AlphaModel> alphaModels = new ArrayList<>(0);
-	final ConcurrentLinkedQueue<AsyncCachedModel> pendingModelJobs = new ConcurrentLinkedQueue<>();
 
 	public void initialize(GLBuffer o, GLBuffer a, GLTextureBuffer f) {
 		assert glVao == 0;
@@ -428,6 +426,7 @@ public class Zone implements Destructible {
 	public static final class AlphaModel {
 		int id;
 		ModelOverride modelOverride;
+		AsyncCachedModel asyncModel;
 		int startpos, endpos;
 		short x, y, z; // local position
 		short rid;
@@ -706,6 +705,7 @@ public class Zone implements Destructible {
 			m.asyncSortIdx = -1;
 			m.sortedIndiciesOffset = m.sortedIndiciesCount = 0;
 			m.flags &= ~(AlphaModel.SKIP | AlphaModel.SORT_COMPLETED);
+			assert m.asyncModel == null;
 
 			if (m.isTemp() || (m.flags & AlphaModel.TEMP) != 0) {
 				alphaModels.remove(i);
@@ -845,6 +845,10 @@ public class Zone implements Destructible {
 				lastzx = zx - m.zofx;
 				lastzz = zz - m.zofz;
 			}
+
+			final AsyncCachedModel asyncModel = m.asyncModel;
+			if(asyncModel != null)
+				asyncModel.waitForCompletion();
 
 			if (drawMode != STATIC) {
 				pushRange(m.startpos, m.endpos);
