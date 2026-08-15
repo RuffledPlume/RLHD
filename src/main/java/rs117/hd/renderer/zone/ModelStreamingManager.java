@@ -94,7 +94,7 @@ public class ModelStreamingManager {
 	}
 
 	public void destroy() {
-		ensureAsyncUploadsComplete(null);
+		ensureAsyncUploadsComplete();
 
 		eventBus.unregister(this);
 		AsyncCachedModel.destroy();
@@ -444,14 +444,14 @@ public class ModelStreamingManager {
 		}
 	}
 
-	public void ensureAsyncUploadsComplete(@Nullable Zone zone) {
+	public void ensureAsyncUploadsComplete() {
 		if (AsyncCachedModel.POOL == null)
 			return;
 
 		frameTimer.begin(Timer.MODEL_UPLOAD_COMPLETE);
 		pending.clear();
 		AsyncCachedModel model;
-		while ((model = (zone != null ? zone.pendingModelJobs.poll() : AsyncCachedModel.INFLIGHT.poll())) != null)
+		while ((model = AsyncCachedModel.INFLIGHT.poll()) != null)
 			pending.add(model);
 
 		AsyncCachedModel pendingModel;

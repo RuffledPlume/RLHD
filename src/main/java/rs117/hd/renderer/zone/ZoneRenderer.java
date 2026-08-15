@@ -962,8 +962,6 @@ public class ZoneRenderer implements Renderer {
 			if (renderWater)
 				z.renderOpaqueLevel(sceneCmd, Zone.LEVEL_WATER_SURFACE);
 
-			modelStreamingManager.ensureAsyncUploadsComplete(z);
-
 			final boolean hasAlpha = z.sizeA != 0 || !z.alphaModels.isEmpty();
 			if (hasAlpha) {
 				final int offset = ctx.sceneContext.sceneOffset >> 3;
@@ -972,8 +970,7 @@ public class ZoneRenderer implements Renderer {
 					z.alphaSort(zx - offset, zz - offset, sceneCamera);
 
 				// Check if there is any alpha models for this level in the zone
-				if((z.alphaLevelMask & (1 << level)) != 0)
-				{
+				if((z.alphaLevelMask & (1 << level)) != 0) {
 					final boolean isSquashed = ctx.uboWorldViewStruct != null && ctx.uboWorldViewStruct.isSquashed();
 					if (!isSquashed && (!sceneManager.isRoot(ctx) || z.inShadowFrustum)) {
 						directionalCmd.SetShader(
@@ -1038,7 +1035,7 @@ public class ZoneRenderer implements Renderer {
 					sceneCmd.ExecuteSubCommandBuffer(ctx.vaoSceneCmd);
 					break;
 				case DrawCallbacks.PASS_ALPHA:
-					modelStreamingManager.ensureAsyncUploadsComplete(null);
+					modelStreamingManager.ensureAsyncUploadsComplete();
 
 					if (sceneManager.isRoot(ctx))
 						frameTimer.begin(Timer.UNMAP_ROOT_CTX);
