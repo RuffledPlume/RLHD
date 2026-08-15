@@ -35,7 +35,7 @@ public final class AsyncCachedModel extends Job implements Model {
 
 	public static void initialize(Injector injector) {
 		if (AsyncCachedModel.POOL == null)
-			AsyncCachedModel.POOL = new ConcurrentPool<>(() -> injector.getInstance(AsyncCachedModel.class), 32);
+			AsyncCachedModel.POOL = new ConcurrentPool<>(() -> injector.getInstance(AsyncCachedModel.class));
 	}
 
 	public static void destroy() {
