@@ -13,7 +13,7 @@ import static rs117.hd.utils.MathUtils.*;
 
 @RequiredArgsConstructor
 public final class StaticAlphaSortingJob extends Job {
-	private FrameTimer frameTimer;
+	private FrameTimer frameTimer = getInjector().getInstance(FrameTimer.class);
 
 	private AlphaModel[] models = new AlphaModel[16];
 	private int[] sortedAlphaIndicies;
@@ -38,8 +38,9 @@ public final class StaticAlphaSortingJob extends Job {
 	}
 
 	public void queue(Camera camera, int[] sortedAlphaIndicies) {
-		if (frameTimer == null)
-			frameTimer = getInjector().getInstance(FrameTimer.class);
+		if(size == 0)
+			return;
+
 		this.sortedAlphaIndicies = sortedAlphaIndicies;
 		yaw = camera.getFixedYaw();
 		yawSin = SINE14[yaw];

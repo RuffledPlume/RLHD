@@ -97,7 +97,6 @@ public class Zone implements Destructible {
 
 	public IntHashSet animatedDynamicObjectIds = new IntHashSet();
 
-	int[] sortedAlphaIndicies;
 	final StaticAlphaSortingJob alphaSortingJob = new StaticAlphaSortingJob();
 	ZoneUploadJob uploadJob;
 
@@ -694,10 +693,6 @@ public class Zone implements Destructible {
 		alphaSortingJob.waitForCompletion();
 		alphaSortingJob.reset();
 
-		if(sortedAlphaIndicies != null)
-			PooledArrayType.INT.release(sortedAlphaIndicies);
-		sortedAlphaIndicies = null;
-
 		alphaLevelMask = staticAlphaLevelMask;
 
 		for (int i = alphaModels.size() - 1; i >= 0; --i) {
@@ -757,7 +752,7 @@ public class Zone implements Destructible {
 		quickSort(alphaModels, alphaModelComparator);
 	}
 
-	void alphaStaticModelSort(Camera camera) {
+	int buildAlphaStaticModelSort(int startOffset) {
 		alphaSortingJob.reset();
 
 		int sortedAlphaFaceCount = 0;
@@ -765,15 +760,13 @@ public class Zone implements Destructible {
 			final AlphaModel m = alphaModels.get(i);
 			if ((m.flags & AlphaModel.SKIP) != 0 || m.isTemp())
 				continue;
-			sortedAlphaFaceCount += m.getSortedFaceCount() + 1;
+			sortedAlphaFaceCount += m.getSortedFaceCount() * 3;
 		}
 
 		if(sortedAlphaFaceCount == 0)
-			return;
+			return 0;
 
-		int sortedAlphaFaceOffset = 0;
-		sortedAlphaIndicies = PooledArrayType.INT.borrow(sortedAlphaFaceCount * 3);
-
+		int sortedAlphaFaceOffset = startOffset;
 		for (int i = 0; i < alphaModels.size(); i++ ) {
 			final AlphaModel m = alphaModels.get(i);
 			if ((m.flags & AlphaModel.SKIP) != 0 || m.isTemp())
@@ -785,7 +778,7 @@ public class Zone implements Destructible {
 
 			sortedAlphaFaceOffset += m.getSortedFaceCount() * 3;
 		}
-		alphaSortingJob.queue(camera, sortedAlphaIndicies);
+		return sortedAlphaFaceCount;
 	}
 
 	void renderAlpha(
@@ -871,7 +864,7 @@ public class Zone implements Destructible {
 
 		if (eboAlphaOffset > eboAlphaStart && !sortedAlphaFacesUpload.alphaModels.isEmpty()) {
 			sortedAlphaFacesUpload.eboAlphaView = ZoneRenderer.eboAlphaWriter.reserve(eboAlphaOffset - eboAlphaStart);
-			sortedAlphaFacesUpload.sortedAlphaIndicies = sortedAlphaIndicies;
+			sortedAlphaFacesUpload.sortedAlphaIndicies = ctx.eboAlphaIndices;
 			sortedAlphaFacesUpload.queue();
 		}
 
