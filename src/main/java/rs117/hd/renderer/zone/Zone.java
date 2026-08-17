@@ -714,6 +714,13 @@ public class Zone implements Destructible {
 		if (alphaModelCount <= 1)
 			return;
 
+		if(alphaModelCount == 2) {
+			alphaSortingJob.waitForCompletion();
+			if(alphaModels.get(0).dist > alphaModels.get(1).dist)
+				Collections.swap(alphaModels, 0, 1);
+			return;
+		}
+
 		final int[] alphaModelsKeys = PooledArrayType.INT.borrow(alphaModelCount);
 		try {
 			alphaSortingJob.waitForCompletion();
