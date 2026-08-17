@@ -73,11 +73,13 @@ public class WorldViewContext {
 	private int lastOrientation;
 
 	Zone[][] zones;
-	int[] eboAlphaIndices;
 	GLBuffer vboM;
 
 	int minLevel, level, maxLevel;
 	Set<Integer> hideRoofIds;
+
+	final EboAlphaWriterJob sortedAlphaFacesUpload = new EboAlphaWriterJob(this);
+	int[] eboAlphaIndices;
 
 	private final Comparator<Zone> alphaSortComparator = Comparator.comparingInt((Zone z) -> z.dist).reversed();
 	private final List<Zone> alphaZones = new ArrayList<>();
@@ -241,10 +243,6 @@ public class WorldViewContext {
 	void sortStaticAlphaModels(Camera camera) {
 		alphaZones.clear();
 
-		if(eboAlphaIndices != null)
-			PooledArrayType.INT.release(eboAlphaIndices);
-		eboAlphaIndices = null;
-
 		final int offset = sceneContext.sceneOffset >> 3;
 		final int camPosX = (int) camera.getPositionX();
 		final int camPosZ = (int) camera.getPositionZ();
@@ -257,6 +255,7 @@ public class WorldViewContext {
 				final int dx = camPosX - ((zx - offset) << 10);
 				final int dz = camPosZ - ((zz - offset) << 10);
 				z.dist = dx * dx + dz * dz;
+				z.alphaSortingJob.setup(camera, zx, zz);
 				alphaZones.add(z);
 			}
 		}
@@ -264,16 +263,21 @@ public class WorldViewContext {
 		if (!alphaZones.isEmpty()) {
 			quickSort(alphaZones, alphaSortComparator);
 			int alphaFaceCount = 0;
-			for (int i = 0; i < alphaZones.size(); i++)
-				alphaFaceCount += alphaZones.get(i).buildAlphaStaticModelSort(alphaFaceCount);
+			for (int i = 0; i < alphaZones.size(); i++) {
+				final Zone z = alphaZones.get(i);
+				alphaFaceCount += z.setupAlphaModelSort(alphaFaceCount);
+			}
 
 			if(alphaFaceCount <= 0)
 				return;
 
-			eboAlphaIndices = PooledArrayType.INT.borrow(alphaFaceCount);
-
+			eboAlphaIndices = PooledArrayType.INT.ensureCapacity(eboAlphaIndices, alphaFaceCount);
 			for (int i = 0; i < alphaZones.size(); i++)
-				alphaZones.get(i).alphaSortingJob.queue(camera, eboAlphaIndices);
+				alphaZones.get(i).alphaSortingJob.queue(eboAlphaIndices);
+		} else {
+			if(eboAlphaIndices != null)
+				PooledArrayType.INT.release(eboAlphaIndices);
+			eboAlphaIndices = null;
 		}
 	}
 
@@ -374,6 +378,7 @@ public class WorldViewContext {
 	void free() {
 		sceneLoadGroup.cancel();
 		streamingGroup.cancel();
+		sortedAlphaFacesUpload.cancel();
 
 		if (sceneContext != null) {
 			sceneContext.worldViewContext = null;
