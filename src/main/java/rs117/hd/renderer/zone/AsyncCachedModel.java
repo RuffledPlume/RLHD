@@ -17,6 +17,7 @@ import rs117.hd.renderer.zone.Zone.AlphaModel;
 import rs117.hd.scene.model_overrides.ModelOverride;
 import rs117.hd.utils.collections.ConcurrentPool;
 import rs117.hd.utils.collections.PooledArrayType;
+import rs117.hd.utils.collections.PooledArrayType.BorrowFlag;
 import rs117.hd.utils.collections.PooledArrayType.PooledArray;
 import rs117.hd.utils.jobs.Job;
 
@@ -120,7 +121,6 @@ public final class AsyncCachedModel extends Job implements Model {
 	private int y;
 	private int z;
 	private UploadModelFunc uploadFunc;
-	private long availableMemory;
 
 	@SuppressWarnings("unchecked")
 	private <T> CachedArrayField<T> addField(PooledArrayType arrayType, int fieldType) {
@@ -197,7 +197,6 @@ public final class AsyncCachedModel extends Job implements Model {
 		// Wait for completion so that the job has cleared the job system before clearing the isProcessing flag
 		waitForCompletion(true);
 
-		availableMemory = RUNTIME.freeMemory();
 		if (processCachedFields(model, false))
 			return true;
 
@@ -519,15 +518,7 @@ public final class AsyncCachedModel extends Job implements Model {
 			}
 
 			if (!cache) {
-				// Attempt to get an array from the pool, if we fail check if enough memory is available before creating
-				final long requested = (long) arraySize * arrayType.stride;
-				pooledArray = arrayType.borrow("AsyncCachedModel", arraySize, false);
-
-				if (pooledArray == null && requested < availableMemory) {
-					availableMemory -= requested;
-					pooledArray = arrayType.borrow("AsyncCachedModel", arraySize, true);
-				}
-
+				pooledArray = arrayType.borrow("AsyncCachedModel", arraySize, BorrowFlag.CREATE_IF_NOT_FULL);
 				return pooledArray != null;
 			}
 

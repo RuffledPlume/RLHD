@@ -1,13 +1,11 @@
 package rs117.hd.utils.collections;
 
-import java.lang.invoke.MethodHandles;
-import java.lang.invoke.VarHandle;
 import java.lang.ref.Cleaner;
 import java.lang.ref.Cleaner.Cleanable;
 import java.lang.reflect.Array;
-import java.util.ArrayDeque;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.locks.StampedLock;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,6 +26,9 @@ public enum PooledArrayType {
 	FLOAT(float[]::new, 4),
 	OBJECT(Object[]::new, 4);
 
+	private static final boolean VERBOSE = false;
+	public enum BorrowFlag { NONE, CREATE_IF_NOT_FULL, ALWAYS_CREATE }
+
 	public static final PooledArrayType[] VALUES = values();
 
 	private static final double MAX_HEAP_FRACTION = 0.05; // 768 MB * 0.05 = 38.4 MB
@@ -36,9 +37,7 @@ public enum PooledArrayType {
 	private static final int MAX_BUCKET = 30;
 	private static final int STRIPES = 8;
 	private static final int STRIPES_MASK = STRIPES - 1;
-	private static final int CLEANUP_INTERVAL = 64;
-	private static final long SHRINK_DELAY_MS = 60_000;
-	private static final double ALPHA = 0.1;
+	private static final double ALPHA = 0.25;
 
 	private static final AtomicLong CURRENT_POOL_BYTES = new AtomicLong();
 	private static final AtomicLong TOTAL_POOL_BYTES = new AtomicLong();
@@ -48,17 +47,14 @@ public enum PooledArrayType {
 	public final ArraySupplier<?> supplier;
 	public final int stride;
 
-	private final Bucket[][] buckets = new Bucket[MAX_BUCKET + 1][STRIPES];
+	private final Bucket[] buckets = new Bucket[MAX_BUCKET + 1];
 
 	PooledArrayType(ArraySupplier<?> supplier, int stride) {
 		this.supplier = supplier;
 		this.stride = stride;
 
-		for (int i = 0; i < buckets.length; i++) {
-			int size = 1 << i;
-			for (int s = 0; s < STRIPES; s++)
-				buckets[i][s] = new Bucket(size);
-		}
+		for (int i = 0; i < buckets.length; i++)
+			buckets[i] = new Bucket(1 << i);
 	}
 
 	private static int bucket(int size) {
@@ -72,32 +68,53 @@ public enum PooledArrayType {
 		return (hash ^ (hash >>> 16)) & STRIPES_MASK;
 	}
 
-	private static boolean isPoolFull(long additionalBytes) {
-		return CURRENT_POOL_BYTES.get() + additionalBytes > MAX_POOL_BYTES;
+	private static boolean canReservePoolBytes(long bytes) {
+		return bytes <= MAX_POOL_BYTES - CURRENT_POOL_BYTES.get();
+	}
+
+	private static boolean tryReservePoolBytes(long bytes) {
+		long current = CURRENT_POOL_BYTES.get();
+
+		for (;;) {
+			if (current > MAX_POOL_BYTES - bytes)
+				return false;
+
+			final long newValue = current + bytes;
+			final long witness = CURRENT_POOL_BYTES.compareAndExchange(current, newValue);
+
+			if (witness == current)
+				return true;
+
+			current = witness;
+		}
+	}
+
+	public static void incrementalCleanup(int frame) {
+		int ArrayTypeTarget = floor(frame / (float)MAX_BUCKET) % VALUES.length;
+		int BucketTarget = frame % MAX_BUCKET;
+
+		VALUES[ArrayTypeTarget].cleanup(BucketTarget);
 	}
 
 	public static void forceCleanup(boolean full) {
 		for (int v = 0; v < VALUES.length; v++) {
 			final PooledArrayType type = VALUES[v];
 			for (int b = 0; b < type.buckets.length; b++) {
-				for (int s = 0; s < STRIPES; s++) {
-					final Bucket bucket = type.buckets[b][s];
-					final long stamp = bucket.lock.writeLock();
-					try {
-						bucket.opCounter = 0;
-						if (full) {
-							bucket.empty();
-						} else {
-							type.maybeCleanup(b, s, bucket, true);
-						}
-					} finally {
-						bucket.lock.unlockWrite(stamp);
-					}
+				final Bucket group = type.buckets[b];
+
+				if (full) {
+					final long bytesPerElement = type.bytesFor(group.size);
+					long reclaimed = 0;
+					for (int i = 0; i < STRIPES; i++)
+						reclaimed += group.stripes[i].empty(bytesPerElement);
+
+					if (reclaimed > 0)
+						CURRENT_POOL_BYTES.addAndGet(-reclaimed);
+				} else {
+					type.cleanup(b);
 				}
 			}
 		}
-		if (full)
-			CURRENT_POOL_BYTES.set(0);
 	}
 
 	public static void shutdown() {
@@ -105,19 +122,14 @@ public enum PooledArrayType {
 
 		for (int v = 0; v < VALUES.length; v++) {
 			final PooledArrayType type = VALUES[v];
-			for (int b = 0; b < VALUES[v].buckets.length; b++) {
-				for (int s = 0; s < STRIPES; s++) {
-					final Bucket bucket = type.buckets[b][s];
+			for (int b = 0; b < type.buckets.length; b++) {
+				final Bucket group = type.buckets[b];
 
-					bucket.empty();
+				for (int i = 0; i < STRIPES; i++)
+					group.stripes[i].empty(0);
 
-					bucket.peakInUse = 0;
-					bucket.avgDemand = 0;
-					bucket.lastOverTargetTime = 0;
-
-					// Recreate the bucket to clear the stack inner arrays
-					type.buckets[b][s] = new Bucket(bucket.size);
-				}
+				group.avgDemand = 0;
+				type.buckets[b] = new Bucket(group.size);
 			}
 		}
 	}
@@ -126,71 +138,109 @@ public enum PooledArrayType {
 
 	public static long getTotalPoolBytes() { return TOTAL_POOL_BYTES.get(); }
 
-	private void maybeCleanup(int b, int s, Bucket bucket) {
-		maybeCleanup(b, s, bucket, false);
-	}
+	private boolean cleanup(int b) {
+		final Bucket group = buckets[b];
 
-	private void maybeCleanup(int b, int s, Bucket bucket, boolean forced) {
-		if (!forced && (++bucket.opCounter & (CLEANUP_INTERVAL - 1)) != 0)
-			return;
+		if (!group.cleaning.compareAndSet(false, true))
+			return false;
 
-		bucket.avgDemand = (float) (ALPHA * bucket.peakInUse + (1 - ALPHA) * bucket.avgDemand);
-		bucket.peakInUse = bucket.inUse;
+		try {
+			final int[] sizes = group.sizes;
+			long peakSum = 0;
+			long totalSize = 0;
+			for (int i = 0; i < STRIPES; i++) {
+				final Stripe stripe = group.stripes[i];
+				peakSum += stripe.peakInUse.getAndSet(0);
+				sizes[i] = stripe.stack.size();
+				totalSize += sizes[i];
+			}
 
-		if (bucket.stack.size() <= bucket.avgDemand) {
-			bucket.lastOverTargetTime = 0;
-			return;
-		}
+			group.avgDemand = (float) (ALPHA * peakSum + (1 - ALPHA) * group.avgDemand);
+			if (totalSize <= group.avgDemand)
+				return false;
 
-		final long now = System.currentTimeMillis();
-		if (bucket.lastOverTargetTime == 0) {
-			bucket.lastOverTargetTime = now;
-			return;
-		}
+			final int targetTotal = max((int) (group.avgDemand * 0.5f), 1);
+			final int excessTotal = (int) (totalSize - targetTotal);
+			if(excessTotal <= 0)
+				return false;
 
-		if (!forced && now - bucket.lastOverTargetTime <= SHRINK_DELAY_MS)
-			return;
+			final int perStripeShare = max(targetTotal / STRIPES, 1);
+			final long bytesPerElement = bytesFor(group.size);
+			if (VERBOSE && excessTotal > 0)
+				log.debug(
+					"PooledArray::{} Bucket {} totals {} pooled arrays across {} stripes, target {} (excess {}) peakSum: {} avgDemand: {}",
+					this, b, totalSize, STRIPES, targetTotal, excessTotal, peakSum, group.avgDemand
+				);
 
-		final int target = max((int) (bucket.avgDemand * 0.5f), 1);
-		int excess = bucket.stack.size() - target;
+			int dropped = 0;
+			int spilled = 0;
+			for(int i = 0; i < excessTotal; i++){
+				int maxIdx = -1;
+				int maxSize = 0;
 
-		while (excess-- > 0) {
-			PooledArray<Object> wrapper = bucket.poll(bytesFor(bucket.size));
-			if (wrapper == null)
-				break;
-
-			spill(b, s, wrapper);
-		}
-
-		bucket.lastOverTargetTime = now;
-	}
-
-	private boolean spill(int b, int fromStripe, PooledArray<Object> wrapper) {
-		final Bucket[] stripes = buckets[b];
-
-		final long bytes = bytesFor(Array.getLength(wrapper.array));
-
-		for (int i = 1; i < STRIPES; i++) {
-			final int s = (fromStripe + i) & STRIPES_MASK;
-			final Bucket other = stripes[s];
-
-			if (other.stack.size() > other.avgDemand)
-				continue;
-
-			final long stamp = other.lock.tryWriteLock();
-			if (stamp == 0)
-				continue;
-
-			try {
-				if (other.stack.size() <= other.avgDemand) {
-					other.add(wrapper, bytes);
-					return true;
+				for (int k = 0; k < STRIPES; k++) {
+					if (group.sizes[k] > maxSize) {
+						maxSize = group.sizes[k];
+						maxIdx = k;
+					}
 				}
-			} finally {
-				other.lock.unlockWrite(stamp);
+
+				if (maxIdx == -1)
+					break;
+
+				final Stripe stripe = group.stripes[maxIdx];
+				final PooledArray<Object> wrapper = stripe.poll(bytesPerElement);
+
+				if (wrapper == null) {
+					group.sizes[maxIdx] = 0;
+					continue;
+				}
+
+				group.sizes[maxIdx]--;
+
+				if (spill(group, maxIdx, perStripeShare, group.sizes, wrapper, bytesPerElement)) {
+					spilled++;
+					continue;
+				}
+
+				dropped++;
+			}
+
+			if (VERBOSE && (dropped > 0 || spilled > 0))
+				log.debug(
+					"PooledArray::{} Freed {} and spilled {} pooled arrays from bucket {}",
+					this, dropped, spilled, b
+				);
+		} finally {
+			group.cleaning.set(false);
+		}
+
+		return true;
+	}
+
+	private boolean spill(Bucket group, int fromIdx, int perStripeShare, int[] sizes, PooledArray<Object> wrapper, long bytes) {
+		int targetIdx = -1;
+		int targetSize = Integer.MAX_VALUE;
+
+		for (int i = 0; i < STRIPES; i++) {
+			if (i == fromIdx)
+				continue;
+			if (sizes[i] >= perStripeShare)
+				continue;
+			if (sizes[i] < targetSize) {
+				targetSize = sizes[i];
+				targetIdx = i;
 			}
 		}
-		return false;
+
+		if (targetIdx == -1)
+			return false;
+
+		group.stripes[targetIdx].add(wrapper);
+		CURRENT_POOL_BYTES.addAndGet(bytes);
+
+		sizes[targetIdx]++;
+		return true;
 	}
 
 	private long bytesFor(int len) {
@@ -202,6 +252,9 @@ public enum PooledArrayType {
 		final int cap = ceilPow2(requestedSize);
 		final long bytes = bytesFor(cap);
 		final Object array = supplier.get(cap);
+
+		if(VERBOSE)
+			log.debug("Created new PooledArray::{} of size {} ({} bytes)", this, cap, bytes);
 
 		final PooledArray<Object> wrapper = new PooledArray<>(this, array, bytes);
 		wrapper.metadata.borrowedByThreadId = getThreadId();
@@ -216,7 +269,7 @@ public enum PooledArrayType {
 	}
 
 	public <T> PooledArray<T> borrow(String context, int requestedSize) {
-		return borrow(context, requestedSize, true);
+		return borrow(context, requestedSize, BorrowFlag.ALWAYS_CREATE);
 	}
 
 	public <T> PooledArray<T> ensureCapacity(PooledArray<T> current, int requestedSize) {
@@ -241,43 +294,42 @@ public enum PooledArrayType {
 	}
 
 	@SuppressWarnings("unchecked")
-	public <T> PooledArray<T> borrow(String context, int requestedSize, boolean createIfMissing) {
+	public <T> PooledArray<T> borrow(String context, int requestedSize, BorrowFlag flag) {
 		final int roundedSize = ceilPow2(requestedSize);
 		final int b = bucket(roundedSize);
 
 		final long bytes = bytesFor(roundedSize);
-		final Bucket[] bucketStripes = buckets[b];
+		final Bucket group = buckets[b];
 		final int startStripe = stripeIndex();
 
-		for (int i = 0; i < STRIPES * 2; i++) {
+		for (int i = 0; i < STRIPES; i++) {
 			final int s = (startStripe + i) & STRIPES_MASK;
-			final Bucket bucket = bucketStripes[s];
-			if (bucket.isEmpty)
+			final Stripe stripe = group.stripes[s];
+			if (stripe.stack.isEmpty())
 				continue;
 
-			final long stamp = i < STRIPES ? bucket.lock.tryWriteLock() : bucket.lock.writeLock();
-			if (stamp == 0)
-				continue;
+			final PooledArray<Object> wrapper = stripe.poll(bytes);
+			if (wrapper != null) {
+				stripe.updatePeak(stripe.inUse.incrementAndGet());
 
-			try {
-				final PooledArray<Object> wrapper = bucket.poll(bytes);
-				if (wrapper != null) {
-					wrapper.metadata.context = context;
-					wrapper.metadata.borrowedByThreadId = getThreadId();
-					bucket.inUse++;
-					bucket.peakInUse = Math.max(bucket.peakInUse, bucket.inUse);
-					maybeCleanup(b, s, bucket);
-					return (PooledArray<T>) wrapper;
-				}
-			} finally {
-				bucket.lock.unlockWrite(stamp);
+				wrapper.metadata.context = context;
+				wrapper.metadata.borrowedByThreadId = getThreadId();
+
+				return (PooledArray<T>) wrapper;
 			}
 		}
 
-		if (!createIfMissing)
+		if (flag == BorrowFlag.NONE || (flag == BorrowFlag.CREATE_IF_NOT_FULL && !canReservePoolBytes(bytes)))
 			return null;
 
-		return create(roundedSize);
+		final Stripe stripe = group.stripes[startStripe];
+		stripe.updatePeak(stripe.inUse.incrementAndGet());
+
+		final PooledArray<T> wrapper = create(roundedSize);
+		wrapper.metadata.context = context;
+		wrapper.metadata.borrowedByThreadId = getThreadId();
+
+		return wrapper;
 	}
 
 	@SuppressWarnings("unchecked")
@@ -286,7 +338,7 @@ public enum PooledArrayType {
 			return;
 
 		final Thread currentThread = Thread.currentThread();
-		if (wrapper.metadata.pooled) {
+		if (wrapper.metadata.isInPool()) {
 			log.warn(
 				"Attempted to release a PooledArray that's already back in the pool: {} " +
 				"(borrowed by {}, previously released by {}, this release attempted by {})\n{}",
@@ -302,38 +354,17 @@ public enum PooledArrayType {
 		final int b = bucket(len);
 
 		final long bytes = bytesFor(len);
-		if (isPoolFull(bytes))
-			return;
-
 		final PooledArray<Object> objWrapper = (PooledArray<Object>) wrapper;
 
-		final int startStripe = stripeIndex();
+		if (!tryReservePoolBytes(bytes))
+			return;
 
-		final Bucket[] bucketStripes = buckets[b];
+		final int s = stripeIndex();
+		final Stripe stripe = buckets[b].stripes[s];
 
-		for (int i = 0; i < STRIPES * 2; i++) {
-			final int s = (startStripe + i) & STRIPES_MASK;
-			final Bucket bucket = bucketStripes[s];
-
-			final long stamp = i < STRIPES
-				? bucket.lock.tryWriteLock()
-				: bucket.lock.writeLock();
-			if (stamp == 0)
-				continue;
-
-			try {
-				if (isPoolFull(bytes))
-					return;
-
-				bucket.inUse = max(0, bucket.inUse - 1);
-				bucket.add(objWrapper, bytes);
-				objWrapper.metadata.releasedByThreadId = currentThread.getId();
-				maybeCleanup(b, s, bucket);
-				return;
-			} finally {
-				bucket.lock.unlockWrite(stamp);
-			}
-		}
+		stripe.inUse.decrementAndGet();
+		stripe.add(objWrapper);
+		objWrapper.metadata.releasedByThreadId = currentThread.getId();
 	}
 
 	@FunctionalInterface
@@ -341,60 +372,63 @@ public enum PooledArrayType {
 		T get(int capacity);
 	}
 
-	@RequiredArgsConstructor
 	private static final class Bucket {
-		private final ArrayDeque<PooledArray<Object>> stack = new ArrayDeque<>();
-		private final StampedLock lock = new StampedLock();
+		private final AtomicBoolean cleaning = new AtomicBoolean();
+		private float avgDemand;
+
+		private final Stripe[] stripes = new Stripe[STRIPES];
+		private final int[] sizes = new int[STRIPES]; // Used During Cleaning
 
 		private final int size;
-		private int opCounter;
-		private int inUse;
-		private int peakInUse;
-		private float avgDemand;
-		private long lastOverTargetTime;
 
-		private volatile boolean isEmpty = true;
-
-		public void empty() {
-			PooledArray<Object> wrapper;
-			while ((wrapper = stack.poll()) != null) {
-				wrapper.metadata.pooled = false;
-				wrapper.cleanable.clean();
-			}
-			stack.clear();
-			inUse = 0;
-			isEmpty = true;
+		public Bucket(int size) {
+			this.size = size;
+			for (int i = 0; i < STRIPES; i++)
+				stripes[i] = new Stripe();
 		}
+	}
 
-		public void add(PooledArray<Object> wrapper, long bytes) {
-			if (!wrapper.metadata.compareAndSet(false, true)) {
+	private static final class Stripe {
+		private final IntrusiveTreiberStack<PooledArray<Object>> stack = new IntrusiveTreiberStack<>();
+		private final AtomicInteger inUse = new AtomicInteger();
+		private final AtomicInteger peakInUse = new AtomicInteger();
+
+		public void add(PooledArray<Object> wrapper) {
+			wrapper.metadata.context = null;
+			if (!stack.push(wrapper)) {
 				log.warn(
-					"Duplicate release of pooled array: {} (borrowed by {})",
+					"Attempted to release a PooledArray that was already in the pool: {} (borrowed by {})",
 					wrapper, formatThreadString(wrapper.metadata.borrowedByThreadId)
 				);
-				return;
 			}
-
-			wrapper.metadata.context = null;
-			stack.add(wrapper);
-			CURRENT_POOL_BYTES.addAndGet(bytes);
-			isEmpty = false;
 		}
 
 		public PooledArray<Object> poll(long bytes) {
-			final PooledArray<Object> wrapper = stack.poll();
-			if (wrapper != null) {
-				if(!wrapper.metadata.compareAndSet(true, false)) {
-					log.warn(
-						"Pooled Array was not released: {} (was in use? {}, borrowed by {})",
-						wrapper, wrapper.metadata.pooled, formatThreadString(wrapper.metadata.borrowedByThreadId)
-					);
-					return null;
-				}
-				CURRENT_POOL_BYTES.addAndGet(-bytes);
-			}
-			isEmpty = stack.isEmpty();
+			final PooledArray<Object> wrapper = stack.pop();
+			if (wrapper == null)
+				return null;
+
+			CURRENT_POOL_BYTES.addAndGet(-bytes);
 			return wrapper;
+		}
+
+		public long empty(long bytesPerElement) {
+			final long[] reclaimed = { 0L };
+			stack.drain(wrapper -> {
+				wrapper.cleanable.clean();
+				reclaimed[0] += bytesPerElement;
+			});
+			inUse.set(0);
+			return reclaimed[0];
+		}
+
+		private void updatePeak(int value) {
+			int cur = peakInUse.get();
+			while (value > cur) {
+				int witness = peakInUse.compareAndExchange(cur, value);
+				if (witness == cur) return;
+				cur = witness;
+			}
 		}
 	}
 
@@ -449,11 +483,14 @@ public enum PooledArrayType {
 		}
 	}
 
-	public static final class PooledArray<T> implements AutoCloseable {
+	public static final class PooledArray<T> implements AutoCloseable, IntrusiveTreiberStack.Node<PooledArray<Object>> {
 		private final T array;
 		private final Object[] boxedArray;
 		private final Cleanable cleanable;
 		private final Metadata metadata;
+
+		@Getter
+		private volatile PooledArray<Object> next;
 
 		@Getter
 		private final int length;
@@ -468,7 +505,7 @@ public enum PooledArrayType {
 				TOTAL_POOL_BYTES.addAndGet(-bytes);
 
 				final String context = metadata.context;
-				if (!metadata.pooled && context != null) {
+				if (!metadata.isInPool() && context != null) {
 					log.warn(
 						"A {} PooledArray ({} bytes) was garbage collected while still borrowed by {}. " +
 						"Borrowed on {}, last accessed on {}. " +
@@ -480,7 +517,7 @@ public enum PooledArrayType {
 		}
 
 		public T getArray() {
-			if (metadata.pooled) {
+			if (metadata.isInPool()) {
 				final Thread currentThread = Thread.currentThread();
 				log.warn(
 					"Attempted to use a PooledArray after it was released back to the pool " +
@@ -513,30 +550,36 @@ public enum PooledArrayType {
 		public void close() {
 			metadata.type.release(this);
 		}
+
+		@Override
+		public void setNext(PooledArray<Object> next) {
+			this.next = next;
+		}
+
+		@Override
+		public boolean tryClaim() {
+			return metadata.tryClaim();
+		}
+
+		@Override
+		public boolean tryMarkInStack() {
+			return metadata.tryMarkPooled();
+		}
 	}
 
 	@RequiredArgsConstructor
-	private static final class Metadata {
-		private static final VarHandle POOLED;
-
-		static {
-			try {
-				POOLED = MethodHandles.lookup().findVarHandle(Metadata.class, "pooled", boolean.class);
-			} catch (ReflectiveOperationException e) {
-				throw new ExceptionInInitializerError(e);
-			}
-		}
-
+	private static final class Metadata extends AtomicBoolean {
 		final PooledArrayType type;
 		String context;
 
-		volatile boolean pooled;
 		volatile long borrowedByThreadId = -1L;
 		volatile long releasedByThreadId = -1L;
 		volatile long lastAccessThreadId = -1L;
 
-		boolean compareAndSet(boolean expected, boolean update) {
-			return POOLED.compareAndSet(this, expected, update);
-		}
+		boolean isInPool() { return get(); }
+
+		boolean tryMarkPooled() { return compareAndSet(false, true); }
+
+		boolean tryClaim() { return compareAndSet(true, false); }
 	}
 }
