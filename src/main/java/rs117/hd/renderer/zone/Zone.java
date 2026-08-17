@@ -803,12 +803,17 @@ public class Zone implements Destructible {
 
 		for (int i = 0; i < alphaModels.size(); i++) {
 			final AlphaModel m = alphaModels.get(i);
-			if ((m.flags & AlphaModel.SKIP) != 0 || m.level != level || m.vao == -1)
+			if ((m.flags & AlphaModel.SKIP) != 0 || m.level != level)
 				continue;
 
-			if (level < minLevel || level > maxLevel ||
+			final AsyncCachedModel asyncModel = m.asyncModel;
+			if(asyncModel != null)
+				asyncModel.waitForCompletion();
+
+			if (m.vao == -1 || level < minLevel || level > maxLevel ||
 				level > currentLevel && !hiddenRoofIds.isEmpty() && hiddenRoofIds.contains((int) m.rid))
 				continue;
+
 
 			int drawMode = STATIC;
 			if (m.isTemp()) {
@@ -831,10 +836,6 @@ public class Zone implements Destructible {
 				lastzx = zx - m.zofx;
 				lastzz = zz - m.zofz;
 			}
-
-			final AsyncCachedModel asyncModel = m.asyncModel;
-			if(asyncModel != null)
-				asyncModel.waitForCompletion();
 
 			if (drawMode != STATIC) {
 				pushRange(m.startpos, m.endpos);
