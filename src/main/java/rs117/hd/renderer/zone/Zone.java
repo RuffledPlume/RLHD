@@ -4,7 +4,6 @@ import java.nio.IntBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.Comparator;
 import java.util.List;
 import javax.annotation.Nullable;
 import javax.inject.Inject;
@@ -36,7 +35,7 @@ import static rs117.hd.HdPlugin.checkGLErrors;
 import static rs117.hd.renderer.zone.ZoneRenderer.TEXTURE_UNIT_TEXTURED_FACES;
 import static rs117.hd.renderer.zone.ZoneRenderer.eboAlpha;
 import static rs117.hd.utils.MathUtils.*;
-import static rs117.hd.utils.collections.Util.quickSort;
+import static rs117.hd.utils.collections.Util.quickSortByKey;
 
 @Slf4j
 public class Zone implements Destructible {
@@ -184,8 +183,6 @@ public class Zone implements Destructible {
 			DestructibleHandler.destroy(uploadJob.zone);
 			uploadJob = null;
 		}
-
-		sortedAlphaFacesUpload.release();
 
 		sizeO = 0;
 		sizeA = 0;
@@ -457,17 +454,18 @@ public class Zone implements Destructible {
 			return packedFaces.length + doubleSidedCount;
 		}
 
-		int calculateDepth(int cx, int cy, int cz, int zx, int zz) {
-			final int mx = (x + ((zx - zofx) << 10));
-			final int mz = (z + ((zz - zofz) << 10));
-			return (mx - cx) * (mx - cx) + (y - cy) * (y - cy) + (mz - cz) * (mz - cz);
-		}
-
 		void setView(DynamicModelVAO.View view) {
 			vao = view.vao;
 			tboF = view.tboTexId;
 			startpos = view.getStartOffset();
 			endpos = view.getEndOffset();
+		}
+
+		void calculateDist(int cx, int cy, int cz, int zx, int zz) {
+			final int dx = (x + ((zx - zofx) << 10)) - cx;
+			final int dy = y - cy;
+			final int dz = (z + ((zz - zofz) << 10)) - cz;
+			dist = dx * dx + dy * dy + dz * dz;
 		}
 	}
 
@@ -662,7 +660,7 @@ public class Zone implements Destructible {
 		PooledArrayType.INT.release(doubleSidedBitSet);
 	}
 
-	synchronized AlphaModel requestTempAlphaModel(ModelOverride modelOverride, int level, int x, int y, int z) {
+	synchronized AlphaModel requestTempAlphaModel(Camera camera, int zx, int zz, ModelOverride modelOverride, int level, int x, int y, int z) {
 		AlphaModel m = ALPHA_MODEL_POOL.acquire();
 		m.id = -1;
 		m.modelOverride = modelOverride;
@@ -673,19 +671,19 @@ public class Zone implements Destructible {
 		m.vao = m.tboF = m.rid = m.lx = m.lz = m.ux = m.uz = -1;
 		m.flags = 0;
 		m.zofx = m.zofz = 0;
+		m.calculateDist((int) camera.getPositionX(), (int) camera.getPositionY(), (int) camera.getPositionZ(), zx, zz);
 		alphaLevelMask = (byte) (alphaLevelMask | 1 << level);
 		alphaModels.add(m);
 		return m;
 	}
 
 	synchronized void postAlphaPass() {
-		sortedAlphaFacesUpload.waitForCompletion();
 		alphaSortingJob.waitForCompletion();
-
 		alphaLevelMask = staticAlphaLevelMask;
 
 		for (int i = alphaModels.size() - 1; i >= 0; --i) {
 			AlphaModel m = alphaModels.get(i);
+			m.dist = Integer.MAX_VALUE;
 			m.asyncSortIdx = -1;
 			m.sortedIndiciesOffset = m.sortedIndiciesCount = 0;
 			m.flags &= ~(AlphaModel.SKIP | AlphaModel.SORT_COMPLETED);
@@ -711,37 +709,24 @@ public class Zone implements Destructible {
 	private static int lastTboF;
 	private static int lastzx, lastzz;
 
-	static class AlphaModelComparator implements Comparator<AlphaModel> {
-		int zx, zz;
-		int cx, cy, cz;
-
-		@Override
-		public int compare(AlphaModel modelA, AlphaModel modelB) {
-			return Integer.compare(
-				modelB.calculateDepth(cx, cy, cz, zx, zz),
-				modelA.calculateDepth(cx, cy, cz, zx, zz)
-			);
-		}
-	}
-
-	private static final AlphaModelComparator alphaModelComparator = new AlphaModelComparator();
-	private final EboAlphaWriterJob sortedAlphaFacesUpload = new EboAlphaWriterJob();
-
-	synchronized void alphaSort(int zx, int zz, Camera camera) {
+	synchronized void alphaSort() {
 		final int alphaModelCount = alphaModels.size();
 		if (alphaModelCount <= 1)
 			return;
 
-		alphaModelComparator.cx = (int) camera.getPositionX();
-		alphaModelComparator.cy = (int) camera.getPositionY();
-		alphaModelComparator.cz = (int) camera.getPositionZ();
-		alphaModelComparator.zx = zx;
-		alphaModelComparator.zz = zz;
+		final int[] alphaModelsKeys = PooledArrayType.INT.borrow(alphaModelCount);
+		try {
+			alphaSortingJob.waitForCompletion();
+			for(int i = 0; i < alphaModelCount; i++)
+				alphaModelsKeys[i] = alphaModels.get(i).dist;
 
-		quickSort(alphaModels, alphaModelComparator);
+			quickSortByKey(alphaModelsKeys, alphaModels, 0, alphaModelCount - 1);
+		} finally {
+			PooledArrayType.INT.release(alphaModelsKeys);
+		}
 	}
 
-	int buildAlphaStaticModelSort(int startOffset) {
+	int setupAlphaModelSort(int startOffset) {
 		alphaSortingJob.reset();
 
 		int sortedAlphaFaceCount = 0;
@@ -761,7 +746,6 @@ public class Zone implements Destructible {
 			if ((m.flags & AlphaModel.SKIP) != 0 || m.isTemp())
 				continue;
 
-			m.dist = dist;
 			m.sortedIndiciesOffset = sortedAlphaFaceOffset;
 			alphaSortingJob.addAlphaModel(m);
 
@@ -793,10 +777,12 @@ public class Zone implements Destructible {
 
 		drawIdx = 0;
 
-		if (!depthOnly)
-			sortedAlphaFacesUpload.waitForCompletion();
-
+		EboAlphaWriterJob.ZoneAlphaModelCollection collection = null;
 		int eboAlphaStart = eboAlphaOffset = ZoneRenderer.eboAlphaWriter.getWrittenInts();
+
+		if(!depthOnly)
+			alphaSortingJob.waitForCompletion();
+
 		for (int i = 0; i < alphaModels.size(); i++) {
 			final AlphaModel m = alphaModels.get(i);
 			if ((m.flags & AlphaModel.SKIP) != 0 || m.level != level || m.vao == -1)
@@ -837,27 +823,21 @@ public class Zone implements Destructible {
 				continue;
 			}
 
-			// Wait for the Async Alpha Sorting to complete before, more often than not this should never end up waiting
-			while (m.needsSorting() && !alphaSortingJob.isDone())
-				alphaSortingJob.waitForCompletion(10);
-
-			if (m.sortedIndiciesCount <= 0)
+			if (m.sortedIndiciesCount <= 0 || m.needsSorting())
 				continue;
 
-			sortedAlphaFacesUpload.alphaModels.add(m);
+			if(collection == null)
+				collection = ctx.sortedAlphaFacesUpload.obtain();
+			collection.add(m);
 
 			eboAlphaOffset += m.sortedIndiciesCount;
 			alphaFaceCount += m.sortedIndiciesCount / 3;
 			lastDrawMode = STATIC;
 		}
-
-		if (eboAlphaOffset > eboAlphaStart && !sortedAlphaFacesUpload.alphaModels.isEmpty()) {
-			sortedAlphaFacesUpload.eboAlphaView = ZoneRenderer.eboAlphaWriter.reserve(eboAlphaOffset - eboAlphaStart);
-			sortedAlphaFacesUpload.sortedAlphaIndicies = ctx.eboAlphaIndices;
-			sortedAlphaFacesUpload.queue();
-		}
-
 		flush(cmd);
+
+		if (collection != null)
+			collection.queue(eboAlphaOffset - eboAlphaStart);
 	}
 
 	private void flush(CommandBuffer cmd) {
@@ -962,11 +942,13 @@ public class Zone implements Destructible {
 				m2.radius = m.radius;
 				m2.doubleSidedCount = m.doubleSidedCount;
 				m2.asyncSortIdx = m.asyncSortIdx;
+				m2.sortedIndiciesOffset = m.sortedIndiciesOffset;
 				m2.sortedIndiciesCount = m.sortedIndiciesCount;
 
 				m2.flags = AlphaModel.TEMP;
 				m.flags |= AlphaModel.SKIP;
 
+				z.alphaLevelMask = (byte) (z.alphaLevelMask | 1 << m2.level);
 				z.alphaModels.add(m2);
 			}
 		}

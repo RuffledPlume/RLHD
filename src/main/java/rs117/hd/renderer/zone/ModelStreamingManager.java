@@ -280,6 +280,8 @@ public class ModelStreamingManager {
 			(!sceneManager.isRoot(ctx) || zone.inSceneFrustum);
 		final Zone.AlphaModel alphaModel = hasAlpha ?
 			zone.requestTempAlphaModel(
+				renderer.sceneCamera,
+				zx, zz,
 				modelOverride,
 				Math.min(ctx.maxLevel, tileObject.getPlane()),
 				x & 1023,

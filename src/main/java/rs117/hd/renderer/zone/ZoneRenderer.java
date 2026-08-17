@@ -69,6 +69,7 @@ import rs117.hd.utils.buffer.GLBuffer;
 import rs117.hd.utils.buffer.GLMappedBufferIntWriter;
 import rs117.hd.utils.buffer.GpuIntBuffer;
 import rs117.hd.utils.collections.ConcurrentPool;
+import rs117.hd.utils.jobs.JobGroup;
 import rs117.hd.utils.jobs.JobSystem;
 
 import static net.runelite.api.Constants.*;
@@ -158,6 +159,7 @@ public class ZoneRenderer implements Renderer {
 	private GLBuffer indirectDrawCmds;
 	public static GpuIntBuffer indirectDrawCmdsStaging;
 
+	private final JobGroup<EboAlphaWriterJob> eboAlphaUploadGroup = new JobGroup<>(true, true);
 	public static GLBuffer.EBO eboAlpha;
 	public static GLMappedBufferIntWriter eboAlphaWriter;
 
@@ -262,6 +264,7 @@ public class ZoneRenderer implements Renderer {
 			eboAlpha.destroy();
 		eboAlpha = null;
 
+		eboAlphaUploadGroup.cancel();
 		if (eboAlphaWriter != null)
 			eboAlphaWriter.destroy();
 		eboAlphaWriter = null;
@@ -690,8 +693,10 @@ public class ZoneRenderer implements Renderer {
 		// Upload world views before rendering
 		uboWorldViews.upload();
 
-		if (eboAlphaWriter != null)
+		if (eboAlphaWriter != null) {
+			eboAlphaUploadGroup.complete();
 			eboAlphaWriter.flush();
+		}
 
 		// Scene draw state to apply before all recorded commands
 		if (indirectDrawCmdsStaging.position() > 0) {
@@ -967,14 +972,13 @@ public class ZoneRenderer implements Renderer {
 				final int offset = ctx.sceneContext.sceneOffset >> 3;
 				// Only sort if the alpha will be directly visible, since shadows don't require sorting
 				if (level == 0 && (!sceneManager.isRoot(ctx) || z.inSceneFrustum))
-					z.alphaSort(zx - offset, zz - offset, sceneCamera);
+					z.alphaSort();
 
 				// Check if there is any alpha models for this level in the zone
 				if((z.alphaLevelMask & (1 << level)) != 0) {
 					final boolean isSquashed = ctx.uboWorldViewStruct != null && ctx.uboWorldViewStruct.isSquashed();
 					if (!isSquashed && (!sceneManager.isRoot(ctx) || z.inShadowFrustum)) {
-						directionalCmd.SetShader(
-							plugin.configShadowMode == ShadowMode.DETAILED ? detailedShadowProgram : fastShadowProgram);
+						directionalCmd.SetShader(plugin.configShadowMode == ShadowMode.DETAILED ? detailedShadowProgram : fastShadowProgram);
 						z.renderAlpha(directionalCmd, zx - offset, zz - offset, level, ctx, true, shouldDrawRoofShadows);
 					}
 
@@ -1022,7 +1026,13 @@ public class ZoneRenderer implements Renderer {
 
 		try {
 			WorldViewContext ctx = sceneManager.getContext(scene);
-			if (ctx == null || !sceneManager.isRoot(ctx) && ctx.isLoading)
+			if(ctx == null)
+				return;
+
+			if(pass == DrawCallbacks.PASS_ALPHA)
+				ctx.sortedAlphaFacesUpload.queue(eboAlphaUploadGroup);
+
+			if (!sceneManager.isRoot(ctx) && ctx.isLoading)
 				return;
 
 			frameTimer.begin(Timer.DRAW_PASS);
