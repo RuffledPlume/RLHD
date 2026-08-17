@@ -99808,6 +99808,8 @@
     "description": "Vampyrium - Stymphike Hunting - Grass",
     "baseMaterial": "LEAF_VEINS",
     "undoVanillaShading": false,
+    "windDisplacementMode": "VERTEX",
+    "windDisplacementModifier": -1,
     "objectIds": [
       "HUNTING_STYMPHIKE_BUSH_EMPTY",
       "HUNTING_STYMPHIKE_BUSH_SHRUB",
@@ -99819,7 +99821,9 @@
         "colors": "h == 0 || h == 48",
         "baseMaterial": "GRUNGE_3",
         "undoVanillaShading": false,
-        "shiftLightness": -2
+        "shiftLightness": -2,
+        "windDisplacementMode": "VERTEX",
+        "windDisplacementModifier": -1
       }
     ]
   },
@@ -99866,6 +99870,8 @@
     "undoVanillaShading": false,
     "uvScale": 0.8,
     "shiftLightness": 10,
+    "windDisplacementMode": "VERTEX_WITH_HEMISPHERE_BLEND",
+    "windDisplacementModifier": -3,
     "objectIds": [
       "DARKWOOD_TREE_DEFAULT02",
       "DARKWOOD_TREE_DEFAULT01",
@@ -99908,7 +99914,19 @@
         "castShadows": false,
         "inheritTileColorType": "UNDERLAY"
       }
-    ]
+    ],
+    "materialOverrides": {
+      "LEAFYTREE_DARKWOOD": {
+        "windDisplacementMode": "VERTEX",
+        "textureMaterial": "LEAFYTREE_DARKWOOD",
+        "windDisplacementModifier": -1
+      },
+      "LEAFYTREE_DARKWOOD_TILED": {
+        "windDisplacementMode": "VERTEX",
+        "textureMaterial": "LEAFYTREE_DARKWOOD_TILED",
+        "windDisplacementModifier": -1
+      }
+    }
   },
   {
     "description": "Vampyrium Tree Stump with Axe",
@@ -99944,6 +99962,7 @@
     "undoVanillaShading": false,
     "shiftLightness": 4,
     "windDisplacementMode": "OBJECT_NO_GROUND_DISPLACEMENT",
+    "windDisplacementModifier": -2,
     "objectIds": [
       "PLANT_VAMPYRIUM_SWAMP01_INACTIVE",
       "PLANT_VAMPYRIUM_SWAMP01",
@@ -99959,6 +99978,7 @@
     "baseMaterial": "PLANT_GRUNGE_1",
     "shiftLightness": 1,
     "windDisplacementMode": "OBJECT_NO_GROUND_DISPLACEMENT",
+    "windDisplacementModifier": -3,
     "objectIds": [
       "PLANT_VAMPYRIUM_LILYPAD01",
       "PLANT_VAMPYRIUM_LILYPAD02",
@@ -99966,7 +99986,6 @@
     ],
     "colorOverrides": [
       {
-        "description": "Snake rope",
         "colors": "s == 7",
         "baseMaterial": "LEAF_VEINS",
         "uvType": "BOX",
@@ -100003,6 +100022,8 @@
     "undoVanillaShading": false,
     "uvScale": 0.7,
     "shiftLightness": 10,
+    "windDisplacementMode": "VERTEX",
+    "windDisplacementModifier": -3,
     "objectIds": [
       "DARKWOOD_TREE_DEFAULT01_WEB01",
       "DARKWOOD_TREE_DEFAULT02_WEB01",
@@ -100023,7 +100044,9 @@
         "colors": "a < 255",
         "baseMaterial": "GROUND_WEB_3",
         "uvType": "BOX",
-        "uvOrientation": 404
+        "uvOrientation": 404,
+        "windDisplacementMode": "VERTEX",
+        "windDisplacementModifier": -1
       },
       {
         "description": "Grass",
@@ -100038,7 +100061,19 @@
         "castShadows": false,
         "inheritTileColorType": "UNDERLAY"
       }
-    ]
+    ],
+    "materialOverrides": {
+      "LEAFYTREE_DARKWOOD": {
+        "windDisplacementMode": "VERTEX",
+        "textureMaterial": "LEAFYTREE_DARKWOOD",
+        "windDisplacementModifier": -1
+      },
+      "LEAFYTREE_DARKWOOD_TILED": {
+        "windDisplacementMode": "VERTEX",
+        "textureMaterial": "LEAFYTREE_DARKWOOD_TILED",
+        "windDisplacementModifier": -1
+      }
+    }
   },
   {
     "description": "Vampyrium Spikey Tree",
@@ -100246,7 +100281,19 @@
         "colors": "a < 255 || h == 0 && s == 0 && l < 3",
         "baseMaterial": "BLACK"
       }
-    ]
+    ],
+    "materialOverrides": {
+      "LEAFYTREE_DARKWOOD": {
+        "windDisplacementMode": "VERTEX",
+        "textureMaterial": "LEAFYTREE_DARKWOOD",
+        "windDisplacementModifier": -1
+      },
+      "LEAFYTREE_DARKWOOD_TILED": {
+        "windDisplacementMode": "VERTEX",
+        "textureMaterial": "LEAFYTREE_DARKWOOD_TILED",
+        "windDisplacementModifier": -1
+      }
+    }
   },
   {
     "description": "Vampyrium Rocks",
@@ -101742,6 +101789,8 @@
     "uvOrientation": 404,
     "shiftLightness": 2,
     "undoVanillaShading": false,
+    "windDisplacementMode": "OBJECT_NO_GROUND_DISPLACEMENT",
+    "windDisplacementModifier": -2,
     "colorOverrides": [
       {
         "description": "Leaf",
@@ -101751,7 +101800,9 @@
         "undoVanillaShading": false,
         "uvScale": 0.25,
         "shiftLightness": 20,
-        "uvOrientationX": 512
+        "uvOrientationX": 512,
+        "windDisplacementMode": "OBJECT_NO_GROUND_DISPLACEMENT",
+        "windDisplacementModifier": -2
       }
     ],
     "objectIds": [
@@ -101809,6 +101860,8 @@
     "uvScale": 0.45,
     "uvOrientation": 404,
     "shiftLightness": 15,
+    "windDisplacementMode": "OBJECT_NO_GROUND_DISPLACEMENT",
+    "windDisplacementModifier": -2,
     "colorOverrides": [
       {
         "description": "Leaf",
@@ -101818,7 +101871,9 @@
         "uvType": "BOX",
         "uvScale": 0.25,
         "shiftLightness": 5,
-        "uvOrientationX": 512
+        "uvOrientationX": 512,
+        "windDisplacementMode": "OBJECT_NO_GROUND_DISPLACEMENT",
+        "windDisplacementModifier": -2
       }
     ],
     "objectIds": [
@@ -101867,6 +101922,8 @@
     "uvScale": 0.2,
     "uvOrientation": 404,
     "shiftLightness": -2,
+    "windDisplacementMode": "OBJECT_NO_GROUND_DISPLACEMENT",
+    "windDisplacementModifier": -2,
     "colorOverrides": [
       {
         "description": "Leaf",
@@ -101876,7 +101933,9 @@
         "uvScale": 0.25,
         "shiftLightness": 18,
         "undoVanillaShading": false,
-        "uvOrientationX": 512
+        "uvOrientationX": 512,
+        "windDisplacementMode": "OBJECT_NO_GROUND_DISPLACEMENT",
+        "windDisplacementModifier": -2
       }
     ],
     "objectIds": [
@@ -101927,6 +101986,7 @@
     "description": "Vampyrium - Purple grass and webbed plant",
     "baseMaterial": "LEAF_VEINS",
     "undoVanillaShading": false,
+    "windDisplacementMode": "OBJECT_NO_GROUND_DISPLACEMENT",
     "uvType": "BOX",
     "uvScale": 0.45,
     "uvOrientation": 404,
@@ -102158,7 +102218,8 @@
     "baseMaterial": "BARK",
     "uvType": "BOX",
     "uvScale": 0.7,
-    "shiftLightness": 10,
+    "shiftLightness": 12,
+    "undoVanillaShading": false,
     "colorOverrides": [
       {
         "description": "Dirt",
@@ -102344,7 +102405,11 @@
     "uvType": "BOX",
     "uvScale": 0.5,
     "shiftLightness": 5,
+    "undoVanillaShading": false,
+    "minLightness": 11,
     "uvOrientation": 186,
+    "windDisplacementMode": "VERTEX_WITH_HEMISPHERE_BLEND",
+    "windDisplacementModifier": -3,
     "colorOverrides": [
       {
         "description": "Grass",
@@ -102365,14 +102430,6 @@
         "baseMaterial": "ROPE",
         "uvType": "BOX",
         "uvScale": 0.2
-      },
-      {
-        "description": "Branch",
-        "colors": "h == 0",
-        "baseMaterial": "BARK",
-        "uvType": "BOX",
-        "uvScale": 0.34,
-        "shiftLightness": 5
       }
     ],
     "objectIds": [
