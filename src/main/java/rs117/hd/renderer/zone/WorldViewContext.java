@@ -20,6 +20,7 @@ import rs117.hd.utils.CommandBuffer;
 import rs117.hd.utils.DestructibleHandler;
 import rs117.hd.utils.buffer.GLBuffer;
 import rs117.hd.utils.collections.ConcurrentPool;
+import rs117.hd.utils.collections.PooledArrayType;
 import rs117.hd.utils.jobs.JobGroup;
 
 import static org.lwjgl.opengl.GL33C.*;
@@ -60,6 +61,7 @@ public class WorldViewContext {
 	WorldViewStruct uboWorldViewStruct;
 	ZoneSceneContext sceneContext;
 	Zone[][] zones;
+	int[] eboAlphaIndices;
 	GLBuffer vboM;
 	boolean isLoading = true;
 
@@ -165,6 +167,10 @@ public class WorldViewContext {
 	void sortStaticAlphaModels(Camera camera) {
 		alphaZones.clear();
 
+		if(eboAlphaIndices != null)
+			PooledArrayType.INT.release(eboAlphaIndices);
+		eboAlphaIndices = null;
+
 		final int offset = sceneContext.sceneOffset >> 3;
 		final int camPosX = (int) camera.getPositionX();
 		final int camPosZ = (int) camera.getPositionZ();
@@ -183,8 +189,17 @@ public class WorldViewContext {
 
 		if (!alphaZones.isEmpty()) {
 			quickSort(alphaZones, alphaSortComparator);
+			int alphaFaceCount = 0;
 			for (int i = 0; i < alphaZones.size(); i++)
-				alphaZones.get(i).alphaStaticModelSort(camera);
+				alphaFaceCount += alphaZones.get(i).buildAlphaStaticModelSort(alphaFaceCount);
+
+			if(alphaFaceCount <= 0)
+				return;
+
+			eboAlphaIndices = PooledArrayType.INT.borrow(alphaFaceCount);
+
+			for (int i = 0; i < alphaZones.size(); i++)
+				alphaZones.get(i).alphaSortingJob.queue(camera, eboAlphaIndices);
 		}
 	}
 
@@ -280,6 +295,10 @@ public class WorldViewContext {
 		if (uboWorldViewStruct != null)
 			uboWorldViewStruct.free();
 		uboWorldViewStruct = null;
+
+		if(eboAlphaIndices != null)
+			PooledArrayType.INT.release(eboAlphaIndices);
+		eboAlphaIndices = null;
 
 		for (int i = 0; i < VAO_COUNT; i++) {
 			for (int k = 0; k < FRAMES_IN_FLIGHT; k++) {
