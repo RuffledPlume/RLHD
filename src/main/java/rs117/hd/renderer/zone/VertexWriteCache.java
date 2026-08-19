@@ -153,23 +153,21 @@ public final class VertexWriteCache {
 		int nx, int ny, int nz,
 		int textureFaceIdx, boolean windingReversed, int modelIdx
 	) {
-		if (stagingPosition + 7 > stagingBuffer.length)
+		if (stagingPosition + 6 > stagingBuffer.length)
 			flushAndGrow();
 
 		final int[] stagingBuffer = this.stagingBuffer;
 		final int stagingPosition = this.stagingPosition;
 
 		// ZONE_VERTEX_FORMAT
-		stagingBuffer[stagingPosition] = (y & 0xFFFF) << 16 | x & 0xFFFF;
-		stagingBuffer[stagingPosition + 1] = z & 0xFFFF;
-		stagingBuffer[stagingPosition + 2] = float16(v) << 16 | float16(u);
-		stagingBuffer[stagingPosition + 3] = float16(w);
-		// Unnormalized normals, assumed to be within short max
-		stagingBuffer[stagingPosition + 4] = (ny & 0xFFFF) << 16 | nx & 0xFFFF;
-		stagingBuffer[stagingPosition + 5] = (modelIdx & 0xFFFF) << 16 | nz & 0xFFFF;
-		stagingBuffer[stagingPosition + 6] = (windingReversed ? TEXTURE_FACE_IS_WINDING_REVERSED : 0) | textureFaceIdx;
+		stagingBuffer[stagingPosition]     = (y & 0xFFFF) << 16 | (x & 0xFFFF);
+		stagingBuffer[stagingPosition + 1] = (nx & 0xFFFF) << 16 | (z & 0xFFFF);
+		stagingBuffer[stagingPosition + 2] = (nz & 0xFFFF) << 16 | (ny & 0xFFFF);
+		stagingBuffer[stagingPosition + 3] = (float16(u) & 0xFFFF) << 16 | (modelIdx & 0xFFFF);
+		stagingBuffer[stagingPosition + 4] = (float16(w) & 0xFFFF) << 16 | (float16(v) & 0xFFFF);
+		stagingBuffer[stagingPosition + 5] = (windingReversed ? TEXTURE_FACE_IS_WINDING_REVERSED : 0) | textureFaceIdx;
 
-		this.stagingPosition += 7;
+		this.stagingPosition += 6;
 	}
 
 	public void flush() {

@@ -47,15 +47,13 @@ public class Zone implements Destructible {
 	@Inject
 	private Client client;
 
-	// ZONE_VERTEX_FORMAT
-	// position: int16 vec3
-	// pad16
-	// uvw: float16 vec3
-	// pad16
-	// normal: int16 vec3
-	// modelIdx: int16
-	// texturedFaceIdx int32 (windingReversed << 31 | modelface << 30 | idx)
-	public static final int ZONE_VERTEX_NUM_BYTES = 28;
+	// ZONE_VERTEX_FORMAT (24 bytes)
+	// position: int16 vec3          [offset  0, 6 bytes]
+	// normal:   int16 vec3          [offset  6, 6 bytes]  (unaligned)
+	// modelIdx: int16               [offset 12, 2 bytes]  (unaligned)
+	// uvw:      float16 vec3        [offset 14, 6 bytes]  (unaligned)
+	// texturedFaceIdx: int32        [offset 20, 4 bytes]
+	public static final int ZONE_VERTEX_NUM_BYTES = 24;
 	public static final int ZONE_VERTEX_NUM_INTS = ZONE_VERTEX_NUM_BYTES / Integer.BYTES;
 	public static final int TEXTURE_FACE_IS_WINDING_REVERSED = 1 << 31;
 	public static final int TEXTURE_FACE_IS_MODEL = 1 << 30;
@@ -282,17 +280,17 @@ public class Zone implements Destructible {
 		glEnableVertexAttribArray(0);
 		glVertexAttribPointer(0, 4, GL_SHORT, false, ZONE_VERTEX_NUM_BYTES, 0);
 
-		// UVs
+		// UVs (u, v, w)
 		glEnableVertexAttribArray(1);
-		glVertexAttribPointer(1, 4, GL_HALF_FLOAT, false, ZONE_VERTEX_NUM_BYTES, 8);
+		glVertexAttribPointer(1, 4, GL_HALF_FLOAT, false, ZONE_VERTEX_NUM_BYTES, 14);
 
-		// Normals
+		// Normals + modelIdx (nx, ny, nz, modelIdx)
 		glEnableVertexAttribArray(2);
-		glVertexAttribPointer(2, 4, GL_SHORT, false, ZONE_VERTEX_NUM_BYTES, 16);
+		glVertexAttribPointer(2, 4, GL_SHORT, false, ZONE_VERTEX_NUM_BYTES, 6);
 
 		// TextureFaceIdx
 		glEnableVertexAttribArray(3);
-		glVertexAttribIPointer(3, 1, GL_INT, ZONE_VERTEX_NUM_BYTES, 24);
+		glVertexAttribIPointer(3, 1, GL_INT, ZONE_VERTEX_NUM_BYTES, 20);
 
 		glBindBuffer(GL_ARRAY_BUFFER, metadata);
 

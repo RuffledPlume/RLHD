@@ -134,17 +134,17 @@ public class DynamicModelVAO implements Destructible {
 		glEnableVertexAttribArray(0);
 		glVertexAttribPointer(0, 4, GL_HALF_FLOAT, false, ZONE_VERTEX_NUM_BYTES, 0);
 
-		// UVs
+		// UVs (u, v, w)
 		glEnableVertexAttribArray(1);
-		glVertexAttribPointer(1, 4, GL_HALF_FLOAT, false, ZONE_VERTEX_NUM_BYTES, 8);
+		glVertexAttribPointer(1, 4, GL_HALF_FLOAT, false, ZONE_VERTEX_NUM_BYTES, 14);
 
-		// Normals
+		// Normals + modelIdx (nx, ny, nz, modelIdx)
 		glEnableVertexAttribArray(2);
-		glVertexAttribPointer(2, 4, GL_SHORT, false, ZONE_VERTEX_NUM_BYTES, 16);
+		glVertexAttribPointer(2, 4, GL_SHORT, false, ZONE_VERTEX_NUM_BYTES, 6);
 
 		// TextureFaceIdx
 		glEnableVertexAttribArray(3);
-		glVertexAttribIPointer(3, 1, GL_INT, ZONE_VERTEX_NUM_BYTES, 24);
+		glVertexAttribIPointer(3, 1, GL_INT, ZONE_VERTEX_NUM_BYTES, 20);
 
 		glBindBuffer(GL_ARRAY_BUFFER, stubMetadata.id);
 
