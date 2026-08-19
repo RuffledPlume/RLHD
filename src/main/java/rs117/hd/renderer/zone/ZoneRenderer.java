@@ -1095,30 +1095,32 @@ public class ZoneRenderer implements Renderer {
 					directionalCmd.SetShader(fastShadowProgram);
 					directionalCmd.ExecuteSubCommandBuffer(ctx.vaoDirectionalCmd);
 
-					sceneCmd.SetShader(sceneDiscardProgram);
 					sceneCmd.ExecuteSubCommandBuffer(ctx.vaoSceneCmd);
-					sceneCmd.SetShader(sceneProgram);
 					break;
 				case DrawCallbacks.PASS_ALPHA:
 					modelStreamingManager.ensureAsyncUploadsComplete(null);
 
-					// Draw opaque
-					ctx.drawAll(VAO_OPAQUE, ctx.vaoSceneCmd);
+					// Draw Shadows
 					ctx.drawAll(VAO_OPAQUE, ctx.vaoDirectionalCmd);
 					ctx.drawAll(VAO_PLAYER, ctx.vaoDirectionalCmd);
-
-					// Draw shadow-only models
 					ctx.drawAll(VAO_SHADOW, ctx.vaoDirectionalCmd);
 
+					// Draw opaque
+					ctx.vaoSceneCmd.SetShader(sceneDiscardProgram);
+					ctx.drawAll(VAO_OPAQUE, ctx.vaoSceneCmd);
+
 					// Draw players with sorted alpha, without writing depth
+					ctx.vaoSceneCmd.SetShader(sceneProgram);
 					ctx.vaoSceneCmd.DepthMask(false);
 					ctx.drawAll(VAO_PLAYER, ctx.vaoSceneCmd);
 					ctx.vaoSceneCmd.DepthMask(true);
+					ctx.vaoSceneCmd.SetShader(sceneDiscardProgram);
 
 					// Redraw players, this time only writing depth, for correct ordering with the background
 					ctx.vaoSceneCmd.ColorMask(false, false, false, false);
 					ctx.drawAll(VAO_PLAYER, ctx.vaoSceneCmd);
 					ctx.vaoSceneCmd.ColorMask(true, true, true, true);
+					ctx.vaoSceneCmd.SetShader(sceneProgram);
 
 					if (sceneManager.isRoot(ctx)) {
 						frameTimer.begin(Timer.FRAME_CONTEXT_UNMAP);
