@@ -301,50 +301,63 @@ public class DynamicModelVAO implements Destructible {
 		pendingCopyCount++;
 	}
 
-	private int mergeRanges(int fromDrawIdx, int toDrawIdx) {
-		int count = 0;
-		int maxCount = toDrawIdx - fromDrawIdx;
+	void draw(CommandBuffer cmd, int fromDrawIdx, int toDrawIdx) {
+		ensureMergedCapacity(toDrawIdx - fromDrawIdx);
+
+		int rangeCount = 0;
+		for (int i = fromDrawIdx; i < toDrawIdx; i++)
+			rangeCount = appendMergedRange(i, rangeCount);
+
+		issueDraw(cmd, rangeCount);
+	}
+
+	void draw(CommandBuffer cmd, int[] drawIndices, int count) {
+		ensureMergedCapacity(count);
+
+		int rangeCount = 0;
+		for (int n = 0; n < count; n++)
+			rangeCount = appendMergedRange(drawIndices[n], rangeCount);
+
+		issueDraw(cmd, rangeCount);
+	}
+
+	private void ensureMergedCapacity(int maxCount) {
 		if (mergedOffsets.length < maxCount) {
 			mergedOffsets = Arrays.copyOf(mergedOffsets, maxCount);
 			mergedCounts = Arrays.copyOf(mergedCounts, maxCount);
 		}
+	}
 
-		final boolean staging = hasStagingBuffer();
-		final int[] mOffsets = mergedOffsets;
-		final int[] mCounts = mergedCounts;
+	private int appendMergedRange(int i, int count) {
+		int c = drawCounts[i];
+		if (c <= 0)
+			return count;
 
-		for (int i = fromDrawIdx; i < toDrawIdx; i++) {
-			int c = drawCounts[i];
-			if (c <= 0)
-				continue;
-
-			int offset;
-			if (staging) {
-				int packed = packedOffsets[i];
-				if (packed == -1) {
-					packed = nextPackedOffset;
-					nextPackedOffset += c;
-					addPendingCopy(drawOffsets[i], packed, c);
-					packedOffsets[i] = packed;
-				}
-				offset = packed;
-			} else {
-				offset = drawOffsets[i];
+		int offset;
+		if (hasStagingBuffer()) {
+			int packed = packedOffsets[i];
+			if (packed == -1) {
+				packed = nextPackedOffset;
+				nextPackedOffset += c;
+				addPendingCopy(drawOffsets[i], packed, c);
+				packedOffsets[i] = packed;
 			}
+			offset = packed;
+		} else {
+			offset = drawOffsets[i];
+		}
 
-			if (count > 0 && mOffsets[count - 1] + mCounts[count - 1] == offset) {
-				mCounts[count - 1] += c;
-			} else {
-				mOffsets[count] = offset;
-				mCounts[count] = c;
-				count++;
-			}
+		if (count > 0 && mergedOffsets[count - 1] + mergedCounts[count - 1] == offset) {
+			mergedCounts[count - 1] += c;
+		} else {
+			mergedOffsets[count] = offset;
+			mergedCounts[count] = c;
+			count++;
 		}
 		return count;
 	}
 
-	void draw(CommandBuffer cmd, int fromDrawIdx, int toDrawIdx) {
-		int rangeCount = mergeRanges(fromDrawIdx, toDrawIdx);
+	private void issueDraw(CommandBuffer cmd, int rangeCount) {
 		if (rangeCount <= 0)
 			return;
 
