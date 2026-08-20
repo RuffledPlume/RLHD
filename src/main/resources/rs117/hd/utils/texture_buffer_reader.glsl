@@ -43,13 +43,11 @@ struct TexBufferReader {
     // Currently cached texel index.
     int loadedTexel;
 
-#ifdef GL_KHR_shader_subgroup_vote
     // if true texel fetches are scalarized via subgroup ops
     bool scalar;
 
     // if true then this lene has been elected to peform reads
     bool elected;
-#endif
 };
 
 TexBufferReader buildTexBufferReader(int position, bool scalar) {
