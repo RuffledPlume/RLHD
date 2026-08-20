@@ -18,6 +18,7 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import lombok.experimental.Accessors;
 import lombok.extern.slf4j.Slf4j;
+import rs117.hd.opengl.shader.SceneShaderProgram;
 import rs117.hd.opengl.uniforms.UBOMaterials;
 import rs117.hd.scene.MaterialManager;
 import rs117.hd.scene.model_overrides.ModelOverride;
@@ -81,6 +82,15 @@ public class Material {
 	public static final Material NONE = new Material().name("NONE");
 	public static final Material UNLIT = new Material().name("UNLIT").parent(NONE).unlit(true);
 	public static final Material[] REQUIRED_MATERIALS = { NONE, UNLIT };
+
+	public int getFeatureMask() {
+		int mask = 0;
+		if(normalMap != null)
+			mask |= SceneShaderProgram.Feature.NORMAL_MAPPING.mask();
+		if(displacementMap != null)
+			mask |= SceneShaderProgram.Feature.PARALLAX_MAPPING.mask();
+		return mask;
+	}
 
 	public static int getTextureLayer(@Nullable Material material) {
 		return material == null ? -1 : material.textureLayer;

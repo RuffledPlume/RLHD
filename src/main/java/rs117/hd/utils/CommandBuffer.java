@@ -112,10 +112,14 @@ public class CommandBuffer {
 		cmd[writeHead++] = texId | (long) bindingIndex << 32;
 	}
 
-	public void SetShader(ShaderProgram program) {
+	public void SetShader(ShaderProgram program, int featureMask) {
 		ensureCapacity(1);
 		int objectIdx = writeObject(program);
-		cmd[writeHead++] = GL_USE_PROGRAM & 0xFF | (long) objectIdx << 8;
+		cmd[writeHead++] = (GL_USE_PROGRAM & 0xFFL) | ((long) objectIdx & INT_MASK) << 8 | ((long) featureMask & INT_MASK) << 32;
+	}
+
+	public void SetShader(ShaderProgram program) {
+		SetShader(program, -1);
 	}
 
 	public void ExecuteSubCommandBuffer(CommandBuffer subCommandBuffer) {
@@ -326,8 +330,15 @@ public class CommandBuffer {
 						break;
 					}
 					case GL_USE_PROGRAM: {
-						int objectIdx = (int) (data >> 8);
-						renderState.program.set((ShaderProgram) objects[objectIdx]);
+						int objectIdx = (int) ((data >>> 8) & 0xFFFFFF);
+						int featureMask = (int) (data >>> 32);
+
+						ShaderProgram program = (ShaderProgram) objects[objectIdx];
+						ShaderProgram.ShaderVariant variant = featureMask == -1
+							? program.getVariant()
+							: program.getVariant(featureMask);
+
+						renderState.program.set(variant);
 						break;
 					}
 					case GL_TOGGLE_TYPE: {

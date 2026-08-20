@@ -30,6 +30,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.client.callback.RenderCallbackManager;
 import rs117.hd.HdPlugin;
+import rs117.hd.opengl.shader.SceneShaderProgram;
 import rs117.hd.scene.GamevalManager;
 import rs117.hd.scene.MaterialManager;
 import rs117.hd.scene.ModelOverrideManager;
@@ -253,10 +254,12 @@ public class SceneUploader implements AutoCloseable {
 
 		if (vb != null) {
 			// Upload water surface tiles to be drawn after everything else
+			this.level = Zone.LEVEL_WATER_SURFACE;
 			if (zone.hasWater)
 				uploadZoneWater(ctx, zone, mzx, mzz, vb, fb);
 			zone.levelOffsets[Zone.LEVEL_WATER_SURFACE] = vb.position();
 
+			this.level = Zone.LEVEL_GAP_FILLER;
 			if (zone.hasGapFiller)
 				uploadZoneGapFillers(ctx, mzx, mzz, vb, fb);
 			zone.levelOffsets[Zone.LEVEL_GAP_FILLER] = vb.position();
@@ -513,6 +516,7 @@ public class SceneUploader implements AutoCloseable {
 		if (paint != null && drawTile) {
 			uploadTilePaint(
 				ctx,
+				zone,
 				t,
 				paint,
 				onlyWaterSurface,
@@ -787,7 +791,7 @@ public class SceneUploader implements AutoCloseable {
 		int alphaStart = alphaBuffer != null ? alphaBuffer.position() : 0;
 		try {
 			uploadStaticModel(
-				ctx, tile, model, modelOverride, uuid,
+				ctx, zone, tile, model, modelOverride, uuid,
 				preOrientation, orient,
 				x - basex, y, z - basez,
 				tileExX, tileExY, tileZ,
@@ -857,6 +861,7 @@ public class SceneUploader implements AutoCloseable {
 	@SuppressWarnings({ "UnnecessaryLocalVariable" })
 	private void uploadTilePaint(
 		ZoneSceneContext ctx,
+		Zone zone,
 		Tile tile,
 		SceneTilePaint paint,
 		boolean onlyWaterSurface,
@@ -1016,6 +1021,8 @@ public class SceneUploader implements AutoCloseable {
 
 			if (seColor == 0 && nwColor == 0 && (neColor == 0 || swColor == 0))
 				swColor = seColor = nwColor = neColor = 1 << 16; // Bias depth a bit if it's flush with underwater geometry
+
+			zone.levelFeatures[level] |= SceneShaderProgram.Feature.WATER.mask();
 		} else {
 			// Underwater geometry
 			swColor = seColor = neColor = nwColor = UNDERWATER_HSL;
@@ -1041,6 +1048,8 @@ public class SceneUploader implements AutoCloseable {
 			seTerrainData = HDUtils.packTerrainData(true, max(1, seDepth), waterType, tileZ);
 			nwTerrainData = HDUtils.packTerrainData(true, max(1, nwDepth), waterType, tileZ);
 			neTerrainData = HDUtils.packTerrainData(true, max(1, neDepth), waterType, tileZ);
+
+			zone.levelFeatures[level] |= SceneShaderProgram.Feature.UNDERWATER.mask();
 		}
 
 		swHeight -= override.heightOffset;
@@ -1064,6 +1073,14 @@ public class SceneUploader implements AutoCloseable {
 		float tmp = uvx;
 		uvx = fract(uvx * uvcos - uvy * uvsin);
 		uvy = fract(tmp * uvsin + uvy * uvcos);
+
+		if(swMaterialData != seMaterialData || swMaterialData != nwMaterialData || swMaterialData != neMaterialData )
+			zone.levelFeatures[level] |= SceneShaderProgram.Feature.MATERIAL_BLENDING.mask();
+
+		zone.levelFeatures[level] |= swMaterial.getFeatureMask() |
+								 seMaterial.getFeatureMask() |
+								 nwMaterial.getFeatureMask() |
+								 neMaterial.getFeatureMask();
 
 		final var vb = writeCache.getVertexBuffer();
 		final var tb = writeCache.getTextureBuffer();
@@ -1494,6 +1511,7 @@ public class SceneUploader implements AutoCloseable {
 	// scene upload
 	private int uploadStaticModel(
 		ZoneSceneContext ctx,
+		Zone zone,
 		Tile tile,
 		Model model,
 		ModelOverride modelOverride,
@@ -1776,6 +1794,8 @@ public class SceneUploader implements AutoCloseable {
 			} else {
 				faceUVs = GEOMETRY_UVS;
 			}
+
+			zone.levelFeatures[level] |= material.getFeatureMask();
 
 			final boolean shouldRotateNormals;
 			boolean shouldCalculateFaceNormal;

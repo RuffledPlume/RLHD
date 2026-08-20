@@ -70,9 +70,11 @@ public final class RenderState {
 		protected void applyValues(int[] values) { glViewport(values[0], values[1], values[2], values[3]); }
 	}
 
-	public static final class GLShaderProgram extends GLState.Object<ShaderProgram> {
+	public static final class GLShaderProgram extends GLState.Object<ShaderProgram.ShaderVariant> {
 		@Override
-		protected void applyValue(ShaderProgram program) { program.use(); }
+		protected void applyValue(ShaderProgram.ShaderVariant variant) { variant.use(); }
+
+		public void set(ShaderProgram program) { set(program.getVariant()); }
 	}
 
 	public static final class GLDrawBuffer extends GLState.Int {

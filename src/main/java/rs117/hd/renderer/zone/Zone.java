@@ -13,6 +13,7 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import org.lwjgl.system.MemoryStack;
 import rs117.hd.HdPlugin;
+import rs117.hd.opengl.shader.ShaderProgram;
 import rs117.hd.scene.MaterialManager;
 import rs117.hd.scene.SceneContext;
 import rs117.hd.scene.materials.Material;
@@ -96,6 +97,7 @@ public class Zone implements Destructible {
 	final StaticAlphaSortingJob alphaSortingJob = new StaticAlphaSortingJob();
 	ZoneUploadJob uploadJob;
 
+	int[] levelFeatures = new int[LEVEL_COUNT];
 	int[] levelOffsets = new int[LEVEL_COUNT]; // buffer pos in ints for the end of the level
 
 	int[][] rids;
@@ -326,7 +328,7 @@ public class Zone implements Destructible {
 		copyTo(glDrawLength, drawEnd, 0, drawIdx);
 	}
 
-	void renderOpaque(CommandBuffer cmd, WorldViewContext ctx, boolean roofShadows) {
+	void renderOpaque(CommandBuffer cmd, WorldViewContext ctx, ShaderProgram program, boolean roofShadows) {
 		drawIdx = 0;
 
 		int currentLevel = ctx.level;
@@ -337,6 +339,7 @@ public class Zone implements Destructible {
 			hiddenRoofIds = Collections.emptySet();
 		}
 
+		int features = levelFeatures[ctx.minLevel];
 		for (int level = ctx.minLevel; level <= maxLevel; ++level) {
 			int[] rids = this.rids[level];
 			int[] roofStart = this.roofStart[level];
@@ -347,31 +350,39 @@ public class Zone implements Destructible {
 				int start = level == 0 ? 0 : this.levelOffsets[level - 1];
 				int end = this.levelOffsets[level];
 				pushRange(start, end);
-				continue;
-			}
+			} else {
 
-			for (int roofIdx = 0; roofIdx < rids.length; ++roofIdx) {
-				int rid = rids[roofIdx];
-				if (rid > 0 && !hiddenRoofIds.contains(rid)) {
-					// draw the roof
-					assert roofEnd[roofIdx] >= roofStart[roofIdx];
-					if (roofEnd[roofIdx] > roofStart[roofIdx]) {
-						pushRange(roofStart[roofIdx], roofEnd[roofIdx]);
+				for (int roofIdx = 0; roofIdx < rids.length; ++roofIdx) {
+					int rid = rids[roofIdx];
+					if (rid > 0 && !hiddenRoofIds.contains(rid)) {
+						// draw the roof
+						assert roofEnd[roofIdx] >= roofStart[roofIdx];
+						if (roofEnd[roofIdx] > roofStart[roofIdx]) {
+							pushRange(roofStart[roofIdx], roofEnd[roofIdx]);
+						}
 					}
 				}
+				// push from the end of the last roof to the end of the level
+				int endpos = level == 0 ? 0 : this.levelOffsets[level - 1];
+				for (int roofIdx = rids.length - 1; roofIdx >= 0; --roofIdx) {
+					int rid = rids[roofIdx];
+					if (rid > 0) {
+						endpos = roofEnd[roofIdx];
+						break;
+					}
+				}
+				// draw the non roofs
+				pushRange(endpos, this.levelOffsets[level]);
 			}
 
-			// push from the end of the last roof to the end of the level
-			int endpos = level == 0 ? 0 : this.levelOffsets[level - 1];
-			for (int roofIdx = rids.length - 1; roofIdx >= 0; --roofIdx) {
-				int rid = rids[roofIdx];
-				if (rid > 0) {
-					endpos = roofEnd[roofIdx];
-					break;
-				}
+			if(drawIdx != 0 && program != null && features != this.levelFeatures[level]) {
+				lastDrawMode = STATIC_UNSORTED;
+				lastVao = glVao;
+				lastTboF = tboF.getTexId();
+				cmd.SetShader(program, features);
+				flush(cmd);
+				features = this.levelFeatures[level];
 			}
-			// draw the non roofs
-			pushRange(endpos, this.levelOffsets[level]);
 		}
 
 		if (drawIdx == 0)
@@ -380,6 +391,8 @@ public class Zone implements Destructible {
 		lastDrawMode = STATIC_UNSORTED;
 		lastVao = glVao;
 		lastTboF = tboF.getTexId();
+		if(program != null)
+			cmd.SetShader(program, features);
 		flush(cmd);
 	}
 

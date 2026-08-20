@@ -44,6 +44,7 @@ import rs117.hd.config.ColorFilter;
 import rs117.hd.config.DynamicLights;
 import rs117.hd.config.ShadowMode;
 import rs117.hd.opengl.shader.SceneShaderProgram;
+import rs117.hd.opengl.shader.SceneShaderProgram.Feature;
 import rs117.hd.opengl.shader.ShaderException;
 import rs117.hd.opengl.shader.ShaderIncludes;
 import rs117.hd.opengl.shader.ShadowShaderProgram;
@@ -781,7 +782,7 @@ public class ZoneRenderer implements Renderer {
 	}
 
 	private void scenePass() {
-		sceneProgram.use();
+		sceneProgram.use(0);
 
 		frameTimer.begin(Timer.DRAW_SCENE);
 		renderState.framebuffer.set(GL_DRAW_FRAMEBUFFER, plugin.fboScene);
@@ -923,7 +924,7 @@ public class ZoneRenderer implements Renderer {
 
 			frameTimer.begin(Timer.DRAW_ZONE_OPAQUE);
 			if (!sceneManager.isRoot(ctx) || z.inSceneFrustum) {
-				z.renderOpaque(sceneCmd, ctx, false);
+				z.renderOpaque(sceneCmd, ctx, sceneProgram, false);
 
 				if (z.hasGapFiller)
 					z.renderOpaqueLevel(gapFillerCmd, Zone.LEVEL_GAP_FILLER);
@@ -932,7 +933,7 @@ public class ZoneRenderer implements Renderer {
 			final boolean isSquashed = ctx.uboWorldViewStruct != null && ctx.uboWorldViewStruct.isSquashed();
 			if (!isSquashed && (!sceneManager.isRoot(ctx) || z.inShadowFrustum)) {
 				directionalCmd.SetShader(fastShadowProgram);
-				z.renderOpaque(directionalCmd, ctx, shouldDrawRoofShadows);
+				z.renderOpaque(directionalCmd, ctx, null, shouldDrawRoofShadows);
 			}
 			frameTimer.end(Timer.DRAW_ZONE_OPAQUE);
 
@@ -959,8 +960,10 @@ public class ZoneRenderer implements Renderer {
 
 			frameTimer.begin(Timer.DRAW_ZONE_ALPHA);
 			final boolean renderWater = z.inSceneFrustum && level == 0 && z.hasWater;
-			if (renderWater)
+			if (renderWater) {
+				sceneCmd.SetShader(sceneProgram, Feature.WATER.mask());
 				z.renderOpaqueLevel(sceneCmd, Zone.LEVEL_WATER_SURFACE);
+			}
 
 			modelStreamingManager.ensureAsyncUploadsComplete(z);
 
@@ -978,6 +981,7 @@ public class ZoneRenderer implements Renderer {
 				}
 
 				if (!sceneManager.isRoot(ctx) || z.inSceneFrustum) {
+					sceneCmd.SetShader(sceneProgram, z.levelFeatures[level]);
 					if (renderWater) {
 						// Water is currently drawn with depth writes & depth testing enabled, and as such, alpha models and the water plane
 						// can Z-fight depending on draw order. To avoid alpha models above water causing the water surface to fail its
@@ -1030,6 +1034,7 @@ public class ZoneRenderer implements Renderer {
 					directionalCmd.SetShader(fastShadowProgram);
 					directionalCmd.ExecuteSubCommandBuffer(ctx.vaoDirectionalCmd);
 
+					sceneCmd.SetShader(sceneProgram, 0);
 					sceneCmd.ExecuteSubCommandBuffer(ctx.vaoSceneCmd);
 					break;
 				case DrawCallbacks.PASS_ALPHA:

@@ -39,6 +39,12 @@
 
 #include MATERIAL_CONSTANTS
 
+#include FEATURE_MATERIAL_BLENDING
+#include FEATURE_WATER
+#include FEATURE_UNDERWATER
+#include FEATURE_PARALLAX_MAPPING
+#include FEATURE_NORMAL_MAPPING
+
 uniform sampler2DArray textureArray;
 uniform sampler2D shadowMap;
 uniform usampler2DArray tiledLightingArray;
@@ -87,9 +93,14 @@ void main() {
     // View & light directions are from the fragment to the camera/light
     vec3 viewDir = normalize(cameraPos - IN.position);
 
-    Material material1 = getMaterial(fMaterialData[0] >> MATERIAL_INDEX_SHIFT & MATERIAL_INDEX_MASK);
-    Material material2 = getMaterial(fMaterialData[1] >> MATERIAL_INDEX_SHIFT & MATERIAL_INDEX_MASK);
-    Material material3 = getMaterial(fMaterialData[2] >> MATERIAL_INDEX_SHIFT & MATERIAL_INDEX_MASK);
+    Material material1, material2, material3;
+#if FEATURE_MATERIAL_BLENDING
+    material1 = getMaterial(fMaterialData[0] >> MATERIAL_INDEX_SHIFT & MATERIAL_INDEX_MASK);
+    material2 = getMaterial(fMaterialData[1] >> MATERIAL_INDEX_SHIFT & MATERIAL_INDEX_MASK);
+    material3 = getMaterial(fMaterialData[2] >> MATERIAL_INDEX_SHIFT & MATERIAL_INDEX_MASK);
+#else
+    material1 = material2 = material3 = getMaterial(fMaterialData[0] >> MATERIAL_INDEX_SHIFT & MATERIAL_INDEX_MASK);
+#endif
 
     // Water data
     bool isTerrain = (fTerrainData[0] & 1) != 0; // 1 = 0b1
@@ -116,9 +127,12 @@ void main() {
 
     vec4 outputColor = vec4(1);
 
+    #if FEATURE_WATER
     if (isWater) {
         outputColor = sampleWater(waterTypeIndex, viewDir);
-    } else {
+    } else
+    #endif
+    {
         vec2 blendedUv = IN.uv;
 
         float mipBias = 0;
@@ -184,7 +198,7 @@ void main() {
 
         float selfShadowing = 0;
         vec3 fragPos = IN.position;
-        #if PARALLAX_OCCLUSION_MAPPING
+        #if PARALLAX_OCCLUSION_MAPPING && FEATURE_PARALLAX_MAPPING
             mat3 invTBN = inverse(TBN);
             vec3 tsViewDir = invTBN * viewDir;
             vec3 tsLightDir = invTBN * -lightDir;
@@ -244,6 +258,12 @@ void main() {
         texColor2.rgb *= material2.brightness;
         texColor3.rgb *= material3.brightness;
 
+        // get fragment colors by combining vertex colors and texture samples
+        vec4 texA = getMaterialShouldOverrideBaseColor(material1) ? texColor1 : vec4(texColor1.rgb * baseColor1.rgb, min(texColor1.a, baseColor1.a));
+        vec4 texB = getMaterialShouldOverrideBaseColor(material2) ? texColor2 : vec4(texColor2.rgb * baseColor2.rgb, min(texColor2.a, baseColor2.a));
+        vec4 texC = getMaterialShouldOverrideBaseColor(material3) ? texColor3 : vec4(texColor3.rgb * baseColor3.rgb, min(texColor3.a, baseColor3.a));
+
+#if FEATURE_MATERIAL_BLENDING
         ivec3 isOverlay = ivec3(
             fMaterialData[0] >> MATERIAL_FLAG_IS_OVERLAY & 1,
             fMaterialData[1] >> MATERIAL_FLAG_IS_OVERLAY & 1,
@@ -281,12 +301,6 @@ void main() {
             overlayBlend = clamp(overlayBlend, 0, 1);
         }
 
-
-        // get fragment colors by combining vertex colors and texture samples
-        vec4 texA = getMaterialShouldOverrideBaseColor(material1) ? texColor1 : vec4(texColor1.rgb * baseColor1.rgb, min(texColor1.a, baseColor1.a));
-        vec4 texB = getMaterialShouldOverrideBaseColor(material2) ? texColor2 : vec4(texColor2.rgb * baseColor2.rgb, min(texColor2.a, baseColor2.a));
-        vec4 texC = getMaterialShouldOverrideBaseColor(material3) ? texColor3 : vec4(texColor3.rgb * baseColor3.rgb, min(texColor3.a, baseColor3.a));
-
         // combine fragment colors based on each blend, creating
         // one color for each overlay/underlay 'layer'
         vec4 underlayColor = texA * underlayBlend.x + texB * underlayBlend.y + texC * underlayBlend.z;
@@ -312,16 +326,23 @@ void main() {
         }
 
         outputColor = mix(underlayColor, overlayColor, overlayMix);
+    #else
+        outputColor = texA * IN.texBlend.x + texB * IN.texBlend.y + texC * IN.texBlend.z;
+    #endif
 
         // normals
         vec3 normals;
         if ((fMaterialData[0] >> MATERIAL_FLAG_UPWARDS_NORMALS & 1) == 1) {
             normals = vec3(0, -1, 0);
         } else {
+        #if FEATURE_NORMAL_MAPPING
             vec3 n1 = sampleNormalMap(material1, uv1, TBN);
             vec3 n2 = sampleNormalMap(material2, uv2, TBN);
             vec3 n3 = sampleNormalMap(material3, uv3, TBN);
             normals = normalize(n1 * IN.texBlend.x + n2 * IN.texBlend.y + n3 * IN.texBlend.z);
+        #else
+            normals = N;
+        #endif
         }
 
         float lightDotNormals = dot(normals, lightDir);
@@ -468,9 +489,11 @@ void main() {
         }
         outputColor.rgb = linearToSrgb(outputColor.rgb);
 
+    #if FEATURE_UNDERWATER
         if (isUnderwater) {
             sampleUnderwater(outputColor.rgb, waterType, waterDepth, lightDotNormals);
         }
+    #endif
     }
 
     #if LEGACY_RENDERER
