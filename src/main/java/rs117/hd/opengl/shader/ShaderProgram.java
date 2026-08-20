@@ -22,6 +22,7 @@ public class ShaderProgram implements Destructible {
 	private static class UniformBufferBlockPair {
 		public final UniformBuffer<?> buffer;
 		public final int uboProgramIndex;
+		private int bindingIndex = -1;
 	}
 
 	public static class ShaderVariant {
@@ -41,8 +42,14 @@ public class ShaderProgram implements Destructible {
 		public void use() {
 			program.activeVariant = this;
 			glUseProgram(glProgram);
-			for (var pair : uniformBlockMappings)
-				glUniformBlockBinding(glProgram, pair.uboProgramIndex, pair.buffer.getBindingIndex());
+
+			for (int i = 0; i < uniformBlockMappings.size(); i++ ) {
+				final var pair = uniformBlockMappings.get(i);
+				if(pair.bindingIndex != pair.buffer.getBindingIndex()) {
+					glUniformBlockBinding(glProgram, pair.uboProgramIndex, pair.buffer.getBindingIndex());
+					pair.bindingIndex = pair.buffer.getBindingIndex();
+				}
+			}
 		}
 	}
 
@@ -120,6 +127,25 @@ public class ShaderProgram implements Destructible {
 		return getVariant(allFeaturesMask);
 	}
 
+	private String getShaderName() {
+		String name = getClass().getName();
+		int packageEnd = name.lastIndexOf('.');
+		return name.substring(packageEnd + 1).replace('$', '.');
+	}
+
+	private String getVariantName(int featureMask) {
+		var enabledFeatures = new ArrayList<String>();
+		for (var feature : features) {
+			if ((featureMask & feature.mask()) != 0)
+				enabledFeatures.add(feature.getDefineName());
+		}
+
+		String name = getShaderName();
+		return enabledFeatures.isEmpty()
+			? name + " [BASE]"
+			: name + " [" + String.join(", ", enabledFeatures) + "]";
+	}
+
 	public ShaderVariant getVariant(int featureMask) {
 		assert baseIncludes != null : "compile(ShaderIncludes) must be called before getVariant()";
 
@@ -162,7 +188,7 @@ public class ShaderProgram implements Destructible {
 		for (var feature : features)
 			includes.define(feature.getDefineName(), (featureMask & (1 << feature.ordinal())) != 0);
 
-		int glProgram = shaderTemplate.compile(includes);
+		int glProgram = shaderTemplate.compile(includes, getVariantName(featureMask));
 		var variant = new ShaderVariant(this, featureMask, glProgram);
 
 		for (var prop : uniformProperties) {

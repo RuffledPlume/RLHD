@@ -34,6 +34,7 @@ import org.lwjgl.BufferUtils;
 import org.lwjgl.opengl.*;
 
 import static org.lwjgl.opengl.GL33C.*;
+import static rs117.hd.HdPlugin.GL_CAPS;
 import static rs117.hd.opengl.shader.ShaderIncludes.SHADER_DUMP_PATH;
 
 @Slf4j
@@ -58,7 +59,7 @@ public class ShaderTemplate
 		return this;
 	}
 
-	public int compile(ShaderIncludes includes) throws ShaderException, IOException {
+	public int compile(ShaderIncludes includes, String name) throws ShaderException, IOException {
 		int program = glCreateProgram();
 		int[] shaders = new int[shaderTypePaths.size()];
 		int i = 0;
@@ -118,6 +119,9 @@ public class ShaderTemplate
 					SHADER_DUMP_PATH.resolve("binaries", combinedName + ".bin").mkdirs().writeByteBuffer(binary);
 				}
 			}
+
+			if (log.isDebugEnabled() && GL_CAPS.OpenGL43 && name != null && !name.isEmpty())
+				GL43C.glObjectLabel(GL43C.GL_PROGRAM, program, name);
 		} finally {
 			while (i > 0) {
 				int shader = shaders[--i];
