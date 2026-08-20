@@ -1034,7 +1034,7 @@ public class ZoneRenderer implements Renderer {
 					directionalCmd.SetShader(fastShadowProgram);
 					directionalCmd.ExecuteSubCommandBuffer(ctx.vaoDirectionalCmd);
 
-					sceneCmd.SetShader(sceneProgram, 0);
+					sceneCmd.SetShader(sceneProgram, SceneShaderProgram.Feature.WORLD_UVS.mask());
 					sceneCmd.ExecuteSubCommandBuffer(ctx.vaoSceneCmd);
 					break;
 				case DrawCallbacks.PASS_ALPHA:

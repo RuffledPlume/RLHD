@@ -14,7 +14,8 @@ public class SceneShaderProgram extends ShaderProgram {
 		WATER,
 		UNDERWATER,
 		NORMAL_MAPPING,
-		PARALLAX_MAPPING;
+		PARALLAX_MAPPING,
+		WORLD_UVS;
 
 		@Getter
 		private final ShaderFeature[] dependencies;

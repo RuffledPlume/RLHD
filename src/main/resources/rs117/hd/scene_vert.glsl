@@ -31,6 +31,10 @@
 #include <utils/constants.glsl>
 #include <utils/uvs.glsl>
 
+#include FEATURE_MATERIAL_BLENDING
+#include FEATURE_WORLD_UVS
+#include FEATURE_UNDERWATER
+
 layout (location = 0) in vec3 vPosition;
 
 #if ZONE_RENDERER
@@ -77,13 +81,17 @@ layout (location = 0) in vec3 vPosition;
 
         int materialData = 0;
         int alphaBiasHsl = 0;
+        int terrainData = 0;
+    #if FEATURE_MATERIAL_BLENDING
         if (isProvoking) {
             // Only the Provoking vertex needs to fetch the face data
             fAlphaBiasHsl = texelFetch(textureFaces, faceIdx).xyz;
             fMaterialData = texelFetch(textureFaces, faceIdx + 1).xyz;
+            fTerrainData = texelFetch(textureFaces, faceIdx + 2).xyz;
             fWorldViewId = vWorldViewId;
             alphaBiasHsl = fAlphaBiasHsl[vertex];
             materialData = fMaterialData[vertex];
+            terrainData = fTerrainData[vertex];
         } else {
             // All outputs must be written to for macOS compatibility
             fAlphaBiasHsl = ivec3(0);
@@ -91,8 +99,13 @@ layout (location = 0) in vec3 vPosition;
             fWorldViewId  = 0;
             alphaBiasHsl = texelFetch(textureFaces, faceIdx)[vertex];
             materialData = texelFetch(textureFaces, faceIdx + 1)[vertex];
+            terrainData = texelFetch(textureFaces, faceIdx + 2)[vertex];
         }
-        fTerrainData = texelFetch(textureFaces, faceIdx + 2).xyz;
+    #else
+        fAlphaBiasHsl = ivec3(alphaBiasHsl = texelFetch(textureFaces, faceIdx).x);
+        fMaterialData = ivec3(materialData = texelFetch(textureFaces, faceIdx + 1).x);
+        fTerrainData = ivec3(terrainData = texelFetch(textureFaces, faceIdx + 2).x);
+    #endif
 
         vec3 sceneOffset = vec3(vSceneBase.x, 0, vSceneBase.y);
         vec3 worldNormal = vNormal.xyz;
@@ -103,9 +116,10 @@ layout (location = 0) in vec3 vPosition;
             worldNormal = mat3(worldViewProjection) * worldNormal;
         }
 
+#if FEATURE_UNDERWATER
         // Clamp underwater vertices to the water surface along the draw distance border, excluding
         // waterDepth == 1, which is used when the geometry already sits flush with the surface
-        int waterDepth = fTerrainData[vertex] >> 11 & 0xFFF;
+        int waterDepth = terrainData >> 11 & 0xFFF;
         if (waterDepth > 1) {
             const int TILE_SIZE = 128;
             const int CHUNK_SIZE = TILE_SIZE * 8;
@@ -114,9 +128,14 @@ layout (location = 0) in vec3 vPosition;
             if (max(d.x, d.y) > int(drawDistance / 8) * 8 + 3)
                 worldPosition.y -= waterDepth;
         }
+#endif
 
         OUT.position = worldPosition;
+    #if FEATURE_WORLD_UVS
         OUT.uv = computeVertexUvs(materialData, worldPosition, vUv.xyz);
+    #else
+        OUT.uv = vUv.xy;
+    #endif
         OUT.normal = worldNormal;
         OUT.texBlend = vec3(0);
         OUT.texBlend[vertex] = 1.0;

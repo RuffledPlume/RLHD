@@ -1796,6 +1796,8 @@ public class SceneUploader implements AutoCloseable {
 			}
 
 			zone.levelFeatures[level] |= material.getFeatureMask();
+			if(uvType.worldUvs)
+				zone.levelFeatures[level] |= SceneShaderProgram.Feature.WORLD_UVS.mask();
 
 			final boolean shouldRotateNormals;
 			boolean shouldCalculateFaceNormal;
