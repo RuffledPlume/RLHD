@@ -350,9 +350,6 @@ public class ModelStreamingManager {
 		boolean isPlayer = renderable instanceof Player;
 		final int renderMode = renderable.getRenderMode();
 		boolean shouldSort =
-			m.getTransparency() != 0 ||
-			m.getFaceTransparencies() != null ||
-			modelOverride.mightHaveTransparency ||
 			renderable instanceof Player ||
 			(
 				renderMode != Renderable.RENDERMODE_UNSORTED &&

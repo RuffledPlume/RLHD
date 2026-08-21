@@ -375,7 +375,10 @@ public class HdPlugin extends Plugin {
 	public int[] sceneResolution;
 	public int fboScene;
 	private int rboSceneColor;
-	private int rboSceneDepth;
+	@Getter
+	private int texSceneDepth;
+	@Getter
+	private int texSceneDepthResolve;
 	public int fboSceneResolve;
 	private int rboSceneResolveColor;
 
@@ -539,7 +542,8 @@ public class HdPlugin extends Plugin {
 
 				fboScene = 0;
 				rboSceneColor = 0;
-				rboSceneDepth = 0;
+				texSceneDepth = 0;
+				texSceneDepthResolve = 0;
 				fboSceneResolve = 0;
 				rboSceneResolveColor = 0;
 				fboShadowMap = 0;
@@ -1261,9 +1265,9 @@ public class HdPlugin extends Plugin {
 		texTiledLighting = 0;
 	}
 
-	public void updateSceneFbo() {
+	public boolean updateSceneFbo() {
 		if (uiResolution == null)
-			return;
+			return false;
 
 		int[] viewport = {
 			client.getViewportXOffset(),
@@ -1274,7 +1278,7 @@ public class HdPlugin extends Plugin {
 
 		// Skip rendering when there's no viewport to render to, which happens while world hopping
 		if (viewport[2] == 0 || viewport[3] == 0)
-			return;
+			return false;
 
 		// DPI scaling and stretched mode also affects the game's viewport
 		divide(sceneViewportScale, vec(actualUiResolution), vec(uiResolution));
@@ -1289,7 +1293,7 @@ public class HdPlugin extends Plugin {
 
 		// Check if scene FBO needs to be recreated
 		if (Arrays.equals(sceneViewport, viewport))
-			return;
+			return false;
 
 		destroySceneFbo();
 		sceneViewport = viewport;
@@ -1298,7 +1302,7 @@ public class HdPlugin extends Plugin {
 		int defaultFramebuffer = awtContext.getFramebuffer(false);
 		glBindFramebuffer(GL_FRAMEBUFFER, defaultFramebuffer);
 		final int forcedAASamples = glGetInteger(GL_SAMPLES);
-		msaaSamples = forcedAASamples != 0 ? forcedAASamples : min(config.antiAliasingMode().getSamples(), glGetInteger(GL_MAX_SAMPLES));
+		msaaSamples = forcedAASamples != 0 ? forcedAASamples : min(config.antiAliasingMode().getSamples(), glGetInteger(GL_MAX_SAMPLES));;
 
 		// Since there's seemingly no reliable way to check if the default framebuffer will do sRGB conversions with GL_FRAMEBUFFER_SRGB
 		// enabled, we always replace the default framebuffer with an sRGB one. We could technically support rendering to the default
@@ -1349,11 +1353,25 @@ public class HdPlugin extends Plugin {
 		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_RENDERBUFFER, rboSceneColor);
 		checkGLErrors();
 
-		// Create depth render buffer
-		rboSceneDepth = glGenRenderbuffers();
-		glBindRenderbuffer(GL_RENDERBUFFER, rboSceneDepth);
-		glRenderbufferStorageMultisample(GL_RENDERBUFFER, msaaSamples, GL_DEPTH_COMPONENT32F, sceneResolution[0], sceneResolution[1]);
-		glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, rboSceneDepth);
+		texSceneDepth = glGenTextures();
+		if (msaaSamples > 1) {
+			glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, texSceneDepth);
+			glTexImage2DMultisample(
+				GL_TEXTURE_2D_MULTISAMPLE, msaaSamples, GL_DEPTH_COMPONENT32F,
+				sceneResolution[0], sceneResolution[1], true
+			);
+			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D_MULTISAMPLE, texSceneDepth, 0);
+		} else {
+			glBindTexture(GL_TEXTURE_2D, texSceneDepth);
+			glTexImage2D(
+				GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT32F,
+				sceneResolution[0], sceneResolution[1],
+				0, GL_DEPTH_COMPONENT, GL_FLOAT, 0
+			);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, texSceneDepth, 0);
+		}
 		checkGLErrors();
 
 		// If necessary, create an FBO for resolving multisampling
@@ -1367,9 +1385,25 @@ public class HdPlugin extends Plugin {
 			checkGLErrors();
 		}
 
+		if (msaaSamples > 1) {
+			texSceneDepthResolve = glGenTextures();
+			glBindTexture(GL_TEXTURE_2D, texSceneDepthResolve);
+			glTexImage2D(
+				GL_TEXTURE_2D, 0, GL_R32F,
+				sceneResolution[0], sceneResolution[1],
+				0, GL_RED, GL_FLOAT, 0
+			);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+			glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		}
+
 		// Reset
 		glBindFramebuffer(GL_FRAMEBUFFER, awtContext.getFramebuffer(false));
 		glBindRenderbuffer(GL_RENDERBUFFER, 0);
+		glBindTexture(GL_TEXTURE_2D, 0);
+		glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, 0);
+
+		return true;
 	}
 
 	private void destroySceneFbo() {
@@ -1383,9 +1417,13 @@ public class HdPlugin extends Plugin {
 			glDeleteRenderbuffers(rboSceneColor);
 		rboSceneColor = 0;
 
-		if (rboSceneDepth != 0)
-			glDeleteRenderbuffers(rboSceneDepth);
-		rboSceneDepth = 0;
+		if (texSceneDepth != 0)
+			glDeleteTextures(texSceneDepth);
+		texSceneDepth = 0;
+
+		if (texSceneDepthResolve != 0)
+			glDeleteTextures(texSceneDepthResolve);
+		texSceneDepthResolve = 0;
 
 		if (fboSceneResolve != 0)
 			glDeleteFramebuffers(fboSceneResolve);
@@ -2056,6 +2094,12 @@ public class HdPlugin extends Plugin {
 	@Subscribe
 	public void onFocusChanged(FocusChanged event) {
 		isClientInFocus = event.isFocused();
+	}
+
+	public static void checkFramebufferComplete(int framebuffer) {
+		int status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+		if (status != GL_FRAMEBUFFER_COMPLETE)
+			throw new IllegalStateException("Framebuffer " + framebuffer + " is incomplete: 0x" + Integer.toHexString(status));
 	}
 
 	@SuppressWarnings("StatementWithEmptyBody")

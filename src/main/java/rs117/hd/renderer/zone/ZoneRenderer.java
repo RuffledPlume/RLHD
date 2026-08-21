@@ -43,6 +43,10 @@ import rs117.hd.HdPluginConfig;
 import rs117.hd.config.ColorFilter;
 import rs117.hd.config.DynamicLights;
 import rs117.hd.config.ShadowMode;
+import rs117.hd.opengl.shader.MultisampleResolveShaderProgram;
+import rs117.hd.opengl.shader.OITCompositeShaderProgram;
+import rs117.hd.opengl.shader.OITPrePassShaderProgram;
+import rs117.hd.opengl.shader.OitRangeResolveShaderProgram;
 import rs117.hd.opengl.shader.SceneShaderProgram;
 import rs117.hd.opengl.shader.ShaderException;
 import rs117.hd.opengl.shader.ShaderIncludes;
@@ -66,19 +70,21 @@ import rs117.hd.utils.Mat4;
 import rs117.hd.utils.RenderState;
 import rs117.hd.utils.ShadowCasterVolume;
 import rs117.hd.utils.buffer.GLBuffer;
-import rs117.hd.utils.buffer.GLMappedBufferIntWriter;
 import rs117.hd.utils.buffer.GpuIntBuffer;
 import rs117.hd.utils.collections.ConcurrentPool;
 import rs117.hd.utils.jobs.JobSystem;
 
 import static net.runelite.api.Constants.*;
 import static net.runelite.api.Perspective.*;
+import static org.lwjgl.opengl.ARBSampleShading.GL_SAMPLE_SHADING_ARB;
 import static org.lwjgl.opengl.GL33C.*;
 import static org.lwjgl.opengl.GL40.GL_DRAW_INDIRECT_BUFFER;
 import static rs117.hd.HdPlugin.APPLE;
 import static rs117.hd.HdPlugin.COLOR_FILTER_FADE_DURATION;
 import static rs117.hd.HdPlugin.NEAR_PLANE;
 import static rs117.hd.HdPlugin.ORTHOGRAPHIC_ZOOM;
+import static rs117.hd.HdPlugin.TEXTURE_UNIT_UI;
+import static rs117.hd.HdPlugin.checkFramebufferComplete;
 import static rs117.hd.HdPlugin.checkGLErrors;
 import static rs117.hd.HdPluginConfig.*;
 import static rs117.hd.renderer.zone.WorldViewContext.VAO_OPAQUE;
@@ -92,8 +98,18 @@ import static rs117.hd.utils.MathUtils.*;
 public class ZoneRenderer implements Renderer {
 	public static final int FRAMES_IN_FLIGHT = 3;
 
+	private static final float[] OIT_CLEAR_FIRST_LAYER = { 1e6f, 0f, 0f, 0f };
+	private static final float[] OIT_CLEAR_LAST_LAYER = { -1e6f, 0f, 0f, 0f };
+	private static final float[] OIT_CLEAR_COVERAGE = { 1f, 0f, 0f, 0f };
+	public static final int OIT_BIN_COUNT = 4;
+
 	private static int TEXTURE_UNIT_COUNT = HdPlugin.TEXTURE_UNIT_COUNT;
 	public static final int TEXTURE_UNIT_TEXTURED_FACES = GL_TEXTURE0 + TEXTURE_UNIT_COUNT++;
+	public static final int TEXTURE_UNIT_OIT_FIRST_LAYER = GL_TEXTURE0 + TEXTURE_UNIT_COUNT++;
+	public static final int TEXTURE_UNIT_OIT_LAST_LAYER = GL_TEXTURE0 + TEXTURE_UNIT_COUNT++;
+	public static final int TEXTURE_UNIT_OIT_NET_COVERAGE = GL_TEXTURE0 + TEXTURE_UNIT_COUNT++;
+	public static final int TEXTURE_UNIT_OIT_COLOR_ACCUM = GL_TEXTURE0 + TEXTURE_UNIT_COUNT++;
+	public static final int TEXTURE_UNIT_OIT_OPAQUE_DEPTH = GL_TEXTURE0 + TEXTURE_UNIT_COUNT++;
 
 	private static int UNIFORM_BLOCK_COUNT = HdPlugin.UNIFORM_BLOCK_COUNT;
 	public static final int UNIFORM_BLOCK_WORLD_VIEWS = UNIFORM_BLOCK_COUNT++;
@@ -132,13 +148,35 @@ public class ZoneRenderer implements Renderer {
 	private FrameTimer frameTimer;
 
 	@Inject
-	private SceneShaderProgram sceneProgram;
+	private SceneShaderProgram sceneOpaqueProgram;
+
+	@Inject
+	private SceneShaderProgram.TransparentOIT sceneTransparentOITProgram;
+
+	@Inject
+	private SceneShaderProgram.AlphaDiscard sceneAlphaDiscardProgram;
 
 	@Inject
 	private ShadowShaderProgram.Fast fastShadowProgram;
 
 	@Inject
 	private ShadowShaderProgram.Detailed detailedShadowProgram;
+
+
+	@Inject
+	private OITCompositeShaderProgram oitCompositeShaderProgram;
+
+	@Inject
+	private OITCompositeShaderProgram.SampleShading oitCompositeSampleShadingProgram;
+
+	@Inject
+	private OITPrePassShaderProgram oitPrePassProgram;
+
+	@Inject
+	private MultisampleResolveShaderProgram oitMinResolveProgram;
+
+	@Inject
+	private OitRangeResolveShaderProgram oitRangeResolveProgram;
 
 	@Inject
 	private JobSystem jobSystem;
@@ -152,14 +190,30 @@ public class ZoneRenderer implements Renderer {
 
 	public final RenderState renderState = new RenderState();
 	public final CommandBuffer sceneCmd = new CommandBuffer("Scene");
+	public final CommandBuffer alphaDiscardCmd = new CommandBuffer("AlphaDiscard");
+	public final CommandBuffer transparentCmd = new CommandBuffer("Transparent");
 	public final CommandBuffer directionalCmd = new CommandBuffer("Directional");
 	public final CommandBuffer gapFillerCmd = new CommandBuffer("GapFiller");
 
 	private GLBuffer indirectDrawCmds;
 	public static GpuIntBuffer indirectDrawCmdsStaging;
 
-	public static GLBuffer.EBO eboAlpha;
-	public static GLMappedBufferIntWriter eboAlphaWriter;
+	private int resolveFBO;
+
+	private int transparentSamples;
+	private int transparentFBO;
+	private int colorAccumArrayTex;
+	private int colorAccumArrayMSTex;
+
+	private int firstLayerDepthFBO;
+	private int firstLayerDepthTex;
+	private int firstLayerDepthMSTex;
+
+	private int lastLayerDepthTex;
+	private int lastLayerDepthMSTex;
+
+	private int netCoverageTex;
+	private int netCoverageMSTex;
 
 	private boolean sceneFboValid;
 	private boolean shouldRenderSkybox;
@@ -191,6 +245,7 @@ public class ZoneRenderer implements Renderer {
 			FacePrioritySorter.POOL = new ConcurrentPool<>(() -> injector.getInstance(FacePrioritySorter.class));
 
 		sceneCmd.setFrameTimer(frameTimer);
+		alphaDiscardCmd.setFrameTimer(frameTimer);
 		directionalCmd.setFrameTimer(frameTimer);
 		gapFillerCmd.setFrameTimer(frameTimer);
 
@@ -230,42 +285,46 @@ public class ZoneRenderer implements Renderer {
 	public void addShaderIncludes(ShaderIncludes includes) {
 		includes
 			.define("MAX_SIMULTANEOUS_WORLD_VIEWS", UBOWorldViews.MAX_SIMULTANEOUS_WORLD_VIEWS)
+			.define("OIT_BIN_COUNT", OIT_BIN_COUNT)
 			.addInclude("WORLD_VIEW_GETTER", () -> plugin.generateGetter("WorldView", UBOWorldViews.MAX_SIMULTANEOUS_WORLD_VIEWS))
 			.addUniformBuffer(uboWorldViews);
 	}
 
 	@Override
 	public void initializeShaders(ShaderIncludes includes) throws ShaderException, IOException {
-		sceneProgram.compile(includes);
+		sceneOpaqueProgram.compile(includes);
+		sceneTransparentOITProgram.compile(includes);
+		sceneAlphaDiscardProgram.compile(includes);
 		fastShadowProgram.compile(includes);
 		detailedShadowProgram.compile(includes);
+		oitCompositeShaderProgram.compile(includes);
+		oitCompositeSampleShadingProgram.compile(includes);
+		oitPrePassProgram.compile(includes);
+		oitMinResolveProgram.compile(includes);
+		oitRangeResolveProgram.compile(includes);
 	}
 
 	@Override
 	public void destroyShaders() {
-		sceneProgram.destroy();
+		sceneOpaqueProgram.destroy();
+		sceneTransparentOITProgram.destroy();
+		sceneAlphaDiscardProgram.destroy();
 		fastShadowProgram.destroy();
 		detailedShadowProgram.destroy();
+		oitCompositeShaderProgram.destroy();
+		oitCompositeSampleShadingProgram.destroy();
+		oitPrePassProgram.destroy();
+		oitMinResolveProgram.destroy();
+		oitRangeResolveProgram.destroy();
 	}
 
 	private void initializeBuffers() {
-		eboAlpha = new GLBuffer.EBO("eboAlpha", GL_STREAM_DRAW);
-		eboAlpha.initialize(MiB);
-		eboAlphaWriter = new GLMappedBufferIntWriter(eboAlpha);
-
 		indirectDrawCmds = new GLBuffer("indirectDrawCmds", GL_DRAW_INDIRECT_BUFFER, GL_STREAM_DRAW).initialize(MiB);
 		indirectDrawCmdsStaging = new GpuIntBuffer();
+		resolveFBO = glGenFramebuffers();
 	}
 
 	private void destroyBuffers() {
-		if (eboAlpha != null)
-			eboAlpha.destroy();
-		eboAlpha = null;
-
-		if (eboAlphaWriter != null)
-			eboAlphaWriter.destroy();
-		eboAlphaWriter = null;
-
 		if (indirectDrawCmds != null)
 			indirectDrawCmds.destroy();
 		indirectDrawCmds = null;
@@ -273,6 +332,12 @@ public class ZoneRenderer implements Renderer {
 		if (indirectDrawCmdsStaging != null)
 			indirectDrawCmdsStaging.destroy();
 		indirectDrawCmdsStaging = null;
+
+		if (resolveFBO != 0)
+			glDeleteFramebuffers(resolveFBO);
+		resolveFBO = 0;
+
+		destroyTransparentFBO();
 	}
 
 	@Override
@@ -320,8 +385,6 @@ public class ZoneRenderer implements Renderer {
 				for (int zz = 0; zz < ctx.sizeZ; ++zz)
 					ctx.zones[zx][zz].multizoneLocs(ctx.sceneContext, zx - offset, zz - offset, sceneCamera, ctx.zones);
 
-			ctx.sortStaticAlphaModels(sceneCamera);
-
 			ctx.map();
 
 			if (scene.getWorldViewId() == WorldView.TOPLEVEL) {
@@ -357,6 +420,185 @@ public class ZoneRenderer implements Renderer {
 		}
 	}
 
+	private void updateTransparentFBO() {
+		destroyTransparentFBO();
+
+		transparentSamples = plugin.msaaSamples;
+		transparentFBO = glGenFramebuffers();
+		glBindFramebuffer(GL_FRAMEBUFFER, transparentFBO);
+
+		glActiveTexture(TEXTURE_UNIT_OIT_COLOR_ACCUM);
+		colorAccumArrayTex = glGenTextures();
+		glBindTexture(GL_TEXTURE_2D_ARRAY, colorAccumArrayTex);
+		glTexImage3D(
+			GL_TEXTURE_2D_ARRAY, 0, GL_RGBA16F,
+			plugin.sceneResolution[0], plugin.sceneResolution[1], OIT_BIN_COUNT,
+			0, GL_RGBA, GL_HALF_FLOAT, 0
+		);
+		glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+		glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+		if (transparentSamples > 1) {
+			colorAccumArrayMSTex = glGenTextures();
+			glBindTexture(GL_TEXTURE_2D_MULTISAMPLE_ARRAY, colorAccumArrayMSTex);
+			glTexImage3DMultisample(
+				GL_TEXTURE_2D_MULTISAMPLE_ARRAY, transparentSamples, GL_RGBA16F,
+				plugin.sceneResolution[0], plugin.sceneResolution[1], OIT_BIN_COUNT,
+				true
+			);
+			for (int k = 0; k < OIT_BIN_COUNT; k++) {
+				glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + k, colorAccumArrayMSTex, 0, k);
+			}
+		} else {
+			for (int k = 0; k < OIT_BIN_COUNT; k++) {
+				glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + k, colorAccumArrayTex, 0, k);
+			}
+		}
+
+		int[] accumDrawBuffers = new int[OIT_BIN_COUNT];
+		for (int k = 0; k < OIT_BIN_COUNT; k++)
+			accumDrawBuffers[k] = GL_COLOR_ATTACHMENT0 + k;
+
+		glFramebufferTexture2D(
+			GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+			transparentSamples > 1 ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D,
+			plugin.getTexSceneDepth(), 0
+		);
+		glDrawBuffers(accumDrawBuffers);
+		checkFramebufferComplete(transparentFBO);
+
+		firstLayerDepthFBO = glGenFramebuffers();
+		glBindFramebuffer(GL_FRAMEBUFFER, firstLayerDepthFBO);
+
+		glActiveTexture(TEXTURE_UNIT_OIT_FIRST_LAYER);
+		firstLayerDepthTex = glGenTextures();
+		glBindTexture(GL_TEXTURE_2D, firstLayerDepthTex);
+		glTexImage2D(
+			GL_TEXTURE_2D, 0, GL_R32F,
+			plugin.sceneResolution[0], plugin.sceneResolution[1],
+			0, GL_RED, GL_FLOAT, 0
+		);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+		glActiveTexture(TEXTURE_UNIT_OIT_NET_COVERAGE);
+		netCoverageTex = glGenTextures();
+		glBindTexture(GL_TEXTURE_2D, netCoverageTex);
+		glTexImage2D(
+			GL_TEXTURE_2D, 0, GL_R16F,
+			plugin.sceneResolution[0], plugin.sceneResolution[1],
+			0, GL_RED, GL_HALF_FLOAT, 0
+		);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+		glActiveTexture(TEXTURE_UNIT_OIT_LAST_LAYER);
+		lastLayerDepthTex = glGenTextures();
+		glBindTexture(GL_TEXTURE_2D, lastLayerDepthTex);
+		glTexImage2D(
+			GL_TEXTURE_2D, 0, GL_R32F,
+			plugin.sceneResolution[0], plugin.sceneResolution[1],
+			0, GL_RED, GL_FLOAT, 0
+		);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+		if (transparentSamples > 1) {
+			glActiveTexture(TEXTURE_UNIT_OIT_FIRST_LAYER);
+			firstLayerDepthMSTex = glGenTextures();
+			glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, firstLayerDepthMSTex);
+			glTexImage2DMultisample(
+				GL_TEXTURE_2D_MULTISAMPLE, transparentSamples, GL_R32F,
+				plugin.sceneResolution[0], plugin.sceneResolution[1], true
+			);
+			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D_MULTISAMPLE, firstLayerDepthMSTex, 0);
+
+			glActiveTexture(TEXTURE_UNIT_OIT_LAST_LAYER);
+			lastLayerDepthMSTex = glGenTextures();
+			glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, lastLayerDepthMSTex);
+			glTexImage2DMultisample(
+				GL_TEXTURE_2D_MULTISAMPLE, transparentSamples, GL_R32F,
+				plugin.sceneResolution[0], plugin.sceneResolution[1], true
+			);
+			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D_MULTISAMPLE, lastLayerDepthMSTex, 0);
+
+			glActiveTexture(TEXTURE_UNIT_OIT_NET_COVERAGE);
+			netCoverageMSTex = glGenTextures();
+			glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, netCoverageMSTex);
+			glTexImage2DMultisample(
+				GL_TEXTURE_2D_MULTISAMPLE, transparentSamples, GL_R16F,
+				plugin.sceneResolution[0], plugin.sceneResolution[1], true
+			);
+			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D_MULTISAMPLE, netCoverageMSTex, 0);
+		} else {
+			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, firstLayerDepthTex, 0);
+			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, lastLayerDepthTex, 0);
+			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT2, GL_TEXTURE_2D, netCoverageTex, 0);
+		}
+		glFramebufferTexture2D(
+			GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
+			transparentSamples > 1 ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D,
+			plugin.getTexSceneDepth(), 0
+		);
+		glDrawBuffers(new int[] { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2 });
+		checkFramebufferComplete(firstLayerDepthFBO);
+
+		glActiveTexture(GL_TEXTURE0);
+		glBindTexture(GL_TEXTURE_2D, 0);
+		glBindTexture(GL_TEXTURE_2D_ARRAY, 0);
+		glBindFramebuffer(GL_FRAMEBUFFER, 0);
+	}
+
+	private void destroyTransparentFBO() {
+		if (transparentFBO != 0)
+			glDeleteFramebuffers(transparentFBO);
+		transparentFBO = 0;
+
+		if (colorAccumArrayTex != 0)
+			glDeleteTextures(colorAccumArrayTex);
+		colorAccumArrayTex = 0;
+
+		if (colorAccumArrayMSTex != 0)
+			glDeleteTextures(colorAccumArrayMSTex);
+		colorAccumArrayMSTex = 0;
+
+		if (firstLayerDepthFBO != 0)
+			glDeleteFramebuffers(firstLayerDepthFBO);
+		firstLayerDepthFBO = 0;
+
+		if (firstLayerDepthTex != 0)
+			glDeleteTextures(firstLayerDepthTex);
+		firstLayerDepthTex = 0;
+
+		if (firstLayerDepthMSTex != 0)
+			glDeleteTextures(firstLayerDepthMSTex);
+		firstLayerDepthMSTex = 0;
+
+		if (netCoverageTex != 0)
+			glDeleteTextures(netCoverageTex);
+		netCoverageTex = 0;
+
+		if (netCoverageMSTex != 0)
+			glDeleteTextures(netCoverageMSTex);
+		netCoverageMSTex = 0;
+
+		if (lastLayerDepthTex != 0)
+			glDeleteTextures(lastLayerDepthTex);
+		lastLayerDepthTex = 0;
+
+		if (lastLayerDepthMSTex != 0)
+			glDeleteTextures(lastLayerDepthMSTex);
+		lastLayerDepthMSTex = 0;
+	}
+
 	private void preSceneDrawTopLevel(
 		Scene scene,
 		float cameraX, float cameraY, float cameraZ, float cameraPitch, float cameraYaw
@@ -370,7 +612,8 @@ public class ZoneRenderer implements Renderer {
 		glFlush();
 		frameTimer.end(Timer.DRAW_FLUSH);
 
-		plugin.updateSceneFbo();
+		if(plugin.updateSceneFbo() || plugin.msaaSamples != transparentSamples)
+			updateTransparentFBO();
 
 		if (!sceneManager.isTopLevelValid() || plugin.sceneViewport == null)
 			return;
@@ -649,12 +892,11 @@ public class ZoneRenderer implements Renderer {
 		// Reset buffers for the next frame
 		indirectDrawCmdsStaging.clear();
 		sceneCmd.reset();
+		alphaDiscardCmd.reset();
+		transparentCmd.reset();
 		directionalCmd.reset();
 		gapFillerCmd.reset();
 		renderState.reset();
-
-		eboAlpha.orphan();
-		eboAlphaWriter.map(true);
 
 		checkGLErrors();
 	}
@@ -689,9 +931,6 @@ public class ZoneRenderer implements Renderer {
 
 		// Upload world views before rendering
 		uboWorldViews.upload();
-
-		if (eboAlphaWriter != null)
-			eboAlphaWriter.flush();
 
 		// Scene draw state to apply before all recorded commands
 		if (indirectDrawCmdsStaging.position() > 0) {
@@ -774,22 +1013,143 @@ public class ZoneRenderer implements Renderer {
 
 		glBindVertexArray(0);
 
-		renderState.disable.set(GL_DEPTH_TEST);
+		renderState.enable.set(GL_DEPTH_TEST);
 
 		shouldClearShadowFbo = true;
 		frameTimer.end(Timer.RENDER_SHADOWS);
 	}
 
+	private void alphaPrePass() {
+		if (transparentCmd.isEmpty())
+			return;
+
+		frameTimer.begin(Timer.RENDER_ALPHA_PREPASS);
+
+		renderState.framebuffer.set(GL_FRAMEBUFFER, firstLayerDepthFBO);
+		renderState.toggle(GL_MULTISAMPLE, plugin.msaaSamples > 1);
+		renderState.program.set(oitPrePassProgram);
+		renderState.viewport.set(0, 0, plugin.sceneResolution[0], plugin.sceneResolution[1]);
+		renderState.ido.set(indirectDrawCmds.id);
+		renderState.enable.set(GL_DEPTH_TEST);
+		renderState.disable.set(GL_CULL_FACE);
+		renderState.depthFunc.set(GL_GEQUAL);
+		renderState.depthMask.set(false);
+		renderState.apply();
+
+		glClearBufferfv(GL_COLOR, 0, OIT_CLEAR_FIRST_LAYER);
+		glClearBufferfv(GL_COLOR, 1, OIT_CLEAR_LAST_LAYER);
+		glClearBufferfv(GL_COLOR, 2, OIT_CLEAR_COVERAGE);
+
+		renderState.enable.set(GL_BLEND);
+		renderState.blendEquationi.set(0, GL_MIN);
+		renderState.blendFunci.set(0, GL_ONE, GL_ONE, GL_ONE, GL_ONE);
+		renderState.blendEquationi.set(1, GL_MAX);
+		renderState.blendFunci.set(1, GL_ONE, GL_ONE, GL_ONE, GL_ONE);
+		renderState.blendEquationi.set(2, GL_FUNC_ADD);
+		renderState.blendFunci.set(2, GL_ZERO, GL_ONE_MINUS_SRC_COLOR, GL_ZERO, GL_ONE_MINUS_SRC_COLOR);
+		renderState.apply();
+
+		transparentCmd.execute(renderState);
+
+		renderState.vao.setVao(0);
+		renderState.disable.set(GL_BLEND);
+		renderState.apply();
+
+		if (plugin.msaaSamples > 1) {
+			glActiveTexture(TEXTURE_UNIT_OIT_FIRST_LAYER);
+			glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, firstLayerDepthMSTex);
+
+			glActiveTexture(TEXTURE_UNIT_OIT_LAST_LAYER);
+			glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, lastLayerDepthMSTex);
+
+			oitRangeResolveProgram.use();
+			oitRangeResolveProgram.setup(TEXTURE_UNIT_OIT_FIRST_LAYER, TEXTURE_UNIT_OIT_LAST_LAYER, plugin.msaaSamples);
+
+			renderState.framebuffer.set(GL_FRAMEBUFFER, resolveFBO);
+			renderState.disable.set(GL_MULTISAMPLE);
+			renderState.disable.set(GL_BLEND);
+			renderState.disable.set(GL_DEPTH_TEST);
+			renderState.vao.setVao(plugin.vaoTri);
+			renderState.apply();
+
+			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, firstLayerDepthTex, 0);
+			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, lastLayerDepthTex, 0);
+			glDrawBuffers(new int[] { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1 });
+
+			glDrawArrays(GL_TRIANGLES, 0, 3);
+
+			// resolveFBO is shared with resolveSceneDepth(), which only ever writes attachment 0
+			glDrawBuffer(GL_COLOR_ATTACHMENT0);
+
+			glActiveTexture(TEXTURE_UNIT_UI);
+			glBindTexture(GL_TEXTURE_2D, 0);
+		}
+
+		renderState.disable.set(GL_DEPTH_TEST);
+
+		frameTimer.end(Timer.RENDER_ALPHA_PREPASS);
+	}
+
+	private void alphaDiscardPass() {
+		if (alphaDiscardCmd.isEmpty())
+			return;
+
+		frameTimer.begin(Timer.RENDER_ALPHA_DISCARD);
+
+		renderState.framebuffer.set(GL_FRAMEBUFFER, plugin.fboScene);
+		renderState.toggle(GL_MULTISAMPLE, plugin.msaaSamples > 1);
+		renderState.program.set(sceneAlphaDiscardProgram);
+		renderState.enable.set(GL_DEPTH_TEST);
+		renderState.enable.set(GL_CULL_FACE);
+		renderState.disable.set(GL_BLEND);
+
+		renderState.depthFunc.set(GL_GEQUAL);
+		renderState.depthMask.set(true);
+
+		alphaDiscardCmd.execute(renderState);
+
+		renderState.depthMask.set(false);
+		renderState.disable.set(GL_DEPTH_TEST);
+
+		frameTimer.end(Timer.RENDER_ALPHA_DISCARD);
+	}
+
+	private void resolveSceneDepth() {
+		if (plugin.msaaSamples > 1) {
+			oitMinResolveProgram.use();
+			glActiveTexture(TEXTURE_UNIT_OIT_OPAQUE_DEPTH);
+			glBindTexture(GL_TEXTURE_2D_MULTISAMPLE, plugin.getTexSceneDepth());
+			oitMinResolveProgram.setup(TEXTURE_UNIT_OIT_OPAQUE_DEPTH, plugin.msaaSamples);
+
+			renderState.framebuffer.set(GL_FRAMEBUFFER, resolveFBO);
+			renderState.disable.set(GL_MULTISAMPLE);
+			renderState.disable.set(GL_BLEND);
+			renderState.disable.set(GL_DEPTH_TEST);
+			renderState.vao.setVao(plugin.vaoTri);
+			renderState.apply();
+
+			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, plugin.getTexSceneDepthResolve(), 0);
+			glDrawBuffer(GL_COLOR_ATTACHMENT0);
+
+			glDrawArrays(GL_TRIANGLES, 0, 3);
+
+			glActiveTexture(TEXTURE_UNIT_OIT_OPAQUE_DEPTH);
+			glBindTexture(GL_TEXTURE_2D, plugin.getTexSceneDepthResolve());
+		} else {
+			glActiveTexture(TEXTURE_UNIT_OIT_OPAQUE_DEPTH);
+			glBindTexture(GL_TEXTURE_2D, plugin.getTexSceneDepth());
+		}
+
+		glActiveTexture(TEXTURE_UNIT_UI);
+		glBindTexture(GL_TEXTURE_2D, 0);
+	}
+
 	private void scenePass() {
-		sceneProgram.use();
+		sceneOpaqueProgram.use();
 
 		frameTimer.begin(Timer.DRAW_SCENE);
 		renderState.framebuffer.set(GL_DRAW_FRAMEBUFFER, plugin.fboScene);
-		if (plugin.msaaSamples > 1) {
-			renderState.enable.set(GL_MULTISAMPLE);
-		} else {
-			renderState.disable.set(GL_MULTISAMPLE);
-		}
+		renderState.toggle(GL_MULTISAMPLE, plugin.msaaSamples > 1);
 		renderState.viewport.set(0, 0, plugin.sceneResolution[0], plugin.sceneResolution[1]);
 		renderState.ido.set(indirectDrawCmds.id);
 		renderState.apply();
@@ -809,11 +1169,10 @@ public class ZoneRenderer implements Renderer {
 
 		frameTimer.begin(Timer.RENDER_SCENE);
 
-		renderState.enable.set(GL_BLEND);
+		renderState.disable.set(GL_BLEND);
 		renderState.enable.set(GL_CULL_FACE);
 		renderState.enable.set(GL_DEPTH_TEST);
 		renderState.depthFunc.set(GL_GEQUAL);
-		renderState.blendFunc.set(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
 
 		if (!gapFillerCmd.isEmpty()) {
 			renderState.depthMask.set(false);
@@ -828,12 +1187,95 @@ public class ZoneRenderer implements Renderer {
 		glBindVertexArray(0);
 
 		// Done rendering the scene
-		renderState.disable.set(GL_BLEND);
 		renderState.disable.set(GL_CULL_FACE);
 		renderState.disable.set(GL_DEPTH_TEST);
 		renderState.apply();
 
 		frameTimer.end(Timer.DRAW_SCENE);
+	}
+
+	private void alphaPass() {
+		if (transparentCmd.isEmpty())
+			return;
+
+		frameTimer.begin(Timer.DRAW_ALPHA);
+
+		alphaDiscardPass();
+		resolveSceneDepth();
+		alphaPrePass();
+
+		frameTimer.begin(Timer.RENDER_ALPHA);
+		renderState.program.set(sceneTransparentOITProgram);
+
+		glActiveTexture(TEXTURE_UNIT_OIT_FIRST_LAYER);
+		glBindTexture(GL_TEXTURE_2D, firstLayerDepthTex);
+
+		glActiveTexture(TEXTURE_UNIT_OIT_LAST_LAYER);
+		glBindTexture(GL_TEXTURE_2D, lastLayerDepthTex);
+
+		renderState.depthMask.set(false);
+		renderState.enable.set(GL_BLEND);
+		renderState.blendFunc.set(GL_ONE, GL_ONE, GL_ONE, GL_ONE);
+		renderState.blendEquation.set(GL_FUNC_ADD);
+
+		renderState.framebuffer.set(GL_FRAMEBUFFER, transparentFBO);
+		renderState.toggle(GL_MULTISAMPLE, plugin.msaaSamples > 1);
+		renderState.apply();
+		for (int k = 0; k < OIT_BIN_COUNT; k++)
+			glClearBufferfv(GL_COLOR, k, new float[] { 0f, 0f, 0f, 0f });
+
+		renderState.enable.set(GL_DEPTH_TEST);
+		renderState.enable.set(GL_CULL_FACE);
+		renderState.depthFunc.set(GL_GEQUAL);
+		renderState.depthMask.set(false);
+
+		transparentCmd.execute(renderState);
+
+		renderState.depthMask.set(true);
+		frameTimer.end(Timer.RENDER_ALPHA);
+
+		frameTimer.begin(Timer.RENDER_ALPHA_COMPOSITE);
+
+		final boolean sampleShading = plugin.msaaSamples > 1;
+
+		renderState.program.set(sampleShading ? oitCompositeSampleShadingProgram : oitCompositeShaderProgram);
+		renderState.depthFunc.set(GL_ALWAYS);
+		renderState.enable.set(GL_BLEND);
+		renderState.blendFunc.set(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
+
+		glActiveTexture(TEXTURE_UNIT_OIT_NET_COVERAGE);
+		glBindTexture(sampleShading ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D, sampleShading ? netCoverageMSTex : netCoverageTex);
+
+		glActiveTexture(TEXTURE_UNIT_OIT_COLOR_ACCUM);
+		glBindTexture(
+			sampleShading ? GL_TEXTURE_2D_MULTISAMPLE_ARRAY : GL_TEXTURE_2D_ARRAY,
+			sampleShading ? colorAccumArrayMSTex : colorAccumArrayTex
+		);
+
+		renderState.framebuffer.set(GL_FRAMEBUFFER, plugin.fboScene);
+		renderState.toggle(GL_MULTISAMPLE, plugin.msaaSamples > 1);
+		renderState.vao.setVao(plugin.vaoTri);
+		renderState.apply();
+
+		if (sampleShading) {
+			renderState.enable.set(GL_SAMPLE_SHADING_ARB);
+			renderState.sampleShading.set(1.0f);
+		}
+
+		glDrawArrays(GL_TRIANGLES, 0, 3);
+
+		renderState.disable.set(GL_SAMPLE_SHADING_ARB);
+		renderState.disable.set(GL_BLEND);
+		renderState.disable.set(GL_DEPTH_TEST);
+		renderState.disable.set(GL_CULL_FACE);
+		renderState.depthFunc.set(GL_GEQUAL);
+		renderState.depthMask.set(true);
+		renderState.blendFunc.set(GL_ONE, GL_ZERO, GL_ONE, GL_ZERO);
+		renderState.blendEquation.set(GL_FUNC_ADD);
+		renderState.apply();
+
+		frameTimer.end(Timer.RENDER_ALPHA_COMPOSITE);
+		frameTimer.end(Timer.DRAW_ALPHA);
 	}
 
 	@Override
@@ -960,48 +1402,27 @@ public class ZoneRenderer implements Renderer {
 			frameTimer.begin(Timer.DRAW_ZONE_ALPHA);
 			final boolean renderWater = z.inSceneFrustum && level == 0 && z.hasWater;
 			if (renderWater)
-				z.renderOpaqueLevel(sceneCmd, Zone.LEVEL_WATER_SURFACE);
+				z.renderOpaqueLevel(transparentCmd, Zone.LEVEL_WATER_SURFACE);
 
 			modelStreamingManager.ensureAsyncUploadsComplete(z);
 
 			final boolean hasAlpha = z.sizeA != 0 || !z.alphaModels.isEmpty();
 			if (hasAlpha) {
-				final int offset = ctx.sceneContext.sceneOffset >> 3;
-				// Only sort if the alpha will be directly visible, since shadows don't require sorting
 				if (level == 0 && (!sceneManager.isRoot(ctx) || z.inSceneFrustum))
-					z.alphaSort(zx - offset, zz - offset, sceneCamera);
+					z.alphaSort();
 
+				final int offset = ctx.sceneContext.sceneOffset >> 3;
+				final int zoneX = zx - offset;
+				final int zoneZ = zz - offset;
 				final boolean isSquashed = ctx.uboWorldViewStruct != null && ctx.uboWorldViewStruct.isSquashed();
 				if (!isSquashed && (!sceneManager.isRoot(ctx) || z.inShadowFrustum)) {
 					directionalCmd.SetShader(plugin.configShadowMode == ShadowMode.DETAILED ? detailedShadowProgram : fastShadowProgram);
-					z.renderAlpha(directionalCmd, zx - offset, zz - offset, level, ctx, true, shouldDrawRoofShadows);
+					z.renderAlpha(directionalCmd, zoneX, zoneZ, level, ctx, Zone.ALPHA_DRAW_ROOF);
 				}
 
 				if (!sceneManager.isRoot(ctx) || z.inSceneFrustum) {
-					if (renderWater) {
-						// Water is currently drawn with depth writes & depth testing enabled, and as such, alpha models and the water plane
-						// can Z-fight depending on draw order. To avoid alpha models above water causing the water surface to fail its
-						// depth test, we disable depth writes for alpha models and rely on correct back to front ordering of the zones
-						sceneCmd.DepthMask(false);
-						z.renderAlpha(sceneCmd, zx - offset, zz - offset, level, ctx, false, false);
-						sceneCmd.DepthMask(true);
-					} else {
-						// Draw alpha models in two passes, first blending colors correctly, then writing depth for subsequent opaque models
-						// to test against. This is necessary because opaque models on higher planes can be drawn later
-
-						// Write color without depth writes
-						sceneCmd.DepthMask(false);
-						sceneCmd.ColorMask(true, true, true, true);
-						z.renderAlpha(sceneCmd, zx - offset, zz - offset, level, ctx, false, false);
-
-						// Write depth without color
-						sceneCmd.DepthMask(true);
-						sceneCmd.ColorMask(false, false, false, false);
-						z.renderAlpha(sceneCmd, zx - offset, zz - offset, level, ctx, true, false);
-
-						// Restore color writes
-						sceneCmd.ColorMask(true, true, true, true);
-					}
+					z.renderAlpha(transparentCmd, zoneX, zoneZ, level, ctx, Zone.ALPHA_DRAW_BLEND_ONLY);
+					z.renderAlpha(alphaDiscardCmd, zoneX, zoneZ, level, ctx, Zone.ALPHA_DRAW_DISCARD_ONLY);
 				}
 			}
 			frameTimer.end(Timer.DRAW_ZONE_ALPHA);
@@ -1143,6 +1564,7 @@ public class ZoneRenderer implements Renderer {
 				tiledLightingPass();
 				directionalShadowPass();
 				scenePass();
+				alphaPass();
 			}
 
 			if (sceneFboValid && plugin.sceneResolution != null && plugin.sceneViewport != null) {
