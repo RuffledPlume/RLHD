@@ -77,6 +77,7 @@
     "name": "LEAVES_SIDE",
     "vanillaTextureIndex": 8,
     "hasTransparency": true,
+    "alphaDiscard": true,
     "doubleSidedFaces": true,
     "shadowAlphaMap": "LEAF_A_2",
     "textureScale": [
@@ -88,6 +89,7 @@
   {
     "name": "LEAVES_SIDE_ALT",
     "hasTransparency": true,
+    "alphaDiscard": true,
     "shadowAlphaMap": "LEAF_A_2",
     "doubleSidedFaces": true,
     "textureScale": [
@@ -205,6 +207,7 @@
     "name": "TROPICAL_LEAF",
     "vanillaTextureIndex": 29,
     "hasTransparency": true,
+    "alphaDiscard": true,
     "doubleSidedFaces": true,
     "brightness": 0.735
   },
@@ -212,6 +215,7 @@
     "name": "WILLOW_LEAVES",
     "vanillaTextureIndex": 30,
     "hasTransparency": true,
+    "alphaDiscard": true,
     "doubleSidedFaces": true,
     "textureScale": [
       1.025,
@@ -298,6 +302,7 @@
     "name": "LEAVES_DISEASED",
     "vanillaTextureIndex": 41,
     "hasTransparency": true,
+    "alphaDiscard": true,
     "doubleSidedFaces": true,
     "textureScale": [
       1.025,

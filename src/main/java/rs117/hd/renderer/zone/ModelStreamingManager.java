@@ -346,19 +346,23 @@ public class ModelStreamingManager {
 		final PrimitiveCharArray visibleFaces = FACE_INDICES.acquire();
 		final PrimitiveCharArray culledFaces = FACE_INDICES.acquire();
 
-		boolean isActor = renderable instanceof Actor;
-		boolean isPlayer = renderable instanceof Player;
+		final boolean isActor = renderable instanceof Actor;
+		final boolean isPlayer = renderable instanceof Player;
 		final int renderMode = renderable.getRenderMode();
 		boolean shouldSort =
-			m.getTransparency() != 0 ||
-			m.getFaceTransparencies() != null ||
-			modelOverride.mightHaveTransparency ||
-			renderable instanceof Player ||
+			isPlayer ||
 			(
-				renderMode != Renderable.RENDERMODE_UNSORTED &&
-				renderMode != Renderable.RENDERMODE_DEFAULT &&
-				renderMode != Renderable.RENDERMODE_UNSORTED_NO_DEPTH
-			);
+				 renderMode != Renderable.RENDERMODE_UNSORTED &&
+				 renderMode != Renderable.RENDERMODE_DEFAULT &&
+				 renderMode != Renderable.RENDERMODE_UNSORTED_NO_DEPTH
+			 );
+
+		if(!shouldSort && !plugin.configUseOIT) {
+			shouldSort =
+				m.getTransparency() != 0 ||
+				m.getFaceTransparencies() != null ||
+				modelOverride.mightHaveTransparency;
+		}
 
 		try (
 			SceneUploader sceneUploader = SceneUploader.POOL.acquire();
