@@ -47,12 +47,12 @@ public class Zone implements Destructible {
 	@Inject
 	private Client client;
 
-	// ZONE_VERTEX_FORMAT (24 bytes)
-	// position: int16 vec3          [offset  0, 6 bytes]
-	// normal:   int16 vec3          [offset  6, 6 bytes]  (unaligned)
-	// modelIdx: int16               [offset 12, 2 bytes]  (unaligned)
-	// uvw:      float16 vec3        [offset 14, 6 bytes]  (unaligned)
-	// texturedFaceIdx: int32        [offset 20, 4 bytes]
+	// ZONE_VERTEX_FORMAT
+	// position: int16 vec3
+	// normal: int16 vec3
+	// modelIdx: int16
+	// uvw: float16 vec3
+	// texturedFaceIdx: int32 (windingReversed << 31 | modelface << 30 | idx)
 	public static final int ZONE_VERTEX_NUM_BYTES = 24;
 	public static final int ZONE_VERTEX_NUM_INTS = ZONE_VERTEX_NUM_BYTES / Integer.BYTES;
 	public static final int TEXTURE_FACE_IS_WINDING_REVERSED = 1 << 31;
