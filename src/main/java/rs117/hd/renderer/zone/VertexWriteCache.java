@@ -5,8 +5,11 @@ import lombok.extern.slf4j.Slf4j;
 import rs117.hd.utils.buffer.GpuIntBuffer;
 import rs117.hd.utils.collections.PooledArrayType;
 
+import static rs117.hd.renderer.zone.Zone.MODEL_FACE_NUM_INTS;
+import static rs117.hd.renderer.zone.Zone.STATIC_FACE_NUM_INTS;
 import static rs117.hd.renderer.zone.Zone.TEXTURE_FACE_IS_MODEL;
 import static rs117.hd.renderer.zone.Zone.TEXTURE_FACE_IS_WINDING_REVERSED;
+import static rs117.hd.renderer.zone.Zone.ZONE_VERTEX_NUM_INTS;
 import static rs117.hd.utils.MathUtils.*;
 
 @Slf4j
@@ -105,7 +108,7 @@ public final class VertexWriteCache {
 		stagingBuffer[stagingPosition + 7] = terrainDataB;
 		stagingBuffer[stagingPosition + 8] = terrainDataC;
 
-		this.stagingPosition += 9;
+		this.stagingPosition += STATIC_FACE_NUM_INTS;
 
 		return textureFaceIdx;
 	}
@@ -143,7 +146,7 @@ public final class VertexWriteCache {
 		stagingBuffer[stagingPosition + 2] = alphaBiasHslC;
 		stagingBuffer[stagingPosition + 3] = materialData;
 
-		this.stagingPosition += 4;
+		this.stagingPosition += MODEL_FACE_NUM_INTS;
 		return TEXTURE_FACE_IS_MODEL | textureFaceIdx;
 	}
 
@@ -167,7 +170,7 @@ public final class VertexWriteCache {
 		stagingBuffer[stagingPosition + 4] = (float16(w) & 0xFFFF) << 16 | (float16(v) & 0xFFFF);
 		stagingBuffer[stagingPosition + 5] = (windingReversed ? TEXTURE_FACE_IS_WINDING_REVERSED : 0) | textureFaceIdx;
 
-		this.stagingPosition += 6;
+		this.stagingPosition += ZONE_VERTEX_NUM_INTS;
 	}
 
 	public void flush() {
