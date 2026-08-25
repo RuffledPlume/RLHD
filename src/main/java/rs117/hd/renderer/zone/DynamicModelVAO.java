@@ -68,7 +68,7 @@ public class DynamicModelVAO implements Destructible {
 	private int writtenRangeCount;
 
 	DynamicModelVAO(String name, boolean useStagingBuffer) {
-		if (useStagingBuffer) {
+		if (useStagingBuffer && SUPPORTS_STORAGE_BUFFERS) {
 			this.vboRender = new GLBuffer("DynamicModel::VBO::" + name, GL_ARRAY_BUFFER, GL_STATIC_DRAW, 0);
 			this.vboStaging = new GLBuffer(
 				"DynamicModel::VBO_STAGING::" + name,
