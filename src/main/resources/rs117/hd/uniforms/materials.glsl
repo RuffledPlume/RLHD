@@ -46,5 +46,8 @@ int getMaterialHexTilingMode(const Material material) {
 }
 
 bool isHexSamplingSame(const Material materialA, const Material materialB) {
-    return materialA.hexTilingScale == materialB.hexTilingScale &&  materialA.hexTilingBlend == materialB.hexTilingBlend && getMaterialHexTilingMode(materialA) == getMaterialHexTilingMode(materialB);
+    return
+        materialA.hexTilingScale == materialB.hexTilingScale &&
+        materialA.hexTilingBlend == materialB.hexTilingBlend &&
+        getMaterialHexTilingMode(materialA) == getMaterialHexTilingMode(materialB);
 }

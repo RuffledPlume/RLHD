@@ -269,7 +269,8 @@ void main() {
 
         // get diffuse textures
         vec4 texColor1, texColor2, texColor3;
-        LAYERED_SAMPLE(texColor1, texColor2, texColor3,
+        LAYERED_SAMPLE(
+            texColor1, texColor2, texColor3,
             colorMap1, colorMap2, colorMap3,
             uv1, uv2, uv3,
             hex1, hex2, hex3,
@@ -382,10 +383,12 @@ void main() {
         vec3 vSpecularGloss = vec3(material1.specularGloss, material2.specularGloss, material3.specularGloss);
         vec3 vSpecularStrength = vec3(material1.specularStrength, material2.specularStrength, material3.specularStrength);
         float rough1, rough2, rough3;
-        LAYERED_SAMPLE_SCALAR(rough1, rough2, rough3,
+        LAYERED_SAMPLE_SCALAR(
+            rough1, rough2, rough3,
             material1.roughnessMap, material2.roughnessMap, material3.roughnessMap,
             uv1, uv2, uv3,
-            hex1, hex2, hex3, 1.0,
+            hex1, hex2, hex3,
+            1.0,
             linearToSrgb
         );
         vSpecularStrength *= vec3(rough1, rough2, rough3);
@@ -410,9 +413,14 @@ void main() {
         vec3 ambientLightOut = ambientColor * ambientStrength;
 
         float ao1, ao2, ao3;
-        LAYERED_SAMPLE_SCALAR(ao1, ao2, ao3,
+        LAYERED_SAMPLE_SCALAR(
+            ao1, ao2, ao3,
             material1.ambientOcclusionMap, material2.ambientOcclusionMap, material3.ambientOcclusionMap,
-            uv1, uv2, uv3, hex1, hex2, hex3, 1.0, IDENTITY);
+            uv1, uv2, uv3,
+            hex1, hex2, hex3,
+            1.0,
+            IDENTITY
+        );
         float aoFactor = IN.texBlend.x * ao1 + IN.texBlend.y * ao2 + IN.texBlend.z * ao3;
         ambientLightOut *= aoFactor;
 
