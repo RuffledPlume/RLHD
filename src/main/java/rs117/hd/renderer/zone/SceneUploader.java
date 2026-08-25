@@ -2641,20 +2641,6 @@ public class SceneUploader implements AutoCloseable {
 		vb.putVertex(x2, y2, z2, u2, v2, 0, 0, -1, 0, faceIdx, false, 0);
 	}
 
-	public static void calculateFaceNormalInt(
-		int[] out,
-		int vx1, int vy1, int vz1,
-		int vx2, int vy2, int vz2,
-		int vx3, int vy3, int vz3
-	) {
-		calculateFaceNormal(
-			out,
-			Float.intBitsToFloat(vx1), Float.intBitsToFloat(vy1), Float.intBitsToFloat(vz1),
-			Float.intBitsToFloat(vx2), Float.intBitsToFloat(vy2), Float.intBitsToFloat(vz2),
-			Float.intBitsToFloat(vx3), Float.intBitsToFloat(vy3), Float.intBitsToFloat(vz3)
-		);
-	}
-
 	public static void calculateFaceNormal(
 		int[] out,
 		float vx1, float vy1, float vz1,

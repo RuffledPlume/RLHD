@@ -35,7 +35,7 @@ public class UBODisplacement extends UniformBuffer<GLBuffer> {
 	}
 
 	public class BoatStruct extends StructProperty {
-		// Encoded Half16
+		// packed float16
 		public Property[] contour = addPropertyArray(PropertyType.IVec4, "contour", 2);
 	}
 }

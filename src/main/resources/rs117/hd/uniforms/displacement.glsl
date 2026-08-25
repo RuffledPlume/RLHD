@@ -9,7 +9,7 @@
 #define BOAT_DIST_OFFSET 42.0
 
 struct Boat {
-    // packed XY half16
+    // packed XY float16
     ivec4 boatContour[BOAT_CONTOUR / 4];
 };
 

@@ -160,7 +160,7 @@ public class WorldViewContext {
 		ctx.dynamicModelVaos[type].draw(cmd, dynamicDrawRanges[type * 2], dynamicDrawRanges[type * 2 + 1]);
 	}
 
-	void handleZoneSwap(int zx, int zz, boolean queue) {
+	void handleZoneSwap(int zx, int zz) {
 		Zone curZone = zones[zx][zz];
 		ZoneUploadJob uploadTask = curZone.uploadJob;
 		if (uploadTask == null)
@@ -207,7 +207,7 @@ public class WorldViewContext {
 	void processZoneSwaps() {
 		for (int x = 0; x < sizeX; x++) {
 			for (int z = 0; z < sizeZ; z++) {
-				handleZoneSwap(x, z, true);
+				handleZoneSwap(x, z);
 
 				final Zone zone = zones[x][z];
 				if (zone.fadingAlpha <= 0)
@@ -238,7 +238,7 @@ public class WorldViewContext {
 
 		for (int x = 0; x < sizeX; x++)
 			for (int z = 0; z < sizeZ; z++)
-				handleZoneSwap(x, z, false);
+				handleZoneSwap(x, z);
 	}
 
 	void free() {
@@ -325,7 +325,7 @@ public class WorldViewContext {
 							final int centerZ = gameObject.getY();
 
 							if (model != null) {
-								// find all verticies that are under
+								// Find all vertices that are under
 								int[] xs = PooledArrayType.INT.borrow(model.getVerticesCount());
 								int[] ys = PooledArrayType.INT.borrow(model.getVerticesCount());
 								int underwaterCount = 0;
@@ -355,8 +355,8 @@ public class WorldViewContext {
 										Arrays.fill(xs, underwaterCount, xs.length, xs[underwaterCount - 1]);
 										Arrays.fill(ys, underwaterCount, ys.length, ys[underwaterCount - 1]);
 
-										// Build Convex Hull around all verticies which are below the water plane
-										// Then Reduce the convex hull down to just 8 points
+										// Build Convex Hull around all vertices which are below the water plane
+										// Then reduce the convex hull down to just 8 points
 										boatDisplacementOctagon = Jarvis.convexHull(xs, ys);
 										boatDisplacementOctagon = HDUtils.reducePolygon(boatDisplacementOctagon, 8);
 										isBoat = true;

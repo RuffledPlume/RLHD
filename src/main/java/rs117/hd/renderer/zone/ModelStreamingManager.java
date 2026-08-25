@@ -273,8 +273,8 @@ public class ModelStreamingManager {
 				z & 1023
 			) : null;
 
-		final int drawIndex =
-			renderThreadId != -1 ? -1 : renderer.frameContext().obtainDrawIndex(r instanceof Player ? VAO_PLAYER : VAO_OPAQUE);
+		final int drawIndex = renderThreadId != -1 ? -1 :
+			renderer.frameContext().obtainDrawIndex(r instanceof Player ? VAO_PLAYER : VAO_OPAQUE);
 		final boolean isModelPartiallyVisible = sceneManager.isRoot(ctx) && modelClassification == 0;
 		final AsyncCachedModel asyncModelCache = obtainAvailableAsyncCachedModel(m);
 		if (asyncModelCache != null) {
@@ -419,9 +419,7 @@ public class ModelStreamingManager {
 				final DynamicModelVAO.View shadowView = ctx.beginDraw(VAO_SHADOW, culledFaces.length);
 				final int shadowModelIdx = SceneUploader.writeDynamicModelData(
 					shadowView.tboM,
-					x,
-					y,
-					z,
+					x, y, z,
 					modelFade,
 					m,
 					modelOverride,
@@ -459,9 +457,7 @@ public class ModelStreamingManager {
 
 				final int opaqueModelIdx = SceneUploader.writeDynamicModelData(
 					opaqueView.tboM,
-					x,
-					y,
-					z,
+					x, y, z,
 					modelFade,
 					m,
 					modelOverride,
