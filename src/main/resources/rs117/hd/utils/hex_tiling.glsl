@@ -21,13 +21,13 @@ struct HexShared {
 };
 
 struct HexData {
-    vec3 weights;       // Barycentric weights for triangle interpolation
-    vec2 uv[3];         // Perturbed UV coordinates for each vertex
-    vec2 vertex[3];     // Hexagonal cell vertex positions
-    bool enabled;       // Flag indicating if hex computation is valid
-    vec2 dPdx;          // Partial derivative for gradient-aware sampling
-    vec2 dPdy;          // Partial derivative for gradient-aware sampling
-    int dominantIdx;    // Precomputed dominant vertex index
+    vec3 weights;    // Barycentric weights for triangle interpolation
+    vec2 uv[3];      // Perturbed UV coordinates for each vertex
+    vec2 vertex[3];  // Hexagonal cell vertex positions
+    bool enabled;    // Flag indicating if hex computation is valid
+    vec2 dPdx;       // Partial derivative for gradient-aware sampling
+    vec2 dPdy;       // Partial derivative for gradient-aware sampling
+    int dominantIdx; // Precomputed dominant vertex index
 };
 
 // Converts regular UV space into skewed hex space
@@ -128,7 +128,7 @@ HexData buildHexData(vec2 uv, const Material material, inout HexShared hexShared
     float maxW = max(max(h.weights.x, h.weights.y), h.weights.z);
     if (maxW > HEX_DOMINANT) {
         // Determine which weight is largest
-        h.dominantIdx = (h.weights.x > h.weights.y)
+        h.dominantIdx = h.weights.x > h.weights.y
             ? (h.weights.x > h.weights.z ? 0 : 2)
             : (h.weights.y > h.weights.z ? 1 : 2);
     } else {
@@ -176,7 +176,8 @@ vec3 sampleHexRGB(sampler2DArray tex, vec3 uvw, HexData h) {
 }
 
 vec3 debugHex(HexData h) {
-    if (!h.enabled) return vec3(0.0);
+    if (!h.enabled)
+        return vec3(0.0);
 
     vec3 W = h.weights;
 
