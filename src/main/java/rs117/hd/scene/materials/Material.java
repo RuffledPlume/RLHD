@@ -63,7 +63,7 @@ public class Material {
 	public float brightness = 1;
 	private float displacementScale = .1f;
 	private float hexTilingScale = 0.0f;
-	private float hexTilingBlend = 4.0f;
+	private float hexTilingBlend = 0.25f;
 	private HexTilingMode hexTilingMode = HexTilingMode.OFFSET_WITH_ROTATION;
 	private float flowMapStrength;
 	private float[] flowMapDuration = { 0, 0 };
@@ -224,8 +224,8 @@ public class Material {
 		struct.displacementScale.set(displacementScale);
 		struct.specularStrength.set(specularStrength);
 		struct.specularGloss.set(specularGloss);
-		struct.hexTilingScale.set(hexTilingScale);
-		struct.hexTilingBlend.set(hexTilingBlend);
+		struct.hexTilingScale.set(divide(1, hexTilingScale));
+		struct.hexTilingBlend.set(pow(79.4971f, 1 - saturate(hexTilingBlend))); // magic number for minimal blending without artifacts
 		struct.flowMapStrength.set(flowMapStrength);
 		struct.flowMapDuration.set(flowMapDuration);
 		struct.scrollDuration.set(scrollSpeedX, scrollSpeedY);

@@ -1438,8 +1438,8 @@
     "normalMap": "GRAVEL_N",
     "specularStrength": 0.4,
     "specularGloss": 130.0,
-    "hexTilingScale": 1.25,
-    "hexTilingBlend": 2.5
+    "hexTilingScale": 0.8,
+    "hexTilingBlend": 0.35
   },
   {
     "name": "VERTICAL_GRAVEL",
@@ -3259,7 +3259,7 @@
     "specularStrength": 0.175,
     "specularGloss": 15.0,
     "hexTilingScale": 1.5,
-    "hexTilingBlend": 1.5,
+    "hexTilingBlend": 0.45,
     "hexTilingMode": "OFFSET_WITH_MIRROR",
     "materialsToReplace": [
       "HAY"

@@ -114,7 +114,7 @@ HexData buildHexData(vec2 uv, const Material material, inout HexShared hexShared
     w = max(w, 0.0);
 
     // Sharpen blend
-    w = pow(w, vec3(7.0 * blend));
+    w = pow(w, vec3(blend));
 
     // Normalize
     float invSum = 1.0 / (w.x + w.y + w.z);
