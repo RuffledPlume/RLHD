@@ -1,5 +1,7 @@
 #pragma once
 
+#include <uniforms/materials.glsl>
+
 #include <utils/misc.glsl>
 
 #define HEX_UV_OFFSET_ONLY        0
@@ -75,7 +77,11 @@ vec2 makeUV(vec2 uv, vec2 vertexPos, int mode) {
     return p * scaleJitter + h.w;
 }
 
-HexData buildHexData(vec2 uv, inout HexShared hexShared, float scale, float blend, int mode) {
+HexData buildHexData(vec2 uv, const Material material, inout HexShared hexShared, float fadeMultiplier) {
+    float scale = material.hexTilingScale * fadeMultiplier;
+    float blend = material.hexTilingBlend;
+    int mode = getMaterialHexTilingMode(material);
+
     HexData h;
     if (scale <= 0.0) {
         h.enabled = false;

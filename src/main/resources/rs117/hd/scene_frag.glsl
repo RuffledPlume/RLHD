@@ -211,25 +211,29 @@ void main() {
             fragPos += TBN * fragDelta;
         #endif
 
-        // Build HexData, if Terrain use world space XZ otherwise UVs
-        float hexFadeMultiplier = distance(IN.position, cameraPos) < (TILE_SIZE * 40) ? 1.0 : 0.0;
-
+        // Build HexData, if terrain, use world space XZ, otherwise UVs
+        float hexFadeMultiplier = distance(IN.position, cameraPos) < TILE_SIZE * 40 ? 1.0 : 0.0;
         HexShared hexShared = initHexShared(IN.position.xz / TILE_SIZE);
-        HexData hex1 = buildHexData(uv1, hexShared, material1.hexTilingScale * hexFadeMultiplier, material1.hexTilingBlend, getMaterialHexTilingMode(material1));
+        HexData hex1 = buildHexData(uv1, material1, hexShared, hexFadeMultiplier);
 
         HexData hex2 = hex1;
-        if(materialIdx1 != materialIdx2 && (uv1 != uv2 || !isHexSamplingSame(material1, material2)))
-            hex2 = buildHexData(uv2, hexShared, material2.hexTilingScale * hexFadeMultiplier, material2.hexTilingBlend, getMaterialHexTilingMode(material2));
+        if (materialIdx1 != materialIdx2 && (uv1 != uv2 || !isHexSamplingSame(material1, material2)))
+            hex2 = buildHexData(uv2, material2, hexShared, hexFadeMultiplier);
 
         HexData hex3 = hex1;
-        if(materialIdx1 != materialIdx3 && (uv1 != uv3 || !isHexSamplingSame(material1, material3)))
-            hex3 = buildHexData(uv3, hexShared, material3.hexTilingScale * hexFadeMultiplier, material3.hexTilingBlend, getMaterialHexTilingMode(material3));
+        if (materialIdx1 != materialIdx3 && (uv1 != uv3 || !isHexSamplingSame(material1, material3)))
+            hex3 = buildHexData(uv3, material3, hexShared, hexFadeMultiplier);
 
         #if DISPLAY_HEX
-        if(hexShared.valid) {
-            FragColor = vec4(debugHex(hex1) * IN.texBlend.x + debugHex(hex2) * IN.texBlend.y + debugHex(hex3) * IN.texBlend.z, 1.0);
-            if (DISPLAY_HEX == 1) return; // Redundant, for syntax highlighting in IntelliJ
-        }
+            if (hexShared.valid) {
+                FragColor = vec4(
+                    debugHex(hex1) * IN.texBlend.x +
+                    debugHex(hex2) * IN.texBlend.y +
+                    debugHex(hex3) * IN.texBlend.z,
+                    1.0
+                );
+                if (DISPLAY_HEX == 1) return; // Redundant, for syntax highlighting in IntelliJ
+            }
         #endif
 
         vec3 hsl1 = unpackRawHsl(fAlphaBiasHsl[0]);
