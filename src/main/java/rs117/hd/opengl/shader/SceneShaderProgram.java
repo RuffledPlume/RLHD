@@ -40,7 +40,7 @@ public class SceneShaderProgram extends ShaderProgram {
 	}
 
 	public static class Discard extends SceneShaderProgram {
-		Discard() { this.allowDiscard = true; }
+		Discard() { allowDiscard = true; }
 	}
 
 	public static class Legacy extends SceneShaderProgram {

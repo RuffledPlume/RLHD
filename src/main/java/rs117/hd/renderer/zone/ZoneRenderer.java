@@ -928,11 +928,14 @@ public class ZoneRenderer implements Renderer {
 			zone.inSceneFrustum = sceneCamera.intersectsAABB(
 				minX - PADDING, minY, minZ - PADDING, maxX + PADDING, maxY, maxZ + PADDING);
 
-			// Check if Scene Camera Intersects with the zone
-			zone.sceneCameraIntersects = zone.inSceneFrustum && HDUtils.isSphereIntersectingAABB(
-										 sceneCamera.getPositionX(), sceneCamera.getPositionY(), sceneCamera.getPositionZ(), LOCAL_TILE_SIZE * 2,
-										 minX, minY, minZ, maxX, maxY, maxZ
-									 );
+			// Check if the scene camera intersects with the zone
+			zone.sceneCameraIntersects =
+				zone.inSceneFrustum &&
+				HDUtils.isSphereIntersectingAABB(
+					sceneCamera.getPositionX(), sceneCamera.getPositionY(), sceneCamera.getPositionZ(),
+					LOCAL_TILE_SIZE * 2,
+					minX, minY, minZ, maxX, maxY, maxZ
+				);
 
 			if (zone.inSceneFrustum) {
 				if (plugin.enableDetailedTimers)
@@ -981,13 +984,12 @@ public class ZoneRenderer implements Renderer {
 			frameTimer.begin(Timer.DRAW_ZONE_OPAQUE);
 			if (!sceneManager.isRoot(ctx) || z.inSceneFrustum) {
 				final boolean allowDiscard = !sceneManager.isRoot(ctx) || z.sceneCameraIntersects;
-
-				if(allowDiscard)
+				if (allowDiscard)
 					sceneCmd.SetShader(sceneDiscardProgram);
 
 				z.renderOpaque(sceneCmd, ctx, false);
 
-				if(allowDiscard)
+				if (allowDiscard)
 					sceneCmd.SetShader(sceneProgram);
 
 				if (z.hasGapFiller)
@@ -1100,7 +1102,7 @@ public class ZoneRenderer implements Renderer {
 				case DrawCallbacks.PASS_ALPHA:
 					modelStreamingManager.ensureAsyncUploadsComplete(null);
 
-					// Draw Shadows
+					// Draw shadows
 					ctx.drawAll(VAO_OPAQUE, ctx.vaoDirectionalCmd);
 					ctx.drawAll(VAO_PLAYER, ctx.vaoDirectionalCmd);
 					ctx.drawAll(VAO_SHADOW, ctx.vaoDirectionalCmd);

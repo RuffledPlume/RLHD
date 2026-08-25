@@ -102,13 +102,14 @@ void main() {
             float fadeAmount = mix(1.0 - saturate(viewZ / NEAR_PLANE_DITHER_START), fFade, saturate(fFade));
             float threshold = smoothstep(0.0, 1.0, pow(fadeAmount, 1.35));
             float noise = interleavedGradientNoise(gl_FragCoord.xy);
-        #if ALLOW_DISCARD
-            if (noise < threshold)
-                discard;
-        #else
-            if(noise < threshold)
-                alphaFrac = 0.0;
-        #endif
+
+            if (noise < threshold) {
+                #if ALLOW_DISCARD
+                    discard;
+                #else
+                    alphaFrac = 0.0;
+                #endif
+            }
         }
     #endif
 

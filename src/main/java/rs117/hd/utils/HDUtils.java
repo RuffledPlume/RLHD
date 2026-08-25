@@ -488,7 +488,6 @@ public final class HDUtils {
 		final float dz = sz - closestZ;
 
 		final float distSq = dx * dx + dy * dy + dz * dz;
-
 		return distSq <= radius * radius;
 	}
 

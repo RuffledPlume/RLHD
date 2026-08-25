@@ -311,16 +311,6 @@ public class DynamicModelVAO implements Destructible {
 		issueDraw(cmd, rangeCount);
 	}
 
-	void draw(CommandBuffer cmd, int[] drawIndices, int count) {
-		ensureMergedCapacity(count);
-
-		int rangeCount = 0;
-		for (int n = 0; n < count; n++)
-			rangeCount = appendMergedRange(drawIndices[n], rangeCount);
-
-		issueDraw(cmd, rangeCount);
-	}
-
 	private void ensureMergedCapacity(int maxCount) {
 		if (mergedOffsets.length < maxCount) {
 			mergedOffsets = Arrays.copyOf(mergedOffsets, maxCount);
