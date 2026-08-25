@@ -57,19 +57,19 @@ vec2 makeUV(vec2 uv, vec2 vertexPos, int mode) {
     vec4 h = hash24(vertexPos);
     vec2 p = uv;
 
-    if (mode == HEX_UV_OFFSET_WITH_ROTATE) {
+    if (mode == HEX_UV_OFFSET_WITH_MIRROR) {
+        // Randomly flip
+        vec2 flipMask = step(0.5, h.xy) * 2.0 - 1.0;
+        p *= flipMask;
+    } else if (mode == HEX_UV_OFFSET_WITH_ROTATE) {
         p -= 0.5;
 
-        // Discreate Rotation
+        // Randomly rotate
         vec2 dir = normalize(h.xy * 2.0 - 1.0);
         p = vec2(dir.x * p.x - dir.y * p.y,
                  dir.y * p.x + dir.x * p.y);
 
         p += 0.5;
-    } else if (mode == HEX_UV_OFFSET_WITH_MIRROR) {
-        // Flip along U/W
-        vec2 flipMask = step(0.5, h.xy) * 2.0 - 1.0;
-        p *= flipMask;
     }
 
     // Offset & Scale
