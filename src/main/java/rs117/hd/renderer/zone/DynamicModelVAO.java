@@ -20,6 +20,7 @@ import static rs117.hd.HdPlugin.SUPPORTS_STORAGE_BUFFERS;
 import static rs117.hd.renderer.zone.Zone.METADATA_NUM_BYTES;
 import static rs117.hd.renderer.zone.Zone.METADATA_NUM_INTS;
 import static rs117.hd.renderer.zone.Zone.MODEL_DATA_NUM_INTS;
+import static rs117.hd.renderer.zone.Zone.MODEL_FACE_NUM_INTS;
 import static rs117.hd.renderer.zone.Zone.ZONE_VERTEX_NUM_BYTES;
 import static rs117.hd.renderer.zone.Zone.ZONE_VERTEX_NUM_INTS;
 import static rs117.hd.renderer.zone.ZoneRenderer.TEXTURE_UNIT_MODEL_DATA;
@@ -113,7 +114,7 @@ public class DynamicModelVAO implements Destructible {
 		if (vboRender != vboStaging)
 			vboStaging.initialize(INITIAL_SIZE);
 
-		// Build Stub Metadata
+		// Build stub metadata
 		stubMetadata.initialize(METADATA_NUM_BYTES);
 		try (MemoryStack stack = MemoryStack.stackPush()) {
 			int intsCount = METADATA_NUM_INTS;
@@ -158,7 +159,7 @@ public class DynamicModelVAO implements Destructible {
 		glVertexAttribDivisor(7, 1);
 		glVertexAttribIPointer(7, 2, GL_INT, METADATA_NUM_BYTES, 4);
 
-		// Scene offset
+		// Zone fading
 		glEnableVertexAttribArray(8);
 		glVertexAttribDivisor(8, 1);
 		glVertexAttribPointer(8, 1, GL_FLOAT, false, METADATA_NUM_BYTES, 12);
@@ -244,7 +245,7 @@ public class DynamicModelVAO implements Destructible {
 		if (view == null)
 			view = new View();
 		view.vbo = vboWriter.reserve(faceCount * 3 * ZONE_VERTEX_NUM_INTS);
-		view.tboF = tboFWriter.reserve(faceCount * 4);
+		view.tboF = tboFWriter.reserve(faceCount * MODEL_FACE_NUM_INTS);
 		view.tboM = tboMWriter.reserve(MODEL_DATA_NUM_INTS);
 		view.vao = vao;
 		view.tboFId = tboF.getTexId();
