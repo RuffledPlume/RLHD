@@ -105,7 +105,7 @@
       },
       "hexTilingMode": {
         "type": "string",
-        "description": "Controls the Mode used to generate the base Hex UV:\n * Offset: Translate & Scales the Hex UV\n * Offset & Mirror: Flips U And/Or V components\n * Offset & Rotation: Applies a Discrete rotation to the UV",
+        "description": "Set the hex tile randomization mode used to break up tiling patterns. 'OFFSET' is cheapest & will offset & slightly scale hexagons at random. 'OFFSET_WITH_MIRROR' will also randomly flip hexagons in a cheap way. 'OFFSET_WITH_ROTATION' will randomly rotate the texture for each hexagon to further break up any tiling patterns.",
         "enum": [
           "OFFSET",
           "OFFSET_WITH_MIRROR",
