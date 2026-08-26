@@ -146,7 +146,7 @@ layout (location = 0) in vec3 vPosition;
             worldPosition = worldViewProjection * vec4(worldPosition, 1.0);;
         }
 
-        if (modelIdx > 0) {
+        if (modelIdx > 0 && isDisplacementEnabled(materialData)) {
             ObjectWindSample windSample = computeWindSample(modelData.position, modelData.height);
             worldPosition += applyWindDisplacementVertex(
                 windSample,

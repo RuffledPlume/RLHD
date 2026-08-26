@@ -122,15 +122,17 @@ layout (location = 0) in vec3 vPosition;
         vec3 worldPosition = vPosition + sceneOffset;
 
         if (modelIdx > 0) {
-            ObjectWindSample windSample = computeWindSample(modelData.position, modelData.height);
-            worldPosition += applyWindDisplacementVertex(
-                windSample,
-                materialData,
-                float(modelData.height),
-                worldPosition,
-                worldPosition - modelData.position,
-                vNormal.xyz
-            );
+            if(isDisplacementEnabled(materialData)) {
+                ObjectWindSample windSample = computeWindSample(modelData.position, modelData.height);
+                worldPosition += applyWindDisplacementVertex(
+                    windSample,
+                    materialData,
+                    float(modelData.height),
+                    worldPosition,
+                    worldPosition - modelData.position,
+                    vNormal.xyz
+                );
+            }
         } else {
             // Clamp underwater vertices to the water surface along the draw distance border, excluding
             // waterDepth == 1, which is used when the geometry already sits flush with the surface

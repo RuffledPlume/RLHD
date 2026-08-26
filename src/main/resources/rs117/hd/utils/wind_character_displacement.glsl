@@ -82,6 +82,10 @@ vec3 applyBoatDisplacement(int boatIdx, vec2 vertPos, float height, float streng
 }
 #endif
 
+bool isDisplacementEnabled(int materialData) {
+    return WIND_DISPLACEMENT == 1 || CHARACTER_DISPLACEMENT == 1 && ((materialData >> MATERIAL_FLAG_WIND_SWAYING) & 0x7) > WIND_DISPLACEMENT_DISABLED;
+}
+
 vec3 applyWindDisplacementVertex(
     const ObjectWindSample windSample,
     int vertexFlags,
