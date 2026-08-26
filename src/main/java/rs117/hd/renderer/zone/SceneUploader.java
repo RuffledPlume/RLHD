@@ -831,7 +831,7 @@ public class SceneUploader implements AutoCloseable {
 					zone.glVaoA,
 					zone.tboF.getTexId(),
 					model, modelOverride, alphaStart, alphaEnd,
-					x - basex, y, z - basez,
+					x - basex, y + modelOverride.heightOffset, z - basez,
 					lx, lz, ux, uz,
 					rid, level, id
 				);
@@ -1551,6 +1551,8 @@ public class SceneUploader implements AutoCloseable {
 
 		ensureVerticesAllocated(vertexCount);
 
+		y += modelOverride.heightOffset;
+
 		for (int v = 0, vertexOffset = 0; v < vertexCount; ++v) {
 			int vx = (int) vertexX[v];
 			int vy = (int) vertexY[v];
@@ -1920,6 +1922,8 @@ public class SceneUploader implements AutoCloseable {
 		}
 
 		ensureVerticesAllocated(vertexCount);
+
+		y += modelOverride.heightOffset;
 
 		boolean shouldSort = true;
 		boolean allVertsVisible = true;
