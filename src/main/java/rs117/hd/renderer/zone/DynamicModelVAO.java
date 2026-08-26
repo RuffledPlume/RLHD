@@ -27,6 +27,7 @@ import static rs117.hd.renderer.zone.ZoneRenderer.TEXTURE_UNIT_MODEL_DATA;
 import static rs117.hd.renderer.zone.ZoneRenderer.TEXTURE_UNIT_TEXTURED_FACES;
 import static rs117.hd.utils.MathUtils.*;
 import static rs117.hd.utils.buffer.GLBuffer.STORAGE_IMMUTABLE;
+import static rs117.hd.utils.buffer.GLBuffer.STORAGE_NONE;
 import static rs117.hd.utils.buffer.GLBuffer.STORAGE_PERSISTENT;
 import static rs117.hd.utils.buffer.GLBuffer.STORAGE_WRITE;
 
@@ -69,20 +70,20 @@ public class DynamicModelVAO implements Destructible {
 	private int writtenRangeCount;
 
 	DynamicModelVAO(String name, boolean useStagingBuffer) {
-		if (useStagingBuffer && SUPPORTS_STORAGE_BUFFERS) {
+		int storageFlags = SUPPORTS_STORAGE_BUFFERS ? STORAGE_PERSISTENT | STORAGE_IMMUTABLE | STORAGE_WRITE : STORAGE_NONE;
+		if (useStagingBuffer) {
 			this.vboRender = new GLBuffer("DynamicModel::VBO::" + name, GL_ARRAY_BUFFER, GL_STATIC_DRAW, 0);
 			this.vboStaging = new GLBuffer(
 				"DynamicModel::VBO_STAGING::" + name,
 				GL_ARRAY_BUFFER,
 				GL_STREAM_DRAW,
-				STORAGE_PERSISTENT | STORAGE_IMMUTABLE | STORAGE_WRITE
+				storageFlags
 			);
 		} else {
 			this.vboRender = this.vboStaging = new GLBuffer(
 				"DynamicModel::VBO::" + name,
 				GL_ARRAY_BUFFER,
-				GL_STREAM_DRAW,
-				STORAGE_PERSISTENT | STORAGE_IMMUTABLE | STORAGE_WRITE
+				GL_STREAM_DRAW
 			);
 		}
 		this.stubMetadata = new GLBuffer("DynamicModel::Metadata", GL_ARRAY_BUFFER, GL_STATIC_DRAW);
@@ -91,12 +92,12 @@ public class DynamicModelVAO implements Destructible {
 		this.tboF = new GLTextureBuffer(
 			"DynamicModel::TexturedFaces::" + name,
 			GL_STREAM_DRAW,
-			STORAGE_PERSISTENT | STORAGE_IMMUTABLE | STORAGE_WRITE
+			storageFlags
 		);
 		this.tboM = new GLTextureBuffer(
 			"DynamicModel::ModelData::" + name,
 			GL_STREAM_DRAW,
-			STORAGE_PERSISTENT | STORAGE_IMMUTABLE | STORAGE_WRITE
+			storageFlags
 		);
 		this.tboFWriter = new GLMappedBufferIntWriter(this.tboF);
 		this.tboMWriter = new GLMappedBufferIntWriter(this.tboM);
