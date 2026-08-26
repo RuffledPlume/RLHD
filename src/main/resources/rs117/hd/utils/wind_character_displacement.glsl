@@ -65,23 +65,6 @@ vec3 applyCharacterDisplacement(vec4 characterData, vec2 vertPos, float height, 
     return mix(horizontalDisplacement, verticalDisplacement, offsetFrac);
 }
 
-#if ZONE_RENDERER
-vec3 applyBoatDisplacement(int boatIdx, vec2 vertPos, float height, float strength, inout float offsetAccum) {
-    float d = boatDistance(boats[boatIdx], vertPos);
-
-    float falloffRadius = BOAT_DISPLACEMENT_MARGIN;
-    if (d >= falloffRadius)
-        return vec3(0.0);
-
-    float offsetFrac = saturate(1.0 - (d / falloffRadius));
-    float displacementFrac = offsetFrac * offsetFrac;
-
-    offsetAccum += offsetFrac;
-
-    return vec3(0.0, height * strength * displacementFrac, 0.0);
-}
-#endif
-
 bool isDisplacementEnabled(int materialData) {
     return WIND_DISPLACEMENT == 1 || CHARACTER_DISPLACEMENT == 1 && ((materialData >> MATERIAL_FLAG_WIND_SWAYING) & 0x7) > WIND_DISPLACEMENT_DISABLED;
 }
@@ -152,16 +135,6 @@ vec3 applyWindDisplacementVertex(
             if (fractAccum >= 1.0)
                 break;
         }
-
-#if ZONE_RENDERER
-        if (fractAccum < 1.0) {
-            for (int i = 0; i < boatCount; i++) {
-                displacement += applyBoatDisplacement(i, worldVert, modelHeight, 1.25, fractAccum);
-                if (fractAccum >= 1.0)
-                    break;
-            }
-        }
-#endif
 #endif
     }
 

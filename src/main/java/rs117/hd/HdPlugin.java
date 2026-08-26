@@ -728,7 +728,6 @@ public class HdPlugin extends Plugin {
 				fishingSpotReplacer.startUp();
 				gammaCalibrationOverlay.initialize();
 				npcDisplacementCache.initialize();
-				displacementManager.initialize();
 
 				hasLoggedIn = client.getGameState().getState() > GameState.LOGGING_IN.getState();
 				redrawPreviousFrame = false;

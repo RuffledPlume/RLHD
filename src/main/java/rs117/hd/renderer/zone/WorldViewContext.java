@@ -2,7 +2,6 @@ package rs117.hd.renderer.zone;
 
 import com.google.inject.Injector;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
@@ -10,21 +9,15 @@ import javax.annotation.Nullable;
 import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
-import net.runelite.api.geometry.*;
-import net.runelite.api.model.*;
 import net.runelite.client.callback.ClientThread;
 import rs117.hd.HdPlugin;
 import rs117.hd.opengl.uniforms.UBOWorldViews;
 import rs117.hd.opengl.uniforms.UBOWorldViews.WorldViewStruct;
-import rs117.hd.scene.DisplacementManager;
 import rs117.hd.utils.Camera;
 import rs117.hd.utils.CommandBuffer;
 import rs117.hd.utils.DestructibleHandler;
-import rs117.hd.utils.HDUtils;
-import rs117.hd.utils.collections.PooledArrayType;
 import rs117.hd.utils.jobs.JobGroup;
 
-import static net.runelite.api.Constants.*;
 import static rs117.hd.renderer.zone.FrameContext.VAO_COUNT;
 import static rs117.hd.renderer.zone.SceneManager.NUM_ZONES;
 import static rs117.hd.utils.MathUtils.*;
@@ -47,9 +40,6 @@ public class WorldViewContext {
 	@Inject
 	private SceneManager sceneManager;
 
-	@Inject
-	private DisplacementManager displacementManager;
-
 	final int worldViewId;
 	final int sizeX, sizeZ;
 	@Nullable
@@ -57,9 +47,6 @@ public class WorldViewContext {
 	public ZoneSceneContext sceneContext;
 	Zone[][] zones;
 	boolean isLoading = true;
-
-	boolean isBoat = false;
-	SimplePolygon boatDisplacementOctagon;
 
 	int minLevel, level, maxLevel;
 	Set<Integer> hideRoofIds;
@@ -291,86 +278,5 @@ public class WorldViewContext {
 
 		curZone.uploadJob = ZoneUploadJob.build(this, sceneContext, newZone, false, zx, zz);
 		curZone.uploadJob.queue(invalidationGroup, sceneManager.getGenerateSceneDataTask());
-	}
-
-	void buildBoatDisplacement() {
-		Tile[][][] tiles = sceneContext.scene.getExtendedTiles();
-		for (int z = 0; z < MAX_Z; z++) {
-			for (int x = 0; x < sceneContext.sizeX; x++) {
-				for (int y = 0; y < sceneContext.sizeZ; y++) {
-					final Tile tile = tiles[z][x][y];
-					if (tile == null)
-						continue;
-
-					GameObject[] gameObjects = tile.getGameObjects();
-					for (int g = 0; g < gameObjects.length; g++) {
-						GameObject gameObject = gameObjects[g];
-						if (gameObject == null)
-							continue;
-
-						Renderable renderable = gameObject.getRenderable();
-						if (renderable == null)
-							continue;
-
-						if (displacementManager.boatIds.contains(gameObject.getId())) {
-							Model model = null;
-							if (renderable instanceof Model) {
-								model = (Model) renderable;
-							} else if (renderable instanceof DynamicObject) {
-								model = ((DynamicObject) renderable).getModelZbuf();
-							}
-
-							final int centerX = gameObject.getX();
-							final int centerY = gameObject.getZ();
-							final int centerZ = gameObject.getY();
-
-							if (model != null) {
-								// Find all vertices that are under
-								int[] xs = PooledArrayType.INT.borrow(model.getVerticesCount());
-								int[] ys = PooledArrayType.INT.borrow(model.getVerticesCount());
-								int underwaterCount = 0;
-								try {
-									final float[] xVertices = model.getVerticesX();
-									final float[] yVertices = model.getVerticesY();
-									final float[] zVertices = model.getVerticesZ();
-
-									model.calculateBoundsCylinder();
-
-									final int vertexCount = model.getVerticesCount();
-									final AABB modelAABB = model.getAABB(0);
-
-									final int waterLine = modelAABB.getCenterY() + (int) (modelAABB.getExtremeY() * 0.5f);
-
-									for (int i = 0; i < vertexCount; i++) {
-										final float posY = centerY + yVertices[i];
-										if (posY > waterLine) {
-											xs[underwaterCount] = centerX + (int) xVertices[i];
-											ys[underwaterCount] = centerZ + (int) zVertices[i];
-											underwaterCount++;
-										}
-									}
-
-									if (underwaterCount > 0) {
-										// Fill the rest of the array with the last vertex
-										Arrays.fill(xs, underwaterCount, xs.length, xs[underwaterCount - 1]);
-										Arrays.fill(ys, underwaterCount, ys.length, ys[underwaterCount - 1]);
-
-										// Build Convex Hull around all vertices which are below the water plane
-										// Then reduce the convex hull down to just 8 points
-										boatDisplacementOctagon = Jarvis.convexHull(xs, ys);
-										boatDisplacementOctagon = HDUtils.reducePolygon(boatDisplacementOctagon, 8);
-										isBoat = true;
-									}
-								} finally {
-									PooledArrayType.INT.release(xs);
-									PooledArrayType.INT.release(ys);
-								}
-								return;
-							}
-						}
-					}
-				}
-			}
-		}
 	}
 }

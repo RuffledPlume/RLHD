@@ -8,15 +8,11 @@ import javax.inject.Inject;
 import javax.inject.Singleton;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
-import net.runelite.api.geometry.*;
 import rs117.hd.HdPlugin;
-import rs117.hd.opengl.uniforms.UBODisplacement;
-import rs117.hd.opengl.uniforms.UBOWorldViews.WorldViewStruct;
 import rs117.hd.opengl.uniforms.UniformBuffer.Property;
 import rs117.hd.overlays.FrameTimer;
 import rs117.hd.overlays.Timer;
 import rs117.hd.utils.NpcDisplacementCache;
-import rs117.hd.utils.collections.IntHashSet;
 
 import static net.runelite.api.Constants.*;
 import static net.runelite.api.Perspective.*;
@@ -47,28 +43,11 @@ public class DisplacementManager {
 	@Inject
 	private NpcDisplacementCache npcDisplacementCache;
 
-	private final int[] packedContour = new int[4];
-	private final float[] projected = new float[4];
-
-	private final WorldViewStruct[] boatWorldViews = new WorldViewStruct[MAX_BOAT_COUNT];
-	private final SimplePolygon[] boatDisplacementPolygons = new SimplePolygon[MAX_BOAT_COUNT];
 	private final boolean[] groundItems = new boolean[EXTENDED_SCENE_SIZE * EXTENDED_SCENE_SIZE];
-	private int writtenBoats;
-
-	public final IntHashSet boatIds = new IntHashSet();
 
 	private final ArrayList<CharacterPositionPair> characterPositionsPairs = new ArrayList<>(MAX_CHARACTER_POSITION_COUNT);
 	private int writtenCharacterPositions;
 	private float playerPosX, playerPosZ;
-
-	public void initialize() {
-		try (var handle = gamevalManager.obtainHandle()) {
-			for (var entry : handle.getObjects().entrySet()) {
-				if (entry.getKey().contains("SAILING_BOAT_HULL_"))
-					boatIds.add(entry.getValue());
-			}
-		}
-	}
 
 	private CharacterPositionPair getCharacterPositionPair() {
 		if (writtenCharacterPositions >= characterPositionsPairs.size()) {
@@ -78,15 +57,6 @@ public class DisplacementManager {
 		}
 
 		return characterPositionsPairs.get(writtenCharacterPositions);
-	}
-
-	public void addBoat(WorldViewStruct worldViewStruct, SimplePolygon displacedPolygon) {
-		if (writtenBoats >= MAX_BOAT_COUNT)
-			return;
-
-		boatWorldViews[writtenBoats] = worldViewStruct;
-		boatDisplacementPolygons[writtenBoats] = displacedPolygon;
-		writtenBoats++;
 	}
 
 	public void addLocalPlayer() {
@@ -176,27 +146,6 @@ public class DisplacementManager {
 
 		if (plugin.enableDetailedTimers)
 			frameTimer.end(Timer.CHARACTER_DISPLACEMENT);
-	}
-
-	public void writeBoatData(UBODisplacement.BoatStruct[] boatContours, Property boatCount) {
-		final int count = min(writtenBoats, MAX_BOAT_COUNT);
-		boatCount.set(count);
-		writtenBoats = 0;
-
-		for (int i = 0; i < count; i++) {
-			final WorldViewStruct worldViewStruct = boatWorldViews[i];
-			final SimplePolygon polygon = boatDisplacementPolygons[i];
-			final UBODisplacement.BoatStruct boatStruct = boatContours[i];
-
-			for (int j = 0; j < polygon.size(); j++) {
-				worldViewStruct.project(vec4(projected, polygon.getX(j), 0, polygon.getY(j), 1.0f));
-
-				packedContour[j % 4] = float16(projected[0]) | (float16(projected[2]) << 16);
-
-				if ((j + 1) % 4 == 0)
-					boatStruct.contour[j / 4].set(packedContour);
-			}
-		}
 	}
 
 	public void writeCharacterPositions(Property[] characterPositions, Property characterPositionCount) {

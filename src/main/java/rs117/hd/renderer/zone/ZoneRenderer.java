@@ -347,12 +347,8 @@ public class ZoneRenderer implements Renderer {
 			ctx.vaoDirectionalCmd.reset();
 			ctx.resetDrawRanges();
 
-			if (ctx.uboWorldViewStruct != null) {
+			if (ctx.uboWorldViewStruct != null)
 				ctx.uboWorldViewStruct.update();
-
-				if (ctx.isBoat)
-					displacementManager.addBoat(ctx.uboWorldViewStruct, ctx.boatDisplacementOctagon);
-			}
 
 			if (scene.getWorldViewId() == WorldView.TOPLEVEL) {
 				frameContext().map();

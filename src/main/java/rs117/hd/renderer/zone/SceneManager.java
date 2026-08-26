@@ -784,7 +784,6 @@ public class SceneManager {
 					.build(ctx, sceneContext, ctx.zones[x][z], true, x, z)
 					.queue(ctx.sceneLoadGroup);
 
-		ctx.buildBoatDisplacement();
 		ctx.loadTime = sw.elapsed(TimeUnit.NANOSECONDS);
 	}
 
