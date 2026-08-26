@@ -304,7 +304,7 @@ public class Zone implements Destructible {
 		glVertexAttribDivisor(7, 1);
 		glVertexAttribIPointer(7, 2, GL_INT, METADATA_NUM_BYTES, 4);
 
-		// Scene offset
+		// Zone fade
 		glEnableVertexAttribArray(8);
 		glVertexAttribDivisor(8, 1);
 		glVertexAttribPointer(8, 1, GL_FLOAT, false, METADATA_NUM_BYTES, 12);
