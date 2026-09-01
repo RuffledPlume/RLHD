@@ -70,6 +70,7 @@ import rs117.hd.utils.Mat4;
 import rs117.hd.utils.RenderState;
 import rs117.hd.utils.ShadowCasterVolume;
 import rs117.hd.utils.buffer.GLBuffer;
+import rs117.hd.utils.buffer.GLMappedBufferIntWriter;
 import rs117.hd.utils.buffer.GpuIntBuffer;
 import rs117.hd.utils.collections.ConcurrentPool;
 import rs117.hd.utils.jobs.JobSystem;
@@ -148,7 +149,10 @@ public class ZoneRenderer implements Renderer {
 	private FrameTimer frameTimer;
 
 	@Inject
-	private SceneShaderProgram sceneOpaqueProgram;
+	private SceneShaderProgram sceneProgram;
+
+	@Inject
+	private SceneShaderProgram.Opaque sceneOpaqueProgram;
 
 	@Inject
 	private SceneShaderProgram.TransparentOIT sceneTransparentOITProgram;
@@ -197,6 +201,9 @@ public class ZoneRenderer implements Renderer {
 
 	private GLBuffer indirectDrawCmds;
 	public static GpuIntBuffer indirectDrawCmdsStaging;
+
+	public static GLBuffer.EBO eboAlpha;
+	public static GLMappedBufferIntWriter eboAlphaWriter;
 
 	private int resolveFBO;
 
@@ -292,6 +299,7 @@ public class ZoneRenderer implements Renderer {
 
 	@Override
 	public void initializeShaders(ShaderIncludes includes) throws ShaderException, IOException {
+		sceneProgram.compile(includes);
 		sceneOpaqueProgram.compile(includes);
 		sceneTransparentOITProgram.compile(includes);
 		sceneAlphaDiscardProgram.compile(includes);
@@ -306,6 +314,7 @@ public class ZoneRenderer implements Renderer {
 
 	@Override
 	public void destroyShaders() {
+		sceneProgram.destroy();
 		sceneOpaqueProgram.destroy();
 		sceneTransparentOITProgram.destroy();
 		sceneAlphaDiscardProgram.destroy();
@@ -319,12 +328,24 @@ public class ZoneRenderer implements Renderer {
 	}
 
 	private void initializeBuffers() {
+		eboAlpha = new GLBuffer.EBO("eboAlpha", GL_STREAM_DRAW);
+		eboAlpha.initialize(MiB);
+		eboAlphaWriter = new GLMappedBufferIntWriter(eboAlpha);
+
 		indirectDrawCmds = new GLBuffer("indirectDrawCmds", GL_DRAW_INDIRECT_BUFFER, GL_STREAM_DRAW).initialize(MiB);
 		indirectDrawCmdsStaging = new GpuIntBuffer();
 		resolveFBO = glGenFramebuffers();
 	}
 
 	private void destroyBuffers() {
+		if (eboAlpha != null)
+			eboAlpha.destroy();
+		eboAlpha = null;
+
+		if (eboAlphaWriter != null)
+			eboAlphaWriter.destroy();
+		eboAlphaWriter = null;
+
 		if (indirectDrawCmds != null)
 			indirectDrawCmds.destroy();
 		indirectDrawCmds = null;
@@ -384,6 +405,9 @@ public class ZoneRenderer implements Renderer {
 			for (int zx = 0; zx < ctx.sizeX; ++zx)
 				for (int zz = 0; zz < ctx.sizeZ; ++zz)
 					ctx.zones[zx][zz].multizoneLocs(ctx.sceneContext, zx - offset, zz - offset, sceneCamera, ctx.zones);
+
+			if(!config.useOIT())
+				ctx.sortStaticAlphaModels(sceneCamera);
 
 			ctx.map();
 
@@ -898,6 +922,9 @@ public class ZoneRenderer implements Renderer {
 		gapFillerCmd.reset();
 		renderState.reset();
 
+		eboAlpha.orphan();
+		eboAlphaWriter.map(true);
+
 		checkGLErrors();
 	}
 
@@ -931,6 +958,9 @@ public class ZoneRenderer implements Renderer {
 
 		// Upload world views before rendering
 		uboWorldViews.upload();
+
+		if (eboAlphaWriter != null)
+			eboAlphaWriter.flush();
 
 		// Scene draw state to apply before all recorded commands
 		if (indirectDrawCmdsStaging.position() > 0) {
@@ -1145,7 +1175,10 @@ public class ZoneRenderer implements Renderer {
 	}
 
 	private void scenePass() {
-		sceneOpaqueProgram.use();
+		if(config.useOIT())
+			sceneOpaqueProgram.use();
+		else
+			sceneProgram.use();
 
 		frameTimer.begin(Timer.DRAW_SCENE);
 		renderState.framebuffer.set(GL_DRAW_FRAMEBUFFER, plugin.fboScene);
@@ -1169,10 +1202,11 @@ public class ZoneRenderer implements Renderer {
 
 		frameTimer.begin(Timer.RENDER_SCENE);
 
-		renderState.disable.set(GL_BLEND);
 		renderState.enable.set(GL_CULL_FACE);
 		renderState.enable.set(GL_DEPTH_TEST);
 		renderState.depthFunc.set(GL_GEQUAL);
+		renderState.blendFunc.set(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
+		renderState.toggle(GL_BLEND, !config.useOIT());
 
 		if (!gapFillerCmd.isEmpty()) {
 			renderState.depthMask.set(false);
@@ -1189,6 +1223,7 @@ public class ZoneRenderer implements Renderer {
 		// Done rendering the scene
 		renderState.disable.set(GL_CULL_FACE);
 		renderState.disable.set(GL_DEPTH_TEST);
+		renderState.disable.set(GL_BLEND);
 		renderState.apply();
 
 		frameTimer.end(Timer.DRAW_SCENE);
@@ -1402,27 +1437,55 @@ public class ZoneRenderer implements Renderer {
 			frameTimer.begin(Timer.DRAW_ZONE_ALPHA);
 			final boolean renderWater = z.inSceneFrustum && level == 0 && z.hasWater;
 			if (renderWater)
-				z.renderOpaqueLevel(transparentCmd, Zone.LEVEL_WATER_SURFACE);
+				z.renderOpaqueLevel(config.useOIT() ? transparentCmd : sceneCmd, Zone.LEVEL_WATER_SURFACE);
 
 			modelStreamingManager.ensureAsyncUploadsComplete(z);
 
 			final boolean hasAlpha = z.sizeA != 0 || !z.alphaModels.isEmpty();
 			if (hasAlpha) {
-				if (level == 0 && (!sceneManager.isRoot(ctx) || z.inSceneFrustum))
-					z.alphaSort();
-
 				final int offset = ctx.sceneContext.sceneOffset >> 3;
 				final int zoneX = zx - offset;
 				final int zoneZ = zz - offset;
+				// Only sort if the alpha will be directly visible, since shadows don't require sorting
+				if (level == 0 && (!sceneManager.isRoot(ctx) || z.inSceneFrustum))
+					z.alphaSort(zoneX, zoneZ, sceneCamera);
+
 				final boolean isSquashed = ctx.uboWorldViewStruct != null && ctx.uboWorldViewStruct.isSquashed();
 				if (!isSquashed && (!sceneManager.isRoot(ctx) || z.inShadowFrustum)) {
 					directionalCmd.SetShader(plugin.configShadowMode == ShadowMode.DETAILED ? detailedShadowProgram : fastShadowProgram);
-					z.renderAlpha(directionalCmd, zoneX, zoneZ, level, ctx, Zone.ALPHA_DRAW_ROOF);
+					z.renderAlphaModels(directionalCmd, zoneX, zoneZ, level, ctx, Zone.ALPHA_DRAW_ROOF);
 				}
 
 				if (!sceneManager.isRoot(ctx) || z.inSceneFrustum) {
-					z.renderAlpha(transparentCmd, zoneX, zoneZ, level, ctx, Zone.ALPHA_DRAW_BLEND_ONLY);
-					z.renderAlpha(alphaDiscardCmd, zoneX, zoneZ, level, ctx, Zone.ALPHA_DRAW_DISCARD_ONLY);
+					if(config.useOIT()) {
+						z.renderAlphaModels(transparentCmd, zoneX, zoneZ, level, ctx, Zone.ALPHA_DRAW_BLEND_ONLY);
+						z.renderAlphaModels(alphaDiscardCmd, zoneX, zoneZ, level, ctx, Zone.ALPHA_DRAW_DISCARD_ONLY);
+					} else {
+						if (renderWater) {
+							// Water is currently drawn with depth writes & depth testing enabled, and as such, alpha models and the water plane
+							// can Z-fight depending on draw order. To avoid alpha models above water causing the water surface to fail its
+							// depth test, we disable depth writes for alpha models and rely on correct back to front ordering of the zones
+							sceneCmd.DepthMask(false);
+							z.renderSortedAlpha(sceneCmd, zx - offset, zz - offset, level, ctx, false, false);
+							sceneCmd.DepthMask(true);
+						} else {
+							// Draw alpha models in two passes, first blending colors correctly, then writing depth for subsequent opaque models
+							// to test against. This is necessary because opaque models on higher planes can be drawn later
+
+							// Write color without depth writes
+							sceneCmd.DepthMask(false);
+							sceneCmd.ColorMask(true, true, true, true);
+							z.renderSortedAlpha(sceneCmd, zx - offset, zz - offset, level, ctx, false, false);
+
+							// Write depth without color
+							sceneCmd.DepthMask(true);
+							sceneCmd.ColorMask(false, false, false, false);
+							z.renderSortedAlpha(sceneCmd, zx - offset, zz - offset, level, ctx, true, false);
+
+							// Restore color writes
+							sceneCmd.ColorMask(true, true, true, true);
+						}
+					}
 				}
 			}
 			frameTimer.end(Timer.DRAW_ZONE_ALPHA);

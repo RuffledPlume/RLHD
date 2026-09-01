@@ -2,6 +2,9 @@ package rs117.hd.renderer.zone;
 
 import com.google.inject.Injector;
 import java.nio.IntBuffer;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Set;
 import javax.annotation.Nullable;
 import javax.inject.Inject;
@@ -12,6 +15,7 @@ import org.lwjgl.system.MemoryStack;
 import rs117.hd.HdPlugin;
 import rs117.hd.opengl.uniforms.UBOWorldViews;
 import rs117.hd.opengl.uniforms.UBOWorldViews.WorldViewStruct;
+import rs117.hd.utils.Camera;
 import rs117.hd.utils.CommandBuffer;
 import rs117.hd.utils.DestructibleHandler;
 import rs117.hd.utils.buffer.GLBuffer;
@@ -22,6 +26,7 @@ import static org.lwjgl.opengl.GL33C.*;
 import static rs117.hd.renderer.zone.DynamicModelVAO.METADATA_SIZE;
 import static rs117.hd.renderer.zone.SceneManager.NUM_ZONES;
 import static rs117.hd.renderer.zone.ZoneRenderer.FRAMES_IN_FLIGHT;
+import static rs117.hd.utils.collections.Util.quickSort;
 
 @Slf4j
 public class WorldViewContext {
@@ -60,6 +65,9 @@ public class WorldViewContext {
 
 	int minLevel, level, maxLevel;
 	Set<Integer> hideRoofIds;
+
+	private final Comparator<Zone> alphaSortComparator = Comparator.comparingInt((Zone z) -> z.dist).reversed();
+	private final List<Zone> alphaZones = new ArrayList<>();
 
 	CommandBuffer vaoSceneCmd;
 	CommandBuffer vaoDirectionalCmd;
@@ -151,6 +159,32 @@ public class WorldViewContext {
 		for (int i = 0; i < VAO_COUNT; i++) {
 			final boolean shouldCoalesce = i == VAO_OPAQUE || i == VAO_PLAYER || i == VAO_SHADOW;
 			dynamicModelVaos[plugin.frame % FRAMES_IN_FLIGHT][i].unmap(shouldCoalesce);
+		}
+	}
+
+	void sortStaticAlphaModels(Camera camera) {
+		alphaZones.clear();
+
+		final int offset = sceneContext.sceneOffset >> 3;
+		final int camPosX = (int) camera.getPositionX();
+		final int camPosZ = (int) camera.getPositionZ();
+		for (int zx = 0; zx < sizeX; zx++) {
+			for (int zz = 0; zz < sizeZ; zz++) {
+				final Zone z = zones[zx][zz];
+				if (z.alphaModels.isEmpty() || (worldViewId == WorldView.TOPLEVEL && !z.inSceneFrustum))
+					continue;
+
+				final int dx = camPosX - ((zx - offset) << 10);
+				final int dz = camPosZ - ((zz - offset) << 10);
+				z.dist = dx * dx + dz * dz;
+				alphaZones.add(z);
+			}
+		}
+
+		if (!alphaZones.isEmpty()) {
+			quickSort(alphaZones, alphaSortComparator);
+			for (int i = 0; i < alphaZones.size(); i++)
+				alphaZones.get(i).alphaStaticModelSort(camera);
 		}
 	}
 

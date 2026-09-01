@@ -31,6 +31,7 @@ import rs117.hd.utils.collections.ConcurrentPool;
 import rs117.hd.utils.collections.PooledArrayType;
 import rs117.hd.utils.collections.PrimitiveCharArray;
 
+import static rs117.hd.renderer.zone.Zone.VERT_SIZE;
 import static rs117.hd.utils.MathUtils.*;
 
 @Slf4j
@@ -197,6 +198,86 @@ public final class FacePrioritySorter implements AutoCloseable {
 
 			currFaceDistance = drawnFaces < numDynFaces ? dynDist[drawnFaces] : -1000;
 		}
+	}
+
+	void sortStaticModelFacesByDistance(
+		Zone.AlphaModel m,
+		int yawCos, int yawSin,
+		int pitchCos, int pitchSin
+	) {
+		final int radius = m.radius;
+		final int diameter = 1 + radius * 2;
+		if (diameter >= MAX_DIAMETER)
+			return;
+
+		final int start = m.startpos / (VERT_SIZE >> 2);
+		final int maxFaceCount = m.packedFaces.length + m.doubleSidedCount;
+		ensureCapacity(diameter, maxFaceCount);
+
+		final int[] packedFaces = m.packedFaces;
+		final int[] doubleSidedBitSet = m.doubleSidedBitSet;
+		final int[] sortedFaces = m.tempSortedFaces;
+		final int[] zsortHead = this.zsortHead;
+		final int[] zsortTail = this.zsortTail;
+		final int[] zsortNext = this.zsortNext;
+
+		Arrays.fill(zsortHead, 0, diameter, -1);
+		Arrays.fill(zsortTail, 0, diameter, -1);
+
+		int sortedOffset = 0;
+		int backfaceWord = 0;
+		int minFz = diameter, maxFz = 0;
+
+		for (int i = 0, f = 0; i < m.packedFaces.length; ++i, ++f) {
+			final int packed = packedFaces[i];
+			final short x = (short) (packed >> 21);
+			final short y = (short) ((packed << 11) >> 22);
+			final short z = (short) ((packed << 21) >> 21);
+
+			// We do rotations with 16 bits of extra precision, which we discard post-rotation.
+			// Very little of this can actually be pre-computed without discarding that precision.
+			int fz = (z * yawCos - x * yawSin) >> 16;
+			fz = ((y * pitchSin + fz * pitchCos) >> 16) + radius;
+
+			final int tailFaceIdx = zsortTail[fz];
+			if (tailFaceIdx == -1) {
+				zsortHead[fz] = f;
+				zsortTail[fz] = f;
+				minFz = min(minFz, fz);
+				maxFz = max(maxFz, fz);
+			} else {
+				zsortNext[tailFaceIdx] = f;
+				zsortTail[fz] = f;
+			}
+			zsortNext[f] = -1;
+
+			// Backfaces are not sorted, so we skip over them if this face is marked as double-sided
+			if (doubleSidedBitSet != null) {
+				if ((i & 31) == 0)
+					backfaceWord = doubleSidedBitSet[i >> 5];
+
+				if ((backfaceWord & 1) != 0) {
+					final int faceStart = ++f * 3 + start;
+					sortedFaces[sortedOffset++] = faceStart;
+					sortedFaces[sortedOffset++] = faceStart + 1;
+					sortedFaces[sortedOffset++] = faceStart + 2;
+				}
+				backfaceWord >>>= 1;
+			}
+		}
+
+		for (int i = maxFz; i >= minFz; --i) {
+			for (int f = zsortHead[i]; f != -1; f = zsortNext[f]) {
+				if (f >= maxFaceCount)
+					continue;
+
+				final int faceStart = f * 3 + start;
+				sortedFaces[sortedOffset++] = faceStart;
+				sortedFaces[sortedOffset++] = faceStart + 1;
+				sortedFaces[sortedOffset++] = faceStart + 2;
+			}
+		}
+		m.sortedFacesLen = sortedOffset;
 	}
 
 	@Override

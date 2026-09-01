@@ -21,7 +21,7 @@ public class SceneShaderProgram extends ShaderProgram {
 	public SceneShaderProgram() {
 		super(t -> t
 			.add(GL_VERTEX_SHADER, "scene_vert.glsl")
-			.add(GL_FRAGMENT_SHADER, "scene_frag_opaque.glsl"));
+			.add(GL_FRAGMENT_SHADER, "scene_frag.glsl"));
 		uniTiledLightingTextureArray.ignoreMissing = true;
 	}
 	@Override
@@ -30,6 +30,10 @@ public class SceneShaderProgram extends ShaderProgram {
 		uniShadowMap.set(TEXTURE_UNIT_SHADOW_MAP);
 		uniTiledLightingTextureArray.set(TEXTURE_UNIT_TILED_LIGHTING_MAP);
 		uniTextureFaces.set(TEXTURE_UNIT_TEXTURED_FACES);
+	}
+
+	public static class Opaque extends SceneShaderProgram {
+		Opaque() { shaderTemplate.add(GL_FRAGMENT_SHADER, "scene_frag_opaque.glsl"); }
 	}
 
 	public static class TransparentOIT extends SceneShaderProgram {
