@@ -1061,7 +1061,7 @@ public class ZoneRenderer implements Renderer {
 		renderState.viewport.set(0, 0, plugin.sceneResolution[0], plugin.sceneResolution[1]);
 		renderState.ido.set(indirectDrawCmds.id);
 		renderState.enable.set(GL_DEPTH_TEST);
-		renderState.disable.set(GL_CULL_FACE);
+		renderState.enable.set(GL_CULL_FACE);
 		renderState.depthFunc.set(GL_GEQUAL);
 		renderState.depthMask.set(false);
 		renderState.apply();
