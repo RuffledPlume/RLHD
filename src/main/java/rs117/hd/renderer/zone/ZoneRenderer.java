@@ -101,6 +101,7 @@ public class ZoneRenderer implements Renderer {
 
 	private static final float[] OIT_CLEAR_FIRST_LAYER = { 1e6f, 0f, 0f, 0f };
 	private static final float[] OIT_CLEAR_COVERAGE = { 1f, 0f, 0f, 0f };
+	private static final float[] OIT_CLEAR_BIN = { 0f, 0f, 0f, 0f };
 	public static final int OIT_BIN_COUNT = 4;
 
 	private static int TEXTURE_UNIT_COUNT = HdPlugin.TEXTURE_UNIT_COUNT;
@@ -468,18 +469,13 @@ public class ZoneRenderer implements Renderer {
 				plugin.sceneResolution[0], plugin.sceneResolution[1], OIT_BIN_COUNT,
 				true
 			);
-			for (int k = 0; k < OIT_BIN_COUNT; k++) {
-				glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + k, colorAccumArrayMSTex, 0, k);
-			}
-		} else {
-			for (int k = 0; k < OIT_BIN_COUNT; k++) {
-				glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0 + k, colorAccumArrayTex, 0, k);
-			}
 		}
 
 		int[] accumDrawBuffers = new int[OIT_BIN_COUNT];
-		for (int k = 0; k < OIT_BIN_COUNT; k++)
+		for (int k = 0; k < OIT_BIN_COUNT; k++) {
 			accumDrawBuffers[k] = GL_COLOR_ATTACHMENT0 + k;
+			glFramebufferTextureLayer(GL_FRAMEBUFFER, accumDrawBuffers[k], transparentSamples > 1 ? colorAccumArrayMSTex : colorAccumArrayTex, 0, k);
+		}
 
 		glFramebufferTexture2D(
 			GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT,
@@ -1029,6 +1025,7 @@ public class ZoneRenderer implements Renderer {
 		if (transparentCmd.isEmpty())
 			return;
 
+		frameTimer.begin(Timer.DRAW_ALPHA_PRE_PASS);
 		frameTimer.begin(Timer.RENDER_ALPHA_PREPASS);
 
 		renderState.framebuffer.set(GL_FRAMEBUFFER, firstLayerDepthFBO);
@@ -1075,12 +1072,14 @@ public class ZoneRenderer implements Renderer {
 		renderState.disable.set(GL_DEPTH_TEST);
 
 		frameTimer.end(Timer.RENDER_ALPHA_PREPASS);
+		frameTimer.end(Timer.DRAW_ALPHA_PRE_PASS);
 	}
 
 	private void alphaDiscardPass() {
 		if (alphaDiscardCmd.isEmpty())
 			return;
 
+		frameTimer.begin(Timer.DRAW_ALPHA_DISCARD);
 		frameTimer.begin(Timer.RENDER_ALPHA_DISCARD);
 
 		renderState.framebuffer.set(GL_FRAMEBUFFER, plugin.fboScene);
@@ -1099,6 +1098,7 @@ public class ZoneRenderer implements Renderer {
 		renderState.disable.set(GL_DEPTH_TEST);
 
 		frameTimer.end(Timer.RENDER_ALPHA_DISCARD);
+		frameTimer.end(Timer.DRAW_ALPHA_DISCARD);
 	}
 
 	private void resolveSceneDepth() {
@@ -1182,13 +1182,13 @@ public class ZoneRenderer implements Renderer {
 		if(!plugin.configUseOIT)
 			return;
 
-		frameTimer.begin(Timer.DRAW_ALPHA);
 		alphaDiscardPass();
 
 		if (!transparentCmd.isEmpty()) {
 			resolveSceneDepth();
 			alphaPrePass();
 
+			frameTimer.begin(Timer.DRAW_ALPHA);
 			frameTimer.begin(Timer.RENDER_ALPHA);
 			renderState.program.set(sceneTransparentOITProgram);
 
@@ -1204,7 +1204,7 @@ public class ZoneRenderer implements Renderer {
 			renderState.toggle(GL_MULTISAMPLE, plugin.msaaSamples > 1);
 			renderState.apply();
 			for (int k = 0; k < OIT_BIN_COUNT; k++)
-				glClearBufferfv(GL_COLOR, k, new float[] { 0f, 0f, 0f, 0f });
+				glClearBufferfv(GL_COLOR, k, OIT_CLEAR_BIN);
 
 			renderState.enable.set(GL_DEPTH_TEST);
 			renderState.enable.set(GL_CULL_FACE);
@@ -1215,7 +1215,9 @@ public class ZoneRenderer implements Renderer {
 
 			renderState.depthMask.set(true);
 			frameTimer.end(Timer.RENDER_ALPHA);
+			frameTimer.end(Timer.DRAW_ALPHA);
 
+			frameTimer.begin(Timer.DRAW_ALPHA_COMPOSITE);
 			frameTimer.begin(Timer.RENDER_ALPHA_COMPOSITE);
 
 			final boolean sampleShading = plugin.msaaSamples > 1;
@@ -1246,6 +1248,7 @@ public class ZoneRenderer implements Renderer {
 
 			glDrawArrays(GL_TRIANGLES, 0, 3);
 			frameTimer.end(Timer.RENDER_ALPHA_COMPOSITE);
+			frameTimer.end(Timer.DRAW_ALPHA_COMPOSITE);
 		}
 
 		renderState.disable.set(GL_SAMPLE_SHADING_ARB);
