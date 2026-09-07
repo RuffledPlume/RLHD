@@ -388,13 +388,14 @@ public class ZoneRenderer implements Renderer {
 
 			ctx.completeInvalidation();
 
-			int offset = ctx.sceneContext.sceneOffset >> 3;
-			for (int zx = 0; zx < ctx.sizeX; ++zx)
-				for (int zz = 0; zz < ctx.sizeZ; ++zz)
-					ctx.zones[zx][zz].multizoneLocs(ctx.sceneContext, zx - offset, zz - offset, sceneCamera, ctx.zones);
+			if(!plugin.configUseOIT) {
+				int offset = ctx.sceneContext.sceneOffset >> 3;
+				for (int zx = 0; zx < ctx.sizeX; ++zx)
+					for (int zz = 0; zz < ctx.sizeZ; ++zz)
+						ctx.zones[zx][zz].multizoneLocs(ctx.sceneContext, zx - offset, zz - offset, sceneCamera, ctx.zones);
 
-			if(!plugin.configUseOIT)
 				ctx.sortStaticAlphaModels(sceneCamera);
+			}
 
 			ctx.map();
 
@@ -1309,6 +1310,12 @@ public class ZoneRenderer implements Renderer {
 				if (plugin.enableDetailedTimers)
 					frameTimer.end(Timer.VISIBILITY_CHECK);
 				return zone.inShadowFrustum = true;
+			}
+
+			if(plugin.configUseOIT) {
+				// when using OIT we don't need to multi loc unless the zone isn't visible
+				int offset = ctx.sceneContext.sceneOffset >> 3;
+				zone.multizoneLocs(ctx.sceneContext, zx - offset, zz - offset, sceneCamera, ctx.zones);
 			}
 
 			if (plugin.configShadowsEnabled && plugin.configExpandShadowDraw) {
