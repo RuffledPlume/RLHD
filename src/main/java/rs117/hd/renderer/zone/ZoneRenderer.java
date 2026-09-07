@@ -1179,71 +1179,73 @@ public class ZoneRenderer implements Renderer {
 	}
 
 	private void alphaPass() {
-		if (transparentCmd.isEmpty())
+		if(!plugin.configUseOIT)
 			return;
 
 		frameTimer.begin(Timer.DRAW_ALPHA);
-
 		alphaDiscardPass();
-		resolveSceneDepth();
-		alphaPrePass();
 
-		frameTimer.begin(Timer.RENDER_ALPHA);
-		renderState.program.set(sceneTransparentOITProgram);
+		if (!transparentCmd.isEmpty()) {
+			resolveSceneDepth();
+			alphaPrePass();
 
-		glActiveTexture(TEXTURE_UNIT_OIT_FIRST_LAYER);
-		glBindTexture(GL_TEXTURE_2D, firstLayerDepthTex);
+			renderState.program.set(sceneTransparentOITProgram);
 
-		renderState.depthMask.set(false);
-		renderState.enable.set(GL_BLEND);
-		renderState.blendFunc.set(GL_ONE, GL_ONE, GL_ONE, GL_ONE);
-		renderState.blendEquation.set(GL_FUNC_ADD);
+			glActiveTexture(TEXTURE_UNIT_OIT_FIRST_LAYER);
+			glBindTexture(GL_TEXTURE_2D, firstLayerDepthTex);
 
-		renderState.framebuffer.set(GL_FRAMEBUFFER, transparentFBO);
-		renderState.toggle(GL_MULTISAMPLE, plugin.msaaSamples > 1);
-		renderState.apply();
-		for (int k = 0; k < OIT_BIN_COUNT; k++)
-			glClearBufferfv(GL_COLOR, k, new float[] { 0f, 0f, 0f, 0f });
+			renderState.depthMask.set(false);
+			renderState.enable.set(GL_BLEND);
+			renderState.blendFunc.set(GL_ONE, GL_ONE, GL_ONE, GL_ONE);
+			renderState.blendEquation.set(GL_FUNC_ADD);
 
-		renderState.enable.set(GL_DEPTH_TEST);
-		renderState.enable.set(GL_CULL_FACE);
-		renderState.depthFunc.set(GL_GEQUAL);
-		renderState.depthMask.set(false);
+			renderState.framebuffer.set(GL_FRAMEBUFFER, transparentFBO);
+			renderState.toggle(GL_MULTISAMPLE, plugin.msaaSamples > 1);
+			renderState.apply();
+			for (int k = 0; k < OIT_BIN_COUNT; k++)
+				glClearBufferfv(GL_COLOR, k, new float[] { 0f, 0f, 0f, 0f });
 
-		transparentCmd.execute(renderState);
+			renderState.enable.set(GL_DEPTH_TEST);
+			renderState.enable.set(GL_CULL_FACE);
+			renderState.depthFunc.set(GL_GEQUAL);
+			renderState.depthMask.set(false);
 
-		renderState.depthMask.set(true);
-		frameTimer.end(Timer.RENDER_ALPHA);
+			transparentCmd.execute(renderState);
 
-		frameTimer.begin(Timer.RENDER_ALPHA_COMPOSITE);
+			renderState.depthMask.set(true);
+			frameTimer.end(Timer.RENDER_ALPHA);
 
-		final boolean sampleShading = plugin.msaaSamples > 1;
+			frameTimer.begin(Timer.RENDER_ALPHA_COMPOSITE);
 
-		renderState.program.set(sampleShading ? oitCompositeSampleShadingProgram : oitCompositeShaderProgram);
-		renderState.depthFunc.set(GL_ALWAYS);
-		renderState.enable.set(GL_BLEND);
-		renderState.blendFunc.set(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
+			final boolean sampleShading = plugin.msaaSamples > 1;
 
-		glActiveTexture(TEXTURE_UNIT_OIT_NET_COVERAGE);
-		glBindTexture(sampleShading ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D, sampleShading ? netCoverageMSTex : netCoverageTex);
+			renderState.program.set(sampleShading ? oitCompositeSampleShadingProgram : oitCompositeShaderProgram);
+			renderState.depthFunc.set(GL_ALWAYS);
+			renderState.enable.set(GL_BLEND);
+			renderState.blendFunc.set(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
 
-		glActiveTexture(TEXTURE_UNIT_OIT_COLOR_ACCUM);
-		glBindTexture(
-			sampleShading ? GL_TEXTURE_2D_MULTISAMPLE_ARRAY : GL_TEXTURE_2D_ARRAY,
-			sampleShading ? colorAccumArrayMSTex : colorAccumArrayTex
-		);
+			glActiveTexture(TEXTURE_UNIT_OIT_NET_COVERAGE);
+			glBindTexture(sampleShading ? GL_TEXTURE_2D_MULTISAMPLE : GL_TEXTURE_2D, sampleShading ? netCoverageMSTex : netCoverageTex);
 
-		renderState.framebuffer.set(GL_FRAMEBUFFER, plugin.fboScene);
-		renderState.toggle(GL_MULTISAMPLE, plugin.msaaSamples > 1);
-		renderState.vao.setVao(plugin.vaoTri);
-		renderState.apply();
+			glActiveTexture(TEXTURE_UNIT_OIT_COLOR_ACCUM);
+			glBindTexture(
+				sampleShading ? GL_TEXTURE_2D_MULTISAMPLE_ARRAY : GL_TEXTURE_2D_ARRAY,
+				sampleShading ? colorAccumArrayMSTex : colorAccumArrayTex
+			);
 
-		if (sampleShading) {
-			renderState.enable.set(GL_SAMPLE_SHADING_ARB);
-			renderState.sampleShading.set(1.0f);
+			renderState.framebuffer.set(GL_FRAMEBUFFER, plugin.fboScene);
+			renderState.toggle(GL_MULTISAMPLE, plugin.msaaSamples > 1);
+			renderState.vao.setVao(plugin.vaoTri);
+			renderState.apply();
+
+			if (sampleShading) {
+				renderState.enable.set(GL_SAMPLE_SHADING_ARB);
+				renderState.sampleShading.set(1.0f);
+			}
+
+			glDrawArrays(GL_TRIANGLES, 0, 3);
+			frameTimer.end(Timer.RENDER_ALPHA_COMPOSITE);
 		}
-
-		glDrawArrays(GL_TRIANGLES, 0, 3);
 
 		renderState.disable.set(GL_SAMPLE_SHADING_ARB);
 		renderState.disable.set(GL_BLEND);
@@ -1254,8 +1256,6 @@ public class ZoneRenderer implements Renderer {
 		renderState.blendFunc.set(GL_ONE, GL_ZERO, GL_ONE, GL_ZERO);
 		renderState.blendEquation.set(GL_FUNC_ADD);
 		renderState.apply();
-
-		frameTimer.end(Timer.RENDER_ALPHA_COMPOSITE);
 		frameTimer.end(Timer.DRAW_ALPHA);
 	}
 
