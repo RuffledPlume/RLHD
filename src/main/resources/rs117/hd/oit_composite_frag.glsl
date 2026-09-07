@@ -18,14 +18,14 @@
 // small errors in the binned weights can only bias which layers' colors
 // dominate, never the actual opacity.
 
-#include <utils/misc.glsl>
-#include <utils/oit_common.glsl>
-
 #include OIT_COMPOSITE_SAMPLE_SHADING
 
 #if OIT_COMPOSITE_SAMPLE_SHADING
-	#extension GL_ARB_sample_shading : require
+    #extension GL_ARB_sample_shading : require
 #endif
+
+#include <utils/misc.glsl>
+#include <utils/oit_common.glsl>
 
 // 0 - normal composite
 // 1 - resolveBin(DEBUG_LAYER) color, unweighted
