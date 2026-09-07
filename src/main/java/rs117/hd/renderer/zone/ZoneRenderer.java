@@ -895,8 +895,11 @@ public class ZoneRenderer implements Renderer {
 		gapFillerCmd.reset();
 		renderState.reset();
 
-		eboAlpha.orphan();
-		eboAlphaWriter.map(true);
+		if(!plugin.configUseOIT) {
+			// OIT Doesn't use Elements Drawing since it doesn't need to sort the face indicies
+			eboAlpha.orphan();
+			eboAlphaWriter.map(true);
+		}
 
 		checkGLErrors();
 	}
