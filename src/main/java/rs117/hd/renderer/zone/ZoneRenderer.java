@@ -1598,7 +1598,7 @@ public class ZoneRenderer implements Renderer {
 				// Blit from the resolved FBO to the default FBO
 				glBindFramebuffer(GL_DRAW_FRAMEBUFFER, plugin.awtContext.getFramebuffer(false));
 
-				if (APPLE && !client.isResized()) {
+				if (APPLE) {
 					// On macOS, we need to ensure that the alpha channel is opaque to prevent whatever
 					// is beneath from leaking through. In fixed mode, the MSAA resolve alone is not
 					// sufficient, since the viewport only covers part of the screen.
