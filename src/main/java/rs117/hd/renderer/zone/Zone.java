@@ -93,7 +93,7 @@ public class Zone implements Destructible {
 
 	public IntHashSet animatedDynamicObjectIds = new IntHashSet();
 
-
+	private final EboAlphaWriterJob sortedAlphaFacesUpload = new EboAlphaWriterJob();
 	final StaticAlphaSortingJob alphaSortingJob = new StaticAlphaSortingJob();
 	ZoneUploadJob uploadJob;
 
@@ -105,6 +105,7 @@ public class Zone implements Destructible {
 
 	final List<AlphaModel> alphaModels = new ArrayList<>(0);
 	final ConcurrentLinkedQueue<AsyncCachedModel> pendingModelJobs = new ConcurrentLinkedQueue<>();
+	private boolean alphaModelsSortedByDrawCall;
 
 	public void initialize(GLBuffer o, GLBuffer a, GLTextureBuffer f) {
 		assert glVao == 0;
@@ -205,6 +206,7 @@ public class Zone implements Destructible {
 		rids = null;
 		roofStart = null;
 		roofEnd = null;
+		alphaModelsSortedByDrawCall = false;
 
 		// don't add permanent alphamodels to the cache as permanent alphamodels are always allocated
 		// to avoid having to synchronize the cache
@@ -658,6 +660,7 @@ public class Zone implements Destructible {
 		m.doubleSidedCount = doubleSidedCount;
 
 		alphaModels.add(m);
+		alphaModelsSortedByDrawCall = false;
 
 		PooledArrayType.INT.release(packedFaces);
 		PooledArrayType.INT.release(doubleSidedBitSet);
@@ -675,6 +678,7 @@ public class Zone implements Destructible {
 		m.flags = AlphaModel.DYNAMIC;
 		m.zofx = m.zofz = 0;
 		alphaModels.add(m);
+		alphaModelsSortedByDrawCall = false;
 		return m;
 	}
 
@@ -729,12 +733,39 @@ public class Zone implements Destructible {
 	}
 
 	private static final AlphaModelComparator alphaModelComparator = new AlphaModelComparator();
-	private final EboAlphaWriterJob sortedAlphaFacesUpload = new EboAlphaWriterJob();
+	private static final Comparator<AlphaModel> alphaDrawCallComparator = (modelA, modelB) -> {
+		int compare = Boolean.compare(
+			(modelA.flags & AlphaModel.DYNAMIC) != 0,
+			(modelB.flags & AlphaModel.DYNAMIC) != 0
+		);
+		if (compare != 0)
+			return compare;
 
-	synchronized void alphaSort(int zx, int zz, Camera camera) {
-		final int alphaModelCount = alphaModels.size();
-		if (alphaModelCount <= 1)
+		compare = Integer.compare(modelA.vao, modelB.vao);
+		if (compare != 0)
+			return compare;
+
+		compare = Integer.compare(modelA.tboF, modelB.tboF);
+		if (compare != 0)
+			return compare;
+
+		compare = Byte.compare(modelA.zofx, modelB.zofx);
+		if (compare != 0)
+			return compare;
+
+		return Byte.compare(modelA.zofz, modelB.zofz);
+	};
+
+	synchronized void alphaSort(int zx, int zz, Camera camera, boolean isOIT) {
+		if (alphaModels.size() <= 1)
 			return;
+
+		if (isOIT) {
+			if (!alphaModelsSortedByDrawCall)
+				quickSort(alphaModels, alphaDrawCallComparator);
+			alphaModelsSortedByDrawCall = true;
+			return;
+		}
 
 		alphaModelComparator.cx = (int) camera.getPositionX();
 		alphaModelComparator.cy = (int) camera.getPositionY();
@@ -743,6 +774,7 @@ public class Zone implements Destructible {
 		alphaModelComparator.zz = zz;
 
 		quickSort(alphaModels, alphaModelComparator);
+		alphaModelsSortedByDrawCall = false;
 	}
 
 	void alphaStaticModelSort(Camera camera) {
@@ -1013,6 +1045,7 @@ public class Zone implements Destructible {
 
 				m.flags |= AlphaModel.SKIP;
 				z.alphaModels.add(m2);
+				z.alphaModelsSortedByDrawCall = false;
 			}
 		}
 	}

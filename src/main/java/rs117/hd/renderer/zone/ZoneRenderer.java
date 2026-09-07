@@ -1189,6 +1189,7 @@ public class ZoneRenderer implements Renderer {
 			resolveSceneDepth();
 			alphaPrePass();
 
+			frameTimer.begin(Timer.RENDER_ALPHA);
 			renderState.program.set(sceneTransparentOITProgram);
 
 			glActiveTexture(TEXTURE_UNIT_OIT_FIRST_LAYER);
@@ -1394,7 +1395,7 @@ public class ZoneRenderer implements Renderer {
 				final int zoneZ = zz - offset;
 				// Only sort if the alpha will be directly visible, since shadows don't require sorting
 				if (level == 0 && (!sceneManager.isRoot(ctx) || z.inSceneFrustum))
-					z.alphaSort(zoneX, zoneZ, sceneCamera);
+					z.alphaSort(zoneX, zoneZ, sceneCamera, plugin.configUseOIT);
 
 				final boolean isSquashed = ctx.uboWorldViewStruct != null && ctx.uboWorldViewStruct.isSquashed();
 				if (!isSquashed && (!sceneManager.isRoot(ctx) || z.inShadowFrustum)) {
