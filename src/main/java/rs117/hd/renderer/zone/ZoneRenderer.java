@@ -88,6 +88,7 @@ import static rs117.hd.HdPluginConfig.*;
 import static rs117.hd.opengl.Utils.checkFramebufferComplete;
 import static rs117.hd.opengl.Utils.checkGLErrors;
 import static rs117.hd.opengl.Utils.labelObject;
+import static rs117.hd.renderer.zone.WorldViewContext.VAO_ALPHA;
 import static rs117.hd.renderer.zone.WorldViewContext.VAO_OPAQUE;
 import static rs117.hd.renderer.zone.WorldViewContext.VAO_PLAYER;
 import static rs117.hd.renderer.zone.WorldViewContext.VAO_PRESCENE;
@@ -1486,6 +1487,9 @@ public class ZoneRenderer implements Renderer {
 
 					// Draw shadow-only models
 					ctx.drawAll(VAO_SHADOW, ctx.vaoDirectionalCmd);
+
+					if(plugin.configUseOIT) // Draw all alpha-models regardless of order when using OIT
+						ctx.drawAll(VAO_ALPHA, transparentCmd);
 
 					// Draw players with sorted alpha, without writing depth
 					ctx.vaoSceneCmd.DepthMask(false);

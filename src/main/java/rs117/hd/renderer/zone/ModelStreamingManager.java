@@ -246,7 +246,7 @@ public class ModelStreamingManager {
 		final boolean hasAlpha =
 			(modelOverride.mightHaveTransparency || isAlphaModel(m)) &&
 			(!sceneManager.isRoot(ctx) || zone.inSceneFrustum);
-		final Zone.AlphaModel alphaModel = hasAlpha ?
+		final Zone.AlphaModel alphaModel = !plugin.configUseOIT && hasAlpha ? // When using OIT, we don't need zone alpha models
 			zone.requestTempAlphaModel(
 				modelOverride,
 				Math.min(ctx.maxLevel, tileObject.getPlane()),
@@ -411,7 +411,7 @@ public class ModelStreamingManager {
 			}
 
 			if (visibleFaces.length > 0) {
-				final int alphaFaceCount = alphaModel != null ? sceneUploader.tempModelAlphaFaces : 0;
+				final int alphaFaceCount = plugin.configUseOIT || alphaModel != null ? sceneUploader.tempModelAlphaFaces : 0;
 				final int opaqueFaceCount = visibleFaces.length - alphaFaceCount;
 				assert opaqueFaceCount >= 0 && alphaFaceCount >= 0 : "Invalid face counts: " + opaqueFaceCount + ", " + alphaFaceCount;
 
@@ -435,7 +435,8 @@ public class ModelStreamingManager {
 				);
 
 				if (opaqueView != alphaView && alphaView.getEndOffset() > alphaView.getStartOffset()) {
-					alphaModel.setView(alphaView);
+					if(alphaModel != null)
+						alphaModel.setView(alphaView);
 					alphaView.end();
 				}
 				opaqueView.end();
