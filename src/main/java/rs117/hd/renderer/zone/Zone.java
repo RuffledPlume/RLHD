@@ -826,22 +826,16 @@ public class Zone implements Destructible {
 				level > currentLevel && !hiddenRoofIds.isEmpty() && hiddenRoofIds.contains((int) m.rid))
 				continue;
 
-			int drawMode = (m.flags & AlphaModel.DYNAMIC) != 0 ? DYNAMIC_VAO : STATIC_VAO;
-			if (lastDrawMode != drawMode ||
-				lastVao != m.vao ||
-				lastTboF != m.tboF ||
-				lastzx != (zx - m.zofx) ||
-				lastzz != (zz - m.zofz)
-			) {
+			final int drawMode = (m.flags & AlphaModel.DYNAMIC) != 0 ? DYNAMIC_VAO : STATIC_VAO;
+			if (drawIdx > 0 && (lastDrawMode != drawMode || lastVao != m.vao || lastTboF != m.tboF || lastzx != (zx - m.zofx) || lastzz != (zz - m.zofz)))
 				flush(cmd);
-				lastDrawMode = drawMode;
-				lastVao = m.vao;
-				lastTboF = m.tboF;
-				lastzx = zx - m.zofx;
-				lastzz = zz - m.zofz;
-			}
 
 			pushRange(m.startpos, m.endpos);
+			lastDrawMode = drawMode;
+			lastVao = m.vao;
+			lastTboF = m.tboF;
+			lastzx = zx - m.zofx;
+			lastzz = zz - m.zofz;
 		}
 
 		flush(cmd);
