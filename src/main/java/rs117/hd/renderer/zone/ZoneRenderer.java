@@ -43,9 +43,10 @@ import rs117.hd.HdPluginConfig;
 import rs117.hd.config.ColorFilter;
 import rs117.hd.config.DynamicLights;
 import rs117.hd.config.ShadowMode;
-import rs117.hd.opengl.shader.MultisampleResolveShaderProgram;
 import rs117.hd.opengl.shader.OITCompositeShaderProgram;
 import rs117.hd.opengl.shader.OITPrePassShaderProgram;
+import rs117.hd.opengl.shader.OitDepthMergeShaderProgram;
+import rs117.hd.opengl.shader.ResolveShaderProgram;
 import rs117.hd.opengl.shader.SceneShaderProgram;
 import rs117.hd.opengl.shader.ShaderException;
 import rs117.hd.opengl.shader.ShaderIncludes;
@@ -177,7 +178,9 @@ public class ZoneRenderer implements Renderer {
 	private OITPrePassShaderProgram oitPrePassProgram;
 
 	@Inject
-	private MultisampleResolveShaderProgram.Min msaaaMinResolveProgram;
+	private ResolveShaderProgram.Min msaaaMinResolveProgram;
+	@Inject
+	private OitDepthMergeShaderProgram oitDepthMergeProgram;
 
 	@Inject
 	private JobSystem jobSystem;
@@ -212,6 +215,7 @@ public class ZoneRenderer implements Renderer {
 	private int firstLayerDepthFBO;
 	private int firstLayerDepthTex;
 	private int firstLayerDepthMSTex;
+	private int firstLayerDepthResolveTex;
 
 	private int netCoverageTex;
 	private int netCoverageMSTex;
@@ -303,6 +307,7 @@ public class ZoneRenderer implements Renderer {
 		oitCompositeSampleShadingProgram.compile(includes);
 		oitPrePassProgram.compile(includes);
 		msaaaMinResolveProgram.compile(includes);
+		oitDepthMergeProgram.compile(includes);
 	}
 
 	@Override
@@ -317,6 +322,7 @@ public class ZoneRenderer implements Renderer {
 		oitCompositeSampleShadingProgram.destroy();
 		oitPrePassProgram.destroy();
 		msaaaMinResolveProgram.destroy();
+		oitDepthMergeProgram.destroy();
 	}
 
 	private void initializeBuffers() {
@@ -496,7 +502,21 @@ public class ZoneRenderer implements Renderer {
 		glBindTexture(GL_TEXTURE_2D, firstLayerDepthTex);
 		labelObject(GL_TEXTURE, firstLayerDepthTex, "OIT First Layer Depth");
 		glTexImage2D(
-			GL_TEXTURE_2D, 0, GL_R16F,
+			GL_TEXTURE_2D, 0, GL_RG16F,
+			plugin.sceneResolution[0], plugin.sceneResolution[1],
+			0, GL_RG, GL_FLOAT, 0
+		);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+		glActiveTexture(TEXTURE_UNIT_OIT_FIRST_LAYER);
+		firstLayerDepthResolveTex = glGenTextures();
+		glBindTexture(GL_TEXTURE_2D, firstLayerDepthResolveTex);
+		labelObject(GL_TEXTURE, firstLayerDepthResolveTex, "OIT First Layer Depth Resolve");
+		glTexImage2D(
+			GL_TEXTURE_2D, 0, GL_R32F,
 			plugin.sceneResolution[0], plugin.sceneResolution[1],
 			0, GL_RED, GL_FLOAT, 0
 		);
@@ -540,7 +560,7 @@ public class ZoneRenderer implements Renderer {
 			);
 			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D_MULTISAMPLE, netCoverageMSTex, 0);
 		} else {
-			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, firstLayerDepthTex, 0);
+			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, firstLayerDepthResolveTex, 0);
 			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT1, GL_TEXTURE_2D, netCoverageTex, 0);
 		}
 		glFramebufferTexture2D(
@@ -583,6 +603,10 @@ public class ZoneRenderer implements Renderer {
 		if (firstLayerDepthMSTex != 0)
 			glDeleteTextures(firstLayerDepthMSTex);
 		firstLayerDepthMSTex = 0;
+
+		if (firstLayerDepthResolveTex != 0)
+			glDeleteTextures(firstLayerDepthResolveTex);
+		firstLayerDepthResolveTex = 0;
 
 		if (netCoverageTex != 0)
 			glDeleteTextures(netCoverageTex);
@@ -1063,13 +1087,23 @@ public class ZoneRenderer implements Renderer {
 				plugin.vaoTri,
 				TEXTURE_UNIT_OIT_FIRST_LAYER,
 				firstLayerDepthMSTex,
-				firstLayerDepthTex,
+				firstLayerDepthResolveTex,
 				plugin.msaaSamples
 			);
-
-			glActiveTexture(TEXTURE_UNIT_UI);
-			glBindTexture(GL_TEXTURE_2D, 0);
 		}
+
+		oitDepthMergeProgram.merge(
+			renderState,
+			plugin.vaoTri,
+			TEXTURE_UNIT_OIT_FIRST_LAYER,
+			TEXTURE_UNIT_OIT_OPAQUE_DEPTH,
+			firstLayerDepthResolveTex,
+			plugin.msaaSamples > 1 ? plugin.getTexSceneDepthResolve() : plugin.getTexSceneDepth(),
+			firstLayerDepthTex
+		);
+
+		glActiveTexture(TEXTURE_UNIT_UI);
+		glBindTexture(GL_TEXTURE_2D, 0);
 
 		renderState.disable.set(GL_DEPTH_TEST);
 

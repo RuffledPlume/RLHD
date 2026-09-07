@@ -8,7 +8,6 @@ import static rs117.hd.HdPlugin.TEXTURE_UNIT_SHADOW_MAP;
 import static rs117.hd.HdPlugin.TEXTURE_UNIT_TILED_LIGHTING_MAP;
 import static rs117.hd.renderer.zone.ZoneRenderer.OIT_BIN_COUNT;
 import static rs117.hd.renderer.zone.ZoneRenderer.TEXTURE_UNIT_OIT_FIRST_LAYER;
-import static rs117.hd.renderer.zone.ZoneRenderer.TEXTURE_UNIT_OIT_OPAQUE_DEPTH;
 import static rs117.hd.renderer.zone.ZoneRenderer.TEXTURE_UNIT_TEXTURED_FACES;
 
 public class SceneShaderProgram extends ShaderProgram {
@@ -37,7 +36,6 @@ public class SceneShaderProgram extends ShaderProgram {
 
 	public static class TransparentOIT extends SceneShaderProgram {
 		protected final UniformTexture uniFirstLayerDepth = addUniformTexture("firstLayerDepth");
-		protected final UniformTexture uniOpaqueSceneDepth = addUniformTexture("opaqueSceneDepth");
 
 		TransparentOIT() {
 			shaderTemplate.add(GL_FRAGMENT_SHADER, "scene_frag_oit.glsl");
@@ -48,7 +46,6 @@ public class SceneShaderProgram extends ShaderProgram {
 		protected void initialize() {
 			super.initialize();
 			uniFirstLayerDepth.set(TEXTURE_UNIT_OIT_FIRST_LAYER);
-			uniOpaqueSceneDepth.set(TEXTURE_UNIT_OIT_OPAQUE_DEPTH);
 		}
 
 		@Override

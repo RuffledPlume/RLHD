@@ -8,7 +8,6 @@
 #include OIT_MRT_OUTPUTS
 
 uniform sampler2D firstLayerDepth;
-uniform sampler2D opaqueSceneDepth;
 
 in float vViewZ;
 
@@ -18,10 +17,10 @@ void main() {
 		discard;
 
 	ivec2 coords = ivec2(gl_FragCoord.xy);
-	float opaqueDepth = opaqueViewZ(texelFetch(opaqueSceneDepth, coords, 0).r);
+	vec2 depth = texelFetch(firstLayerDepth, coords, 0).rg;
 	float depthScale = drawDistance * TILE_SIZE;
-	float firstLayerSample = texelFetch(firstLayerDepth, coords, 0).r * depthScale;
-	float lastLayer = opaqueDepth;
+	float firstLayerSample = depth.r * depthScale;
+	float lastLayer = depth.g * depthScale;
 	float z = abs(vViewZ);
 
 	OitBinLayout bins = oitComputeBinLayout(firstLayerSample, lastLayer, z, OIT_BIN_COUNT);
