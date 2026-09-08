@@ -6,7 +6,7 @@ out vec3 FragColor;
 
 void main() {
     vec4 frag = shadeFragment();
-    if(frag.a < 0.5)
+    if(frag.a <= 0.1)
         discard;
     FragColor = frag.rgb;
 }
