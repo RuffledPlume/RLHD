@@ -30993,10 +30993,28 @@
       "DOV_HUNTING_PLANT1",
       "DOV_HUNTING_PLANT1_OP",
       "DOV_HUNTING_PLANT_INITIAL",
-      "PLANT_TROPICAL_01",
       "IG_PLANT_FLAT",
       "DOV_HUNTING_PLANT1_NOOP",
       "DOV_HUNTING_PLANT1_OP"
+    ]
+  },
+  {
+    "description": "Generic - Plant - Leafy Shrub - Lighter",
+    "baseMaterial": "PLANT_GRUNGE_1",
+    "windDisplacementMode": "VERTEX",
+    "colorOverrides": [
+      {
+        "colors": "h > 11",
+        "baseMaterial": "LEAF_VEINS_LIGHT",
+        "uvScale": 0.25,
+        "uvType": "MODEL_XZ",
+        "windDisplacementMode": "VERTEX",
+        "shiftLightness": 2
+      }
+    ],
+    "objectIds": [
+      "PLANT_TROPICAL_01",
+      "PLANT_TROPICAL_02"
     ]
   },
   {
@@ -31032,8 +31050,7 @@
       "JUNGLEPLANT3",
       "HUNTING_JUNGLE_PLANT2",
       "MM_JUNGLEPLANT3",
-      "MM_JUNGLEPLANT1",
-      "PLANT_TROPICAL_02"
+      "MM_JUNGLEPLANT1"
     ]
   },
   {
