@@ -31009,7 +31009,8 @@
         "uvScale": 0.25,
         "uvType": "MODEL_XZ",
         "windDisplacementMode": "VERTEX",
-        "shiftLightness": 2
+        "shiftLightness": 4,
+        "doubleSidedFaces": true
       }
     ],
     "objectIds": [
