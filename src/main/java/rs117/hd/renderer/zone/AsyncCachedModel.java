@@ -6,6 +6,7 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.LockSupport;
 import javax.annotation.Nonnull;
+import javax.annotation.Nullable;
 import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.Setter;
@@ -63,6 +64,7 @@ public final class AsyncCachedModel extends Job implements Model {
 	private int verticesCount;
 	private int faceCount;
 
+	private byte transparency;
 	private byte overrideAmount;
 	private byte overrideHue;
 	private byte overrideSaturation;
@@ -104,6 +106,7 @@ public final class AsyncCachedModel extends Job implements Model {
 	private final AtomicBoolean isCompleted = new AtomicBoolean(false);
 	private WorldViewContext ctx;
 	private Projection projection;
+	@Nullable
 	private TileObject tileObject;
 	private Renderable renderable;
 	private ModelOverride modelOverride;
@@ -207,7 +210,7 @@ public final class AsyncCachedModel extends Job implements Model {
 	public synchronized void queue(
 		@Nonnull WorldViewContext ctx,
 		@Nonnull Projection projection,
-		@Nonnull TileObject tileObject,
+		@Nullable TileObject tileObject,
 		@Nonnull Renderable renderable,
 		@Nonnull ModelOverride modelOverride,
 		@Nonnull Model model,
@@ -251,6 +254,7 @@ public final class AsyncCachedModel extends Job implements Model {
 		useBoundingBox = model.useBoundingBox();
 		hash = model.getHash();
 
+		transparency = model.getTransparency();
 		overrideAmount = model.getOverrideAmount();
 		overrideHue = model.getOverrideHue();
 		overrideSaturation = model.getOverrideSaturation();
@@ -445,7 +449,7 @@ public final class AsyncCachedModel extends Job implements Model {
 		void upload(
 			@Nonnull WorldViewContext ctx,
 			@Nonnull Projection projection,
-			@Nonnull TileObject tileObject,
+			@Nullable TileObject tileObject,
 			@Nonnull Renderable renderable,
 			@Nonnull ModelOverride modelOverride,
 			@Nonnull Model model,

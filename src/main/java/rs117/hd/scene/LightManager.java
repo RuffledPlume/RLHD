@@ -31,7 +31,6 @@ import com.google.gson.Gson;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashSet;
 import java.util.List;
 import java.util.function.Predicate;
 import javax.annotation.Nonnull;
@@ -43,12 +42,9 @@ import net.runelite.api.*;
 import net.runelite.api.coords.*;
 import net.runelite.api.events.*;
 import net.runelite.client.callback.ClientThread;
-import net.runelite.client.config.ConfigManager;
+import net.runelite.client.callback.RenderCallbackManager;
 import net.runelite.client.eventbus.EventBus;
 import net.runelite.client.eventbus.Subscribe;
-import net.runelite.client.plugins.PluginManager;
-import net.runelite.client.plugins.entityhider.EntityHiderConfig;
-import net.runelite.client.plugins.entityhider.EntityHiderPlugin;
 import rs117.hd.HdPlugin;
 import rs117.hd.config.DynamicLights;
 import rs117.hd.data.ObjectType;
@@ -85,10 +81,7 @@ public class LightManager {
 	private EventBus eventBus;
 
 	@Inject
-	private PluginManager pluginManager;
-
-	@Inject
-	private ConfigManager configManager;
+	private RenderCallbackManager renderCallbackManager;
 
 	@Inject
 	private HdPlugin plugin;
@@ -99,9 +92,6 @@ public class LightManager {
 	@Inject
 	private ModelOverrideManager modelOverrideManager;
 
-	@Inject
-	private EntityHiderPlugin entityHiderPlugin;
-
 	private final ArrayList<Light> WORLD_LIGHTS = new ArrayList<>();
 	private final ListMultimap<Integer, LightDefinition> NPC_LIGHTS = ArrayListMultimap.create();
 	private final ListMultimap<Integer, LightDefinition> OBJECT_LIGHTS = ArrayListMultimap.create();
@@ -110,7 +100,6 @@ public class LightManager {
 
 	private final Renderable[] imposterRenderables = new Renderable[2];
 	private boolean reloadLights;
-	private EntityHiderConfig entityHiderConfig;
 	private int currentPlane;
 
 	public void loadConfig(Gson gson, ResourcePath path) {
@@ -156,7 +145,6 @@ public class LightManager {
 	}
 
 	public void startUp() {
-		entityHiderConfig = configManager.getConfig(EntityHiderConfig.class);
 		LIGHTS_PATH.watch(path -> loadConfig(plugin.getGson(), path));
 		eventBus.register(this);
 	}
@@ -252,7 +240,7 @@ public class LightManager {
 				light.origin[0] = (int) light.projectile.getX();
 				light.origin[1] = (int) light.projectile.getZ() - light.def.height;
 				light.origin[2] = (int) light.projectile.getY();
-				hiddenTemporarily = !shouldShowProjectileLights();
+				hiddenTemporarily = isRenderableHidden(light.projectile);
 				if (light.projectile.getRemainingCycles() <= 0) {
 					light.markedForRemoval = true;
 				} else {
@@ -320,7 +308,7 @@ public class LightManager {
 						tileExX < EXTENDED_SCENE_SIZE && tileExY < EXTENDED_SCENE_SIZE &&
 						(tile = tiles[plane][tileExX][tileExY]) != null
 					) {
-						hiddenTemporarily = !isActorLightVisible(light.actor);
+						hiddenTemporarily = isRenderableHidden(light.actor);
 
 						if (!light.def.ignoreActorHiding &&
 							!(light.actor instanceof NPC && ((NPC) light.actor).getComposition().getSize() > 1)
@@ -569,65 +557,26 @@ public class LightManager {
 		}
 	}
 
-	private boolean isActorLightVisible(@Nonnull Actor actor) {
+	private boolean isRenderableHidden(@Nonnull Renderable renderable) {
 		try {
 			// getModel may throw an exception from vanilla client code
-			if (actor.getModel() == null)
-				return false;
+			if (renderable.getModel() == null)
+				return true;
 		} catch (Exception ex) {
 			// Vanilla handles exceptions thrown in `DrawCallbacks#draw` gracefully, but here we have to handle them
-			return false;
+			return true;
 		}
 
-		boolean entityHiderEnabled = pluginManager.isPluginEnabled(entityHiderPlugin);
+		if (!renderCallbackManager.addEntity(renderable, false))
+			return true;
 
-		if (actor instanceof NPC) {
-			if (!plugin.configNpcLights)
-				return false;
+		if (renderable instanceof NPC)
+			return !plugin.configNpcLights;
 
-			if (entityHiderEnabled) {
-				var npc = (NPC) actor;
-				boolean isPet = npc.getComposition().isFollower();
+		if (renderable instanceof Projectile)
+			return !plugin.configProjectileLights;
 
-				if (client.getFollower() != null && client.getFollower().getIndex() == npc.getIndex())
-					return true;
-
-				if (entityHiderConfig.hideNPCs() && !isPet)
-					return false;
-
-				return !entityHiderConfig.hidePets() || !isPet;
-			}
-		} else if (actor instanceof Player) {
-			if (entityHiderEnabled) {
-				var player = (Player) actor;
-				Player local = client.getLocalPlayer();
-				if (local == null || player.getName() == null)
-					return true;
-
-				if (player == local)
-					return !entityHiderConfig.hideLocalPlayer();
-
-				if (entityHiderConfig.hideAttackers() && player.getInteracting() == local)
-					return false;
-
-				if (player.isFriend())
-					return !entityHiderConfig.hideFriends();
-				if (player.isFriendsChatMember())
-					return !entityHiderConfig.hideFriendsChatMembers();
-				if (player.isClanMember())
-					return !entityHiderConfig.hideClanChatMembers();
-				if (client.getIgnoreContainer().findByName(player.getName()) != null)
-					return !entityHiderConfig.hideIgnores();
-
-				return !entityHiderConfig.hideOthers();
-			}
-		}
-
-		return true;
-	}
-
-	private boolean shouldShowProjectileLights() {
-		return plugin.configProjectileLights && !(pluginManager.isPluginEnabled(entityHiderPlugin) && entityHiderConfig.hideProjectiles());
+		return false;
 	}
 
 	public void loadSceneLights(SceneContext sceneContext) {
@@ -858,28 +807,41 @@ public class LightManager {
 		int sizeX = 1;
 		int sizeY = 1;
 		int[] orientations = { 0, 0 };
-		int[] offset = { 0, 0 };
+		int[] offsets = { 0, 0, 0, 0 };
 
 		if (tileObject instanceof GroundObject) {
 			var object = (GroundObject) tileObject;
 			imposterRenderables[0] = object.getRenderable();
+			imposterRenderables[1] = null;
 			orientations[0] = HDUtils.getModelOrientation(object.getConfig());
 		} else if (tileObject instanceof DecorativeObject) {
 			var object = (DecorativeObject) tileObject;
 			imposterRenderables[0] = object.getRenderable();
 			imposterRenderables[1] = object.getRenderable2();
-			int ori = orientations[0] = orientations[1] = HDUtils.getModelOrientation(object.getConfig());
-			switch (ObjectType.fromConfig(object.getConfig())) {
-				case WallDecorDiagonalNoOffset:
-				case WallDecorDiagonalOffset:
-				case WallDecorDiagonalBoth:
-					ori = (ori + 512) % 2048;
-					offset[0] = SINE[ori] * 64 >> 16;
-					offset[1] = COSINE[ori] * 64 >> 16;
-					break;
+			int config = object.getConfig();
+			orientations[0] = orientations[1] = HDUtils.getModelOrientation(config);
+			// WallDecorDiagonalNoOffset -> +180 deg rotation for the 1st renderable
+			// WallDecorDiagonalBoth     -> +180 deg rotation for the 2nd renderable
+			// HDUtils.getModelOrientation assumes we are working with the 1st renderable, so handle the 2nd here
+			var type = ObjectType.fromConfig(config);
+			if (type == ObjectType.WallDecorDiagonalBoth)
+				orientations[1] = (orientations[1] + 1024) % 2048;
+			for (int i = 0; i < 2; i++) {
+				switch (type) {
+					case WallDecorDiagonalOffset:
+					case WallDecorDiagonalNoOffset:
+					case WallDecorDiagonalBoth:
+						int ori = (2048 - orientations[i]) % 2048;
+						// Offset the light by half a tile in the direction of the model
+						offsets[2 * i] = COSINE[ori] * 64 >> 16;
+						offsets[2 * i + 1] = SINE[ori] * 64 >> 16;
+						break;
+				}
 			}
-			offset[0] += object.getXOffset();
-			offset[1] += object.getYOffset();
+			offsets[0] += object.getXOffset();
+			offsets[1] += object.getYOffset();
+			offsets[2] += object.getXOffset2();
+			offsets[3] += object.getYOffset2();
 		} else if (tileObject instanceof WallObject) {
 			var object = (WallObject) tileObject;
 			imposterRenderables[0] = object.getRenderable1();
@@ -891,6 +853,7 @@ public class LightManager {
 			sizeX = object.sizeX();
 			sizeY = object.sizeY();
 			imposterRenderables[0] = object.getRenderable();
+			imposterRenderables[1] = null;
 			int ori = orientations[0] = HDUtils.getModelOrientation(object.getConfig());
 			int offsetDist = 64;
 			switch (ObjectType.fromConfig(object.getConfig())) {
@@ -899,9 +862,9 @@ public class LightManager {
 					ori += 1024;
 					offsetDist = round(offsetDist / sqrt(2));
 				case WallDiagonal:
-					ori = (ori + 2048 - 256) % 2048;
-					offset[0] = SINE[ori] * offsetDist >> 16;
-					offset[1] = COSINE[ori] * offsetDist >> 16;
+					ori = mod(ori - 256, 2048);
+					offsets[0] = SINE[ori] * offsetDist >> 16;
+					offsets[1] = COSINE[ori] * offsetDist >> 16;
 					break;
 			}
 		} else {
@@ -910,11 +873,8 @@ public class LightManager {
 		}
 
 		List<LightDefinition> lights = OBJECT_LIGHTS.get(impostorId == -1 ? tileObject.getId() : impostorId);
-		HashSet<LightDefinition> onlySpawnOnce = new HashSet<>();
 
 		LocalPoint lp = tileObject.getLocalLocation();
-		int lightX = lp.getX() + offset[0];
-		int lightZ = lp.getY() + offset[1];
 		int plane = tileObject.getPlane();
 
 		// Spawn animation-specific lights for each DynamicObject renderable, and non-animation-based lights
@@ -922,6 +882,9 @@ public class LightManager {
 			var renderable = imposterRenderables[i];
 			if (renderable == null)
 				continue;
+
+			int lightX = lp.getX() + offsets[2 * i];
+			int lightZ = lp.getY() + offsets[2 * i + 1];
 
 			for (LightDefinition def : lights) {
 				if (def.areas.length > 0) {
@@ -937,15 +900,9 @@ public class LightManager {
 						continue;
 				}
 
-				// Rarely, it may be necessary to specify which of the two possible renderables the light should be attached to
-				if (def.renderableIndex == -1) {
-					// If unspecified, spawn it for the first non-null renderable
-					if (onlySpawnOnce.contains(def))
-						continue;
-					onlySpawnOnce.add(def);
-				} else if (def.renderableIndex != i) {
+				// It may be necessary to specify which of the two possible renderables the light should be attached to
+				if (def.renderableIndex != -1 && def.renderableIndex != i)
 					continue;
-				}
 
 				int tileExX = clamp(lp.getSceneX() + sceneContext.sceneOffset, 0, EXTENDED_SCENE_SIZE - 2);
 				int tileExY = clamp(lp.getSceneY() + sceneContext.sceneOffset, 0, EXTENDED_SCENE_SIZE - 2);

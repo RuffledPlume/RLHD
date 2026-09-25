@@ -184,9 +184,9 @@
   },
   {
     "area": "STRONGHOLD_OF_SECURITY_DEATH",
-    "ambientColor": "#542d22",
+    "ambientColor": "#844A5E",
     "ambientStrength": 1.5,
-    "directionalStrength": 1,
+    "directionalStrength": 0.75,
     "sunAngles": [
       80,
       190
@@ -416,7 +416,6 @@
     "area": "TOA_LOOT_ROOM",
     "ambientStrength": 1.2,
     "directionalStrength": 0.5,
-    "fogColor": "#050505",
     "fogDepth": 20
   },
   {
@@ -424,9 +423,15 @@
     "directionalStrength": 0.75,
     "fogColor": "#050505",
     "sunAngles": [
-      125,
+      137,
       180
     ],
+    "fogDepth": 20
+  },
+  {
+    "area": "TOA_FINAL_BOSS_PHASE_2",
+    "directionalStrength": 0.75,
+    "fogColor": "#000000",
     "fogDepth": 20
   },
   {
@@ -581,9 +586,9 @@
     "area": "DRAYNOR_MANOR",
     "lightningEffects": true,
     "ambientColor": "#615c57",
-    "ambientStrength": 1.5,
+    "ambientStrength": 3,
     "directionalColor": "#ffbcb7",
-    "directionalStrength": 2,
+    "directionalStrength": 0.5,
     "fogColor": "#0c0b0a",
     "fogDepth": 45
   },
@@ -1539,6 +1544,20 @@
     "waterCausticsStrength": 4
   },
   {
+    "area": "RED_REEF_UNDERWATER",
+    "isUnderwater": true,
+    "ambientColor": "#255590",
+    "ambientStrength": 9,
+    "directionalColor": "#71a3d0",
+    "directionalStrength": 0.6,
+    "fogColor": "#133156",
+    "fogDepth": 35,
+    "groundFogStart": -50,
+    "groundFogEnd": -700,
+    "groundFogOpacity": 0.5,
+    "waterCausticsStrength": 42
+  },
+  {
     "area": "LUNAR_DREAM_WORLD",
     "allowSkyOverride": false,
     "ambientColor": "#77a0ff",
@@ -2169,6 +2188,32 @@
     "waterCausticsStrength": 0
   },
   {
+    "area": "VAMPYRIUM",
+    "fogColor": "#330D0D",
+    "fogDepth": 15,
+    "windAngle": 40,
+    "windSpeed": 15,
+    "windStrength": 50,
+    "waterCausticsStrength": 0
+  },
+  {
+    "area": "VAMPYRIUM_FOREST_INSTANCE",
+    "fogColor": "#330D0D",
+    "fogDepth": 40,
+    "windAngle": 40,
+    "windSpeed": 15,
+    "windStrength": 50,
+    "waterCausticsStrength": 0
+  },
+  {
+    "area": "MAGGOT_KING_ARENA",
+    "fogColor": "#160404",
+    "fogDepth": 50,
+    "windAngle": 40,
+    "windSpeed": 15,
+    "windStrength": 50
+  },
+  {
     "area": "PLAYER_OWNED_HOUSE_WILDY",
     "isPohTheme": true,
     "ambientColor": "#d7d2d2",
@@ -2233,6 +2278,19 @@
     "directionalStrength": 2.5,
     "fogColor": "#aebde0",
     "fogDepth": 50
+  },
+  {
+    "area": "WYRMSCRAIG",
+    "ambientColor": "#96a3cb",
+    "ambientStrength": 0.9,
+    "directionalColor": "#abc2d3",
+    "directionalStrength": 2,
+    "fogColor": "#969CB4",
+    "fogDepth": 35,
+    "groundFogEnd": -600,
+    "groundFogOpacity": 0.225,
+    "windSpeed": 17.5,
+    "windStrength": 60
   },
   {
     "key": "OVERWORLD",

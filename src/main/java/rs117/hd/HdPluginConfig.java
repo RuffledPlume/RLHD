@@ -40,6 +40,7 @@ import rs117.hd.config.DefaultBoolean;
 import rs117.hd.config.DefaultSkyColor;
 import rs117.hd.config.DynamicLights;
 import rs117.hd.config.FogDepthMode;
+import rs117.hd.config.GroundBlending;
 import rs117.hd.config.InfernalCape;
 import rs117.hd.config.ReflectionMode;
 import rs117.hd.config.Saturation;
@@ -80,7 +81,7 @@ public interface HdPluginConfig extends Config
 	@Units(" tiles")
 	@ConfigItem(
 		keyName = "drawDistance",
-		name = "Draw Distance",
+		name = "Draw distance",
 		description =
 			"The number of tiles to draw in either direction from the camera, up to a maximum of 184.<br>" +
 			"Depending on where the scene is centered, you might only see 16 tiles in one direction, unless you extend map loading.",
@@ -98,7 +99,7 @@ public interface HdPluginConfig extends Config
 	@Units(" tiles")
 	@ConfigItem(
 		keyName = "detailDistance",
-		name = "Detail Distance",
+		name = "Detail distance",
 		description =
 			"The number of tiles to draw animated models in either direction from the camera, up to a maximum of 184.<br>" +
 			"Reducing this can help with performance, particularly in crowded sailing areas.",
@@ -142,7 +143,7 @@ public interface HdPluginConfig extends Config
 	String KEY_ANTI_ALIASING_MODE = "antiAliasingMode";
 	@ConfigItem(
 		keyName = KEY_ANTI_ALIASING_MODE,
-		name = "Anti-Aliasing",
+		name = "Anti-aliasing",
 		description =
 			"Improves pixelated edges at the cost of significantly higher GPU usage.<br>" +
 			"MSAA x16 is very expensive, so x8 is recommended if anti-aliasing is desired.",
@@ -157,7 +158,7 @@ public interface HdPluginConfig extends Config
 	String KEY_SCENE_RESOLUTION_SCALE = "sceneResolutionScale";
 	@ConfigItem(
 		keyName = KEY_SCENE_RESOLUTION_SCALE,
-		name = "Game Resolution",
+		name = "Game resolution",
 		description =
 			"Render the game at a different resolution and stretch it to fit the screen.<br>" +
 			"Reducing this can improve performance, particularly on very high resolution displays.",
@@ -172,7 +173,7 @@ public interface HdPluginConfig extends Config
 
 	@ConfigItem(
 		keyName = "sceneScalingMode",
-		name = "Game Scaling Mode",
+		name = "Game scaling mode",
 		description = "The sampling function to use when upscaling the above reduced game resolution.",
 		position = 7,
 		section = generalSettings
@@ -185,7 +186,7 @@ public interface HdPluginConfig extends Config
 	String KEY_UI_SCALING_MODE = "uiScalingMode";
 	@ConfigItem(
 		keyName = KEY_UI_SCALING_MODE,
-		name = "UI Scaling Mode",
+		name = "UI scaling mode",
 		description =
 			"The sampling function to use when the Stretched Mode plugin is enabled.<br>" +
 			"Affects how the UI looks with non-integer scaling.",
@@ -204,7 +205,7 @@ public interface HdPluginConfig extends Config
 	@Units("x")
 	@ConfigItem(
 		keyName = KEY_ANISOTROPIC_FILTERING_LEVEL,
-		name = "Anisotropic Filtering",
+		name = "Anisotropic filtering",
 		description =
 			"Configures whether mipmapping and anisotropic filtering should be used.<br>" +
 			"At zero, mipmapping is disabled and textures look the most pixelated.<br>" +
@@ -241,7 +242,7 @@ public interface HdPluginConfig extends Config
 	String KEY_VSYNC_MODE = "vsyncMode";
 	@ConfigItem(
 		keyName = KEY_VSYNC_MODE,
-		name = "VSync Mode",
+		name = "VSync mode",
 		description =
 			"Controls whether the frame rate should be synchronized with your monitor's refresh rate.<br>" +
 			"If set to 'off', the FPS Target option will be used instead.<br>" +
@@ -260,7 +261,7 @@ public interface HdPluginConfig extends Config
 	String KEY_FPS_TARGET = "fpsTarget";
 	@ConfigItem(
 		keyName = KEY_FPS_TARGET,
-		name = "FPS Target",
+		name = "FPS target",
 		description =
 			"Controls the maximum number of frames per second.<br>" +
 			"This setting only applies if Unlock FPS is enabled, and VSync Mode is set to 'off'.",
@@ -279,7 +280,7 @@ public interface HdPluginConfig extends Config
 	String KEY_COLOR_BLINDNESS = "colorBlindMode";
 	@ConfigItem(
 		keyName = KEY_COLOR_BLINDNESS,
-		name = "Color Blindness",
+		name = "Color blindness",
 		description = "Adjust colors to make them more distinguishable for people with a certain type of color blindness.",
 		position = 13,
 		section = generalSettings
@@ -291,7 +292,7 @@ public interface HdPluginConfig extends Config
 
 	@ConfigItem(
 		keyName = "colorBlindnessIntensity",
-		name = "Blindness Intensity",
+		name = "Blindness intensity",
 		description = "Specifies how intense the color blindness adjustment should be.",
 		position = 14,
 		section = generalSettings
@@ -305,7 +306,7 @@ public interface HdPluginConfig extends Config
 
 	@ConfigItem(
 		keyName = "flashingEffects",
-		name = "Flashing Effects",
+		name = "Flashing effects",
 		description = "Whether to show rapid flashing effects, such as lightning, in certain areas.",
 		position = 15,
 		section = generalSettings
@@ -483,7 +484,7 @@ public interface HdPluginConfig extends Config
 	String KEY_DYNAMIC_LIGHTS = "dynamicLights";
 	@ConfigItem(
 		keyName = KEY_DYNAMIC_LIGHTS,
-		name = "Dynamic Lights",
+		name = "Dynamic lights",
 		description =
 			"The maximum number of dynamic lights visible at once.<br>" +
 			"Reducing this may improve performance.",
@@ -497,7 +498,7 @@ public interface HdPluginConfig extends Config
 	String KEY_TILED_LIGHTING = "tiledLighting";
 	@ConfigItem(
 		keyName = KEY_TILED_LIGHTING,
-		name = "Tiled Lighting",
+		name = "Tiled lighting",
 		description = "Allows rendering <b>a lot</b> more lights simultaneously.",
 		section = lightingSettings,
 		position = 1
@@ -511,7 +512,7 @@ public interface HdPluginConfig extends Config
 	String KEY_PROJECTILE_LIGHTS = "projectileLights";
 	@ConfigItem(
 		keyName = KEY_PROJECTILE_LIGHTS,
-		name = "Projectile Lights",
+		name = "Projectile lights",
 		description = "Adds dynamic lights to some projectiles.",
 		position = 2,
 		section = lightingSettings
@@ -523,7 +524,7 @@ public interface HdPluginConfig extends Config
 	String KEY_NPC_LIGHTS = "npcLights";
 	@ConfigItem(
 		keyName = KEY_NPC_LIGHTS,
-		name = "NPC Lights",
+		name = "NPC lights",
 		description = "Adds dynamic lights to some NPCs.",
 		position = 3,
 		section = lightingSettings
@@ -535,7 +536,7 @@ public interface HdPluginConfig extends Config
 	String KEY_ATMOSPHERIC_LIGHTING = "environmentalLighting";
 	@ConfigItem(
 		keyName = KEY_ATMOSPHERIC_LIGHTING,
-		name = "Atmospheric Lighting",
+		name = "Atmospheric lighting",
 		description = "Change environmental lighting based on the current area.",
 		position = 4,
 		section = lightingSettings
@@ -547,7 +548,7 @@ public interface HdPluginConfig extends Config
 	String KEY_VANILLA_SHADOW_MODE = "vanillaShadowMode";
 	@ConfigItem(
 		keyName = KEY_VANILLA_SHADOW_MODE,
-		name = "Vanilla Shadows",
+		name = "Vanilla shadows",
 		description =
 			"Choose whether shadows built into models by Jagex should be hidden. This does not affect clickboxes.<br>" +
 			"'Show in PvM' will retain shadows for falling crystals during the Olm fight and other useful cases.<br>" +
@@ -562,7 +563,7 @@ public interface HdPluginConfig extends Config
 	String KEY_NORMAL_MAPPING = "normalMapping";
 	@ConfigItem(
 		keyName = KEY_NORMAL_MAPPING,
-		name = "Normal Mapping",
+		name = "Normal mapping",
 		description = "Affects how light interacts with certain materials. Barely impacts performance.",
 		position = 12,
 		section = lightingSettings
@@ -574,7 +575,7 @@ public interface HdPluginConfig extends Config
 	String KEY_PARALLAX_OCCLUSION_MAPPING = "parallaxOcclusionMappingToggle";
 	@ConfigItem(
 		keyName = KEY_PARALLAX_OCCLUSION_MAPPING,
-		name = "Parallax Occlusion Mapping",
+		name = "Parallax occlusion mapping",
 		description = "Adds more depth to some materials, at the cost of higher GPU usage.",
 		position = 13,
 		section = lightingSettings
@@ -597,7 +598,7 @@ public interface HdPluginConfig extends Config
 	String KEY_SEASONAL_THEME = "seasonalTheme";
 	@ConfigItem(
 		keyName = KEY_SEASONAL_THEME,
-		name = "Seasonal Theme",
+		name = "Seasonal theme",
 		description = "Festive themes for Gielinor.",
 		position = 0,
 		section = environmentSettings
@@ -609,7 +610,7 @@ public interface HdPluginConfig extends Config
 	String KEY_SEASONAL_HEMISPHERE = "seasonalHemisphere";
 	@ConfigItem(
 		keyName = KEY_SEASONAL_HEMISPHERE,
-		name = "Seasonal Hemisphere",
+		name = "Seasonal hemisphere",
 		description = "Determines which hemisphere the 'Automatic' Seasonal Theme should consider.",
 		position = 1,
 		section = environmentSettings
@@ -618,14 +619,26 @@ public interface HdPluginConfig extends Config
 		return SeasonalHemisphere.NORTHERN;
 	}
 
+	String KEY_SEASONAL_FOLIAGE = "seasonalFoliage";
+	@ConfigItem(
+		keyName = KEY_SEASONAL_FOLIAGE,
+		name = "Seasonal foliage",
+		description = "Allow seasonal themes to change the color of tree leaves.",
+		position = 2,
+		section = environmentSettings
+	)
+	default boolean seasonalFoliage() {
+		return true;
+	}
+
 	@ConfigItem(
 		keyName = "fogDepthMode",
-		name = "Fog Depth Mode",
+		name = "Fog depth mode",
 		description =
 			"Determines how the fog amount is controlled.<br>" +
 			"'Dynamic' changes fog depth based on the area, while<br>" +
 			"'Static' respects the manually defined fog depth.",
-		position = 2,
+		position = 3,
 		section = environmentSettings
 	)
 	default FogDepthMode fogDepthMode()
@@ -639,11 +652,11 @@ public interface HdPluginConfig extends Config
 	@Units(" tiles")
 	@ConfigItem(
 		keyName = "fogDepth",
-		name = "Static Fog Depth",
+		name = "Static fog depth",
 		description =
 			"Specify how far from the edge fog should reach.<br>" +
 			"This applies only when 'Fog Depth Mode' is set to 'Static'.",
-		position = 3,
+		position = 4,
 		section = environmentSettings
 	)
 	default int fogDepth()
@@ -653,9 +666,9 @@ public interface HdPluginConfig extends Config
 
 	@ConfigItem(
 		keyName = "groundFog",
-		name = "Ground Fog",
+		name = "Ground fog",
 		description = "Enables a height-based fog effect that covers the ground in certain areas.",
-		position = 4,
+		position = 5,
 		section = environmentSettings
 	)
 	default boolean groundFog() {
@@ -664,14 +677,14 @@ public interface HdPluginConfig extends Config
 
 	@ConfigItem(
 		keyName = "defaultSkyColor",
-		name = "Default Sky",
+		name = "Default sky",
 		description =
 			"Specify a sky color to use when the current area doesn't have a sky color defined.<br>" +
 			"This only applies when the default summer seasonal theme is active.<br>" +
 			"If set to 'RuneLite Skybox', the sky color from RuneLite's Skybox plugin will be used.<br>" +
 			"If set to 'Old School Black', the sky will be black and water will remain blue, but for any<br>" +
 			"other option, the water color will be influenced by the sky color.",
-		position = 5,
+		position = 6,
 		section = environmentSettings
 	)
 	default DefaultSkyColor defaultSkyColor()
@@ -681,9 +694,9 @@ public interface HdPluginConfig extends Config
 
 	@ConfigItem(
 		keyName = "overrideSky",
-		name = "Override Sky Color",
+		name = "Override sky color",
 		description = "Forces the default sky color to be used in all environments.",
-		position = 6,
+		position = 7,
 		section = environmentSettings
 	)
 	default boolean overrideSky() {
@@ -693,9 +706,9 @@ public interface HdPluginConfig extends Config
 	String KEY_MODEL_TEXTURES = "objectTextures";
 	@ConfigItem(
 		keyName = KEY_MODEL_TEXTURES,
-		name = "Model Textures",
+		name = "Model textures",
 		description = "Adds new textures to most models. If disabled, the standard game textures will be used instead.",
-		position = 7,
+		position = 8,
 		section = environmentSettings
 	)
 	default boolean modelTextures() {
@@ -705,9 +718,9 @@ public interface HdPluginConfig extends Config
 	String KEY_GROUND_TEXTURES = "groundTextures";
 	@ConfigItem(
 		keyName = KEY_GROUND_TEXTURES,
-		name = "Ground Textures",
+		name = "Ground textures",
 		description = "Adds new textures to most ground tiles.",
-		position = 8,
+		position = 9,
 		section = environmentSettings
 	)
 	default boolean groundTextures()
@@ -718,9 +731,9 @@ public interface HdPluginConfig extends Config
 	String KEY_TEXTURE_RESOLUTION = "textureResolution";
 	@ConfigItem(
 		keyName = KEY_TEXTURE_RESOLUTION,
-		name = "Texture Resolution",
+		name = "Texture resolution",
 		description = "Controls the resolution used for all in-game textures.",
-		position = 9,
+		position = 10,
 		section = environmentSettings
 	)
 	default TextureResolution textureResolution()
@@ -728,23 +741,29 @@ public interface HdPluginConfig extends Config
 		return TextureResolution.RES_256;
 	}
 
-	String KEY_GROUND_BLENDING = "groundBlending";
+	String KEY_GROUND_BLENDING = "groundBlendingv2";
 	@ConfigItem(
 		keyName = KEY_GROUND_BLENDING,
-		name = "Ground Blending",
-		description = "Controls whether ground tiles should blend into each other, or have distinct edges.",
-		position = 10,
+		name = "Ground blending",
+		description =
+			"Controls whether ground tiles should blend into each other, or have distinct edges.<br>" +
+			"When set to 'Textures only', textures may blend between tiles, but not their colors.",
+		position = 11,
 		section = environmentSettings
 	)
-	default boolean groundBlending()
+	default GroundBlending groundBlending()
 	{
+		return groundBlendingv1() ? GroundBlending.ON : GroundBlending.TEXTURES_ONLY;
+	}
+	@ConfigItem(keyName = "groundBlending", hidden = true, name = "", description = "")
+	default boolean groundBlendingv1() {
 		return true;
 	}
 
 	String KEY_WIND_DISPLACEMENT = "windDisplacement";
 	@ConfigItem(
 		keyName = KEY_WIND_DISPLACEMENT,
-		name = "Wind Displacement",
+		name = "Wind displacement",
 		description = "Controls whether things like grass and leaves should be affected by wind.",
 		position = 13,
 		section = environmentSettings
@@ -756,7 +775,7 @@ public interface HdPluginConfig extends Config
 	String KEY_CHARACTER_DISPLACEMENT = "characterDisplacement";
 	@ConfigItem(
 		keyName = KEY_CHARACTER_DISPLACEMENT,
-		name = "Character Displacement",
+		name = "Character displacement",
 		description = "Let players & NPCs affect things like grass whilst walking around.",
 		position = 14,
 		section = environmentSettings
@@ -937,7 +956,7 @@ public interface HdPluginConfig extends Config
 	String KEY_INFERNAL_CAPE = "infernalCape";
 	@ConfigItem(
 		keyName = KEY_INFERNAL_CAPE,
-		name = "Infernal Cape",
+		name = "Infernal cape",
 		description =
 			"Replace the infernal cape texture with a more detailed version.<br>" +
 			"Note, with Anisotropic Filtering above zero, the cape may look blurry when zoomed out.",
@@ -950,7 +969,7 @@ public interface HdPluginConfig extends Config
 	String KEY_VANILLA_COLOR_BANDING = "vanillaColorBanding";
 	@ConfigItem(
 		keyName = KEY_VANILLA_COLOR_BANDING,
-		name = "Vanilla Color Banding",
+		name = "Vanilla color banding",
 		description =
 			"Blend between colors similarly to how it works in vanilla, with clearly defined bands of color.<br>" +
 			"This isn't really noticeable on textured surfaces, and is intended to be used without ground textures.",
@@ -963,7 +982,7 @@ public interface HdPluginConfig extends Config
 	String KEY_LOW_MEMORY_MODE = "lowMemoryMode";
 	@ConfigItem(
 		keyName = KEY_LOW_MEMORY_MODE,
-		name = "Low Memory Mode",
+		name = "Low memory mode",
 		description = "Turns off features which require extra memory, such as model caching, faster scene loading & extended scene loading.",
 		warning =
 			"<html>This <b>will not</b> result in better performance. It is recommended only if you are unable to install<br>" +
@@ -977,7 +996,7 @@ public interface HdPluginConfig extends Config
 	String KEY_COLOR_FILTER = "colorFilter";
 	@ConfigItem(
 		keyName = KEY_COLOR_FILTER,
-		name = "Color Filter",
+		name = "Color filter",
 		description = "Apply a color filter to the game as a post-processing effect.",
 		section = miscellaneousSettings
 	)
@@ -1045,7 +1064,7 @@ public interface HdPluginConfig extends Config
 	)
 	String legacySettings = "legacySettings";
 
-	String KEY_LEGACY_RENDERER = "legacyRenderer";
+	String KEY_LEGACY_RENDERER = "legacyRenderer2";
 	@ConfigItem(
 		keyName = KEY_LEGACY_RENDERER,
 		name = "Use legacy renderer",

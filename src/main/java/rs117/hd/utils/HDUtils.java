@@ -132,7 +132,7 @@ public final class HDUtils {
 		return -1;
 	}
 
-	public static int getObjectConfig(TileObject tileObject) {
+	public static int getObjectConfig(@Nullable TileObject tileObject) {
 		if (tileObject instanceof WallObject)
 			return ((WallObject) tileObject).getConfig();
 		if (tileObject instanceof DecorativeObject)
@@ -169,7 +169,10 @@ public final class HDUtils {
 		int orientation = getModelPreOrientation(config);
 		var objectType = ObjectType.fromConfig(config);
 		switch (objectType) {
+			// Diagonal models have an extra 45 degree rotation
+			case WallDecorDiagonalOffset:
 			case WallDecorDiagonalNoOffset:
+			case WallDecorDiagonalBoth:
 			case CentrepieceDiagonal:
 				orientation += 256;
 		}

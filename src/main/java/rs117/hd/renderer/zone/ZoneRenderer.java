@@ -61,6 +61,7 @@ import rs117.hd.scene.LightManager;
 import rs117.hd.scene.ProceduralGenerator;
 import rs117.hd.scene.SceneContext;
 import rs117.hd.scene.lights.Light;
+import rs117.hd.scene.model_overrides.ModelOverride;
 import rs117.hd.utils.Camera;
 import rs117.hd.utils.ColorUtils;
 import rs117.hd.utils.CommandBuffer;
@@ -77,15 +78,17 @@ import rs117.hd.utils.jobs.JobSystem;
 import static net.runelite.api.Constants.*;
 import static net.runelite.api.Perspective.*;
 import static org.lwjgl.opengl.GL33C.*;
-import static org.lwjgl.opengl.GL40.GL_DRAW_INDIRECT_BUFFER;
+import static rs117.hd.HdPlugin.APPLE;
 import static rs117.hd.HdPlugin.COLOR_FILTER_FADE_DURATION;
 import static rs117.hd.HdPlugin.NEAR_PLANE;
 import static rs117.hd.HdPlugin.ORTHOGRAPHIC_ZOOM;
+import static rs117.hd.HdPlugin.SUPPORTS_INDIRECT_DRAW;
 import static rs117.hd.HdPlugin.TEXTURE_UNIT_WATER_NORMAL_MAPS;
 import static rs117.hd.HdPlugin.checkGLErrors;
 import static rs117.hd.HdPluginConfig.*;
 import static rs117.hd.renderer.zone.WorldViewContext.VAO_OPAQUE;
 import static rs117.hd.renderer.zone.WorldViewContext.VAO_PLAYER;
+import static rs117.hd.renderer.zone.WorldViewContext.VAO_PRESCENE;
 import static rs117.hd.renderer.zone.WorldViewContext.VAO_SHADOW;
 import static rs117.hd.utils.MathUtils.*;
 
@@ -178,6 +181,7 @@ public class ZoneRenderer implements Renderer {
 	public static GLMappedBufferIntWriter eboAlphaWriter;
 
 	private boolean sceneFboValid;
+	private boolean shouldRenderSkybox;
 	private boolean shouldRenderScene;
 	private boolean shouldClearShadowFbo;
 	private boolean shouldDrawRoofShadows;
@@ -293,8 +297,10 @@ public class ZoneRenderer implements Renderer {
 		eboAlpha.initialize(MiB);
 		eboAlphaWriter = new GLMappedBufferIntWriter(eboAlpha);
 
-		indirectDrawCmds = new GLBuffer("indirectDrawCmds", GL_DRAW_INDIRECT_BUFFER, GL_STREAM_DRAW).initialize(MiB);
-		indirectDrawCmdsStaging = new GpuIntBuffer();
+		if (SUPPORTS_INDIRECT_DRAW) {
+			indirectDrawCmds = new GLBuffer("indirectDrawCmds", GL40.GL_DRAW_INDIRECT_BUFFER, GL_STREAM_DRAW).initialize(MiB);
+			indirectDrawCmdsStaging = new GpuIntBuffer();
+		}
 	}
 
 	private void destroyBuffers() {
@@ -369,6 +375,33 @@ public class ZoneRenderer implements Renderer {
 			ctx.sortStaticAlphaModels(sceneCamera);
 
 			ctx.map();
+
+			if (scene.getWorldViewId() == WorldView.TOPLEVEL) {
+				Model skybox = scene.getSkybox();
+				if (skybox != null) {
+					skybox.calculateBoundsCylinder();
+					modelStreamingManager.uploadTempModel(
+						ctx,
+						sceneCamera,
+						null,
+						skybox,
+						ModelOverride.UNLIT,
+						skybox,
+						null,
+						null,
+						true,
+						VAO_PRESCENE,
+						-1,
+						0,
+						cameraX, cameraY, cameraZ
+					);
+				}
+
+				sceneCmd.DepthMask(false);
+				ctx.drawAll(VAO_PRESCENE, sceneCmd);
+				sceneCmd.DepthMask(true);
+			}
+
 			frameTimer.end(Timer.DRAW_PRESCENE);
 		} catch (Throwable ex) {
 			log.error("Error in preSceneDraw({}):", scene != null ? scene.getWorldViewId() : null, ex);
@@ -581,16 +614,20 @@ public class ZoneRenderer implements Renderer {
 		if (client.getGameState().getState() >= GameState.LOGGED_IN.getState())
 			plugin.hasLoggedIn = true;
 
+		shouldRenderSkybox = scene.getSkybox() != null;
+
 		float fogDepth = 0;
-		switch (config.fogDepthMode()) {
-			case USER_DEFINED:
-				fogDepth = config.fogDepth();
-				break;
-			case DYNAMIC:
-				fogDepth = environmentManager.currentFogDepth;
-				break;
+		if (!shouldRenderSkybox) {
+			switch (config.fogDepthMode()) {
+				case USER_DEFINED:
+					fogDepth = config.fogDepth();
+					break;
+				case DYNAMIC:
+					fogDepth = environmentManager.currentFogDepth;
+					break;
+			}
+			fogDepth *= min(plugin.getDrawDistance(), 90) / 10.f;
 		}
-		fogDepth *= min(plugin.getDrawDistance(), 90) / 10.f;
 		plugin.uboGlobal.useFog.set(fogDepth > 0 ? 1 : 0);
 		plugin.uboGlobal.fogDepth.set(fogDepth);
 		plugin.uboGlobal.fogColor.set(ColorUtils.linearToSrgb(environmentManager.currentFogColor));
@@ -647,7 +684,8 @@ public class ZoneRenderer implements Renderer {
 		plugin.uboGlobal.upload();
 
 		// Reset buffers for the next frame
-		indirectDrawCmdsStaging.clear();
+		if (SUPPORTS_INDIRECT_DRAW)
+			indirectDrawCmdsStaging.clear();
 		sceneCmd.reset();
 		directionalCmd.reset();
 		gapFillerCmd.reset();
@@ -699,7 +737,7 @@ public class ZoneRenderer implements Renderer {
 			eboAlphaWriter.flush();
 
 		// Scene draw state to apply before all recorded commands
-		if (indirectDrawCmdsStaging.position() > 0) {
+		if (SUPPORTS_INDIRECT_DRAW && indirectDrawCmdsStaging.position() > 0) {
 			indirectDrawCmdsStaging.flip();
 			indirectDrawCmds.orphan();
 			indirectDrawCmds.upload(indirectDrawCmdsStaging);
@@ -774,11 +812,9 @@ public class ZoneRenderer implements Renderer {
 		renderState.enable.set(GL_DEPTH_TEST);
 		renderState.disable.set(GL_CULL_FACE);
 		renderState.depthFunc.set(GL_LEQUAL);
-		renderState.ido.set(indirectDrawCmds.id);
-
-		CommandBuffer.SKIP_DEPTH_MASKING = true;
+		if (SUPPORTS_INDIRECT_DRAW)
+			renderState.ido.set(indirectDrawCmds.id);
 		directionalCmd.execute(renderState);
-		CommandBuffer.SKIP_DEPTH_MASKING = false;
 
 		glBindVertexArray(0);
 
@@ -810,19 +846,17 @@ public class ZoneRenderer implements Renderer {
 			renderState.disable.set(GL_MULTISAMPLE);
 		}
 		renderState.viewport.set(0, 0, plugin.sceneResolution[0], plugin.sceneResolution[1]);
-		renderState.ido.set(indirectDrawCmds.id);
+		if (SUPPORTS_INDIRECT_DRAW)
+			renderState.ido.set(indirectDrawCmds.id);
 		renderState.apply();
 
 		// Clear scene
 		frameTimer.begin(Timer.CLEAR_SCENE);
 
-		float[] gammaCorrectedFogColor = pow(fogColor, plugin.getGammaCorrection());
-		glClearColor(
-			gammaCorrectedFogColor[0],
-			gammaCorrectedFogColor[1],
-			gammaCorrectedFogColor[2],
-			1f
-		);
+		float[] clearColor = { 0, 0, 0 };
+		if (!shouldRenderSkybox)
+			pow(clearColor, fogColor, plugin.getGammaCorrection());
+		glClearColor(clearColor[0], clearColor[1], clearColor[2], 1f);
 		glClearDepth(0);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 		frameTimer.end(Timer.CLEAR_SCENE);
@@ -1010,8 +1044,32 @@ public class ZoneRenderer implements Renderer {
 					z.renderAlpha(directionalCmd, zx - offset, zz - offset, level, ctx, true, shouldDrawRoofShadows);
 				}
 
-				if (z.isVisible(sceneCamera))
-					z.renderAlpha(sceneCmd, zx - offset, zz - offset, level, ctx, false, false);
+				if (!sceneManager.isRoot(ctx) || z.isVisible(sceneCamera)) {
+					if (renderWater) {
+						// Water is currently drawn with depth writes & depth testing enabled, and as such, alpha models and the water plane
+						// can Z-fight depending on draw order. To avoid alpha models above water causing the water surface to fail its
+						// depth test, we disable depth writes for alpha models and rely on correct back to front ordering of the zones
+						sceneCmd.DepthMask(false);
+						z.renderAlpha(sceneCmd, zx - offset, zz - offset, level, ctx, false, false);
+						sceneCmd.DepthMask(true);
+					} else {
+						// Draw alpha models in two passes, first blending colors correctly, then writing depth for subsequent opaque models
+						// to test against. This is necessary because opaque models on higher planes can be drawn later
+
+						// Write color without depth writes
+						sceneCmd.DepthMask(false);
+						sceneCmd.ColorMask(true, true, true, true);
+						z.renderAlpha(sceneCmd, zx - offset, zz - offset, level, ctx, false, false);
+
+						// Write depth without color
+						sceneCmd.DepthMask(true);
+						sceneCmd.ColorMask(false, false, false, false);
+						z.renderAlpha(sceneCmd, zx - offset, zz - offset, level, ctx, true, false);
+
+						// Restore color writes
+						sceneCmd.ColorMask(true, true, true, true);
+					}
+				}
 			}
 			frameTimer.end(Timer.DRAW_ZONE_ALPHA);
 
@@ -1105,7 +1163,7 @@ public class ZoneRenderer implements Renderer {
 
 		final long start = System.nanoTime();
 		try {
-			modelStreamingManager.drawDynamic(renderThreadId, projection, scene, tileObject, r, m, orient, x, y, z);
+			modelStreamingManager.drawTemp(renderThreadId, projection, scene, tileObject, r, m, orient, x, y, z);
 		} catch (Exception ex) {
 			log.error("Error in drawDynamic:", ex);
 		} finally {
@@ -1120,7 +1178,7 @@ public class ZoneRenderer implements Renderer {
 
 		frameTimer.begin(Timer.DRAW_TEMP);
 		try {
-			modelStreamingManager.drawTemp(worldProjection, scene, gameObject, m, orientation, x, y, z);
+			modelStreamingManager.drawTemp(-1, worldProjection, scene, gameObject, gameObject.getRenderable(), m, orientation, x, y, z);
 		} catch (Exception ex) {
 			log.error("Error in drawTemp:", ex);
 		} finally {
@@ -1174,6 +1232,15 @@ public class ZoneRenderer implements Renderer {
 
 				// Blit from the resolved FBO to the default FBO
 				glBindFramebuffer(GL_DRAW_FRAMEBUFFER, plugin.awtContext.getFramebuffer(false));
+
+				if (APPLE && !client.isResized()) {
+					// On macOS, we need to ensure that the alpha channel is opaque to prevent whatever
+					// is beneath from leaking through. In fixed mode, the MSAA resolve alone is not
+					// sufficient, since the viewport only covers part of the screen.
+					glClearColor(0, 0, 0, 1);
+					glClear(GL_COLOR_BUFFER_BIT);
+				}
+
 				glBlitFramebuffer(
 					0,
 					0,
