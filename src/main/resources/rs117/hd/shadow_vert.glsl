@@ -40,6 +40,8 @@
 #include <uniforms/materials.glsl>
 #include <uniforms/model_data.glsl>
 #include <uniforms/texture_faces.glsl>
+#include ZONE_DATA_SSBO_BINDING
+#include <uniforms/zone_data.glsl>
 #include <uniforms/displacement.glsl>
 
 #include <utils/constants.glsl>
@@ -52,11 +54,6 @@ layout (location = 0) in vec3 vPosition;
     layout (location = 1) in vec4 vUv;
     layout (location = 2) in vec4 vNormal;
     layout (location = 3) in int vPackedTextureFace;
-    layout (location = 6) in int vWorldViewId;
-    layout (location = 7) in ivec2 vSceneBase;
-    #if DITHER_FADE
-        layout (location = 8) in float vFade;
-    #endif
 
     #if SHADOW_MODE == SHADOW_MODE_DETAILED
         out vec4 fUvw;
@@ -68,40 +65,45 @@ layout (location = 0) in vec3 vPosition;
     #endif
 
     void main() {
+        // The model index sign bit encodes reversed winding.
+        int modelIdx = int(vNormal.w);
         int vertex = gl_VertexID % 3;
-        if (isFaceWindingReversed(vPackedTextureFace))
+        if (modelIdx < 0)
             vertex = 2 - vertex;
+        modelIdx = modelIdx & 0x7FFF;
+
+        // Face bases are in ints; model bases are in records.
+        ZoneStruct zone = getZoneStruct(getZoneId(vPackedTextureFace));
 
         int alphaBiasHsl;
         int materialData;
         int terrainData;
         int faceDataOffset;
         if (isModelFace(vPackedTextureFace)) {
-            ModelFaceData faceData = getModelFaceData(getFaceOffset(vPackedTextureFace));
+            ModelFaceData faceData = getModelFaceData(zone.faceBase + getFaceOffset(vPackedTextureFace));
             alphaBiasHsl = faceData.AlphaBiasHsl[vertex];
             materialData = faceData.MaterialData;
             terrainData = 0;
         } else {
-            StaticFaceData faceData = getStaticFaceData(getFaceOffset(vPackedTextureFace));
+            StaticFaceData faceData = getStaticFaceData(zone.faceBase + getFaceOffset(vPackedTextureFace));
             alphaBiasHsl = faceData.AlphaBiasHsl[vertex];
             materialData = faceData.MaterialData[vertex];
             terrainData = faceData.TerrainData[vertex];
         }
 
-        int worldViewIdx = vWorldViewId;
-        vec3 sceneOffset = vec3(vSceneBase.x, 0, vSceneBase.y);
+        int worldViewIdx = zone.worldViewIdx;
+        vec3 sceneOffset = vec3(zone.sceneBase.x, 0, zone.sceneBase.y);
         ModelData modelData;
 
         int waterTypeIndex = terrainData >> 3 & 0xFF;
         float opacity = 1 - (alphaBiasHsl >> 24 & 0xFF) / float(0xFF);
 
         #if DITHER_FADE
-            float fade = vFade;
+            float fade = zone.fade;
         #endif
 
-        int modelIdx = int(vNormal.w);
         if (modelIdx > 0) {
-            modelData = getModelData(modelIdx);
+            modelData = getModelData(zone.modelBase + modelIdx);
             #if DITHER_FADE
                 fade = modelData.fade;
             #endif
@@ -128,8 +130,8 @@ layout (location = 0) in vec3 vPosition;
             isWaterSurfaceOrUnderwaterTile ||
             isTransparent;
 
-        if (!isShadowDisabled && vWorldViewId > 0) {
-            ivec4 tint = getWorldViewTint(vWorldViewId);
+        if (!isShadowDisabled && zone.worldViewIdx > 0) {
+            ivec4 tint = getWorldViewTint(zone.worldViewIdx);
             isShadowDisabled = tint.w > 0;
         }
 

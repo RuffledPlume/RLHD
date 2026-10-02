@@ -1,13 +1,11 @@
 package rs117.hd.renderer.zone;
 
-import java.nio.IntBuffer;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import javax.annotation.Nullable;
-import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import org.lwjgl.system.MemoryStack;
@@ -23,6 +21,7 @@ import rs117.hd.utils.DestructibleHandler;
 import rs117.hd.utils.HDUtils;
 import rs117.hd.utils.buffer.GLBuffer;
 import rs117.hd.utils.buffer.GLShaderStorage;
+import rs117.hd.utils.buffer.GpuIntBuffer;
 import rs117.hd.utils.collections.ConcurrentPool;
 import rs117.hd.utils.collections.Int2IntHashMap;
 import rs117.hd.utils.collections.IntHashSet;
@@ -39,26 +38,36 @@ import static rs117.hd.utils.collections.Util.quickSort;
 
 @Slf4j
 public class Zone implements Destructible {
-	private static final IntHashSet EMPTY_ROOF = new IntHashSet();
+	static final IntHashSet EMPTY_ROOF = new IntHashSet();
 	private static final ConcurrentPool<AlphaModel> ALPHA_MODEL_POOL = new ConcurrentPool<>(AlphaModel::new);
 
 	public static final int DRAW_FADING_ONLY = 1;
 	public static final int DRAW_INCLUDE_ROOFS = 2;
 	public static final int DRAW_DEPTH_ONLY = 4;
 
-	@Inject
-	private Client client;
+	@Nullable
+	WorldViewContext viewContext;
 
 	// ZONE_VERTEX_FORMAT
 	// position: int16 vec3
 	// normal: int16 vec3
 	// modelIdx: int16
 	// uvw: float16 vec3
-	// texturedFaceIdx: int32 (windingReversed << 31 | modelface << 30 | idx)
+	// texturedFaceIdx: int32 (modelFace << 31 | zoneId << 20 | faceOffset)
+	// Winding reversal is stored in the sign bit of modelIdx, whose vertex attribute is already signed.
 	public static final int ZONE_VERTEX_NUM_BYTES = 24;
 	public static final int ZONE_VERTEX_NUM_INTS = ZONE_VERTEX_NUM_BYTES / Integer.BYTES;
-	public static final int TEXTURE_FACE_IS_WINDING_REVERSED = 1 << 31;
-	public static final int TEXTURE_FACE_IS_MODEL = 1 << 30;
+	public static final int TEXTURE_FACE_IS_MODEL = 1 << 31;
+	public static final int MODEL_INDEX_WINDING_REVERSED = 1 << 15;
+	public static final int MODEL_INDEX_MASK = MODEL_INDEX_WINDING_REVERSED - 1;
+
+	// Packed into each face index to look up the zone table entry.
+	public static final int TEXTURE_FACE_ZONE_ID_SHIFT = 20;
+	public static final int TEXTURE_FACE_ZONE_ID_BITS = 11;
+	public static final int TEXTURE_FACE_ZONE_ID_MASK = ((1 << TEXTURE_FACE_ZONE_ID_BITS) - 1) << TEXTURE_FACE_ZONE_ID_SHIFT;
+	public static final int TEXTURE_FACE_OFFSET_MASK = (1 << TEXTURE_FACE_ZONE_ID_SHIFT) - 1;
+	public static final int MAX_ZONE_ID = 1 << TEXTURE_FACE_ZONE_ID_BITS;
+	public static final int MAX_FACE_OFFSET = TEXTURE_FACE_OFFSET_MASK + 1;
 
 	// STATIC_FACE_FORMAT
 	// alphaBiasHsl: int32 vec3
@@ -84,30 +93,35 @@ public class Zone implements Destructible {
 	public static final int MODEL_DATA_NUM_INTS = MODEL_DATA_NUM_BYTES / Integer.BYTES;
 	public static final int MODEL_DATA_IS_STATIC = 1;
 
-	// METADATA_FORMAT
+	// ZONE_DATA_FORMAT
 	// worldViewIndex: int32
 	// sceneOffset: int32 vec2
 	// fade: float32
-	public static final int METADATA_NUM_BYTES = 16;
-	public static final int METADATA_NUM_INTS = METADATA_NUM_BYTES / Integer.BYTES;
+	// faceBase: int32
+	// modelBase: int32
+	public static final int ZONE_DATA_NUM_BYTES = 24;
+	public static final int ZONE_DATA_NUM_INTS = ZONE_DATA_NUM_BYTES / Integer.BYTES;
 
 	public static int LEVEL_COUNT = MAX_Z;
 	public static final int LEVEL_WATER_SURFACE = LEVEL_COUNT++;
 	public static final int LEVEL_GAP_FILLER = LEVEL_COUNT++;
 
-	public int glVao;
+	public int dist;
 	int bufLen;
-	int dist;
 
-	public int glVaoA;
 	public int bufLenA;
 
 	public int sizeO, sizeA, sizeF, sizeM;
-	@Nullable
-	public GLBuffer vboO, vboA, vboM;
-	public GLShaderStorage tboF, tboM;
+	volatile boolean uploadReady;
 
-	public boolean initialized; // whether the zone vao and vbos are ready
+	int vertexBaseO, vertexBaseA, faceBase, modelBase;
+	int zoneId = -1;
+
+	final int[] blockSizes = new int[SharedZoneBuffers.KIND_COUNT];
+
+	final GpuIntBuffer[] staging = new GpuIntBuffer[SharedZoneBuffers.KIND_COUNT];
+
+	public boolean initialized;
 	public boolean cull; // whether the zone is queued for deletion
 	public boolean needsRoofUpdate; // whether the zone needs to have its roofs updated during scene swap
 	public boolean rebuild; // whether the zone is queued for rebuild
@@ -134,37 +148,78 @@ public class Zone implements Destructible {
 	}
 
 	int[] levelOffsets = new int[LEVEL_COUNT]; // buffer pos in ints for the end of the level
+	int[] alphaLevelOffsets = new int[MAX_Z]; // buffer pos in ints for the end of the alpha level
 
 	int[][] rids;
 	int[][] roofStart;
 	int[][] roofEnd;
+	int[][] alphaRoofStart;
+	int[][] alphaRoofEnd;
 
 	final List<AlphaModel> alphaModels = new ArrayList<>(0);
 	final ConcurrentLinkedQueue<AsyncCachedModel> pendingModelJobs = new ConcurrentLinkedQueue<>();
 
-	public void initialize(GLBuffer o, GLBuffer a, GLShaderStorage f, GLShaderStorage m) {
-		assert glVao == 0;
-		assert glVaoA == 0;
-		if (o == null && a == null || f == null)
-			return;
+	GpuIntBuffer prepareStagingBuffer(int kind) {
+		int blockSize = blockSizes[kind];
+		if (blockSize == 0)
+			return null;
 
-		vboM = new GLBuffer("ZoneMetadata", GL_ARRAY_BUFFER, GL_DYNAMIC_DRAW);
-		vboM.initialize(METADATA_NUM_BYTES);
+		GpuIntBuffer buffer = staging[kind];
+		if (buffer == null)
+			staging[kind] = buffer = new GpuIntBuffer(blockSize);
+		else
+			buffer.clear().ensureCapacity(blockSize);
+		buffer.getBuffer().limit(blockSize);
+		return buffer;
+	}
 
-		if (o != null) {
-			vboO = o;
-			glVao = glGenVertexArrays();
-			setupVao(glVao, o.id, vboM.id);
+	void destroyStagingBuffers() {
+		for (int i = 0; i < staging.length; ++i) {
+			if (staging[i] != null) {
+				staging[i].destroy();
+				staging[i] = null;
+			}
 		}
+	}
 
-		if (a != null) {
-			vboA = a;
-			glVaoA = glGenVertexArrays();
-			setupVao(glVaoA, a.id, vboM.id);
+	void shiftOpaqueRanges(int from, int to) {
+		final int delta = to - from;
+		for (int i = 0; i < levelOffsets.length; ++i)
+			levelOffsets[i] += delta;
+
+		if (roofStart != null)
+			for (int level = 0; level < 4; ++level)
+				for (int i = 0; i < roofStart[level].length; ++i) {
+					if (rids[level][i] > 0) {
+						roofStart[level][i] += delta;
+						roofEnd[level][i] += delta;
+					}
+				}
+	}
+
+	synchronized void shiftAlphaRanges(int from, int to) {
+		final int delta = to - from;
+		for (int i = 0; i < alphaLevelOffsets.length; ++i)
+			alphaLevelOffsets[i] += delta;
+
+		if (alphaRoofStart != null)
+			for (int level = 0; level < alphaRoofStart.length; ++level)
+				for (int i = 0; i < alphaRoofStart[level].length; ++i) {
+					if (rids[level][i] > 0) {
+						alphaRoofStart[level][i] += delta;
+						alphaRoofEnd[level][i] += delta;
+					}
+				}
+
+		for (int i = 0; i < alphaModels.size(); ++i) {
+			AlphaModel m = alphaModels.get(i);
+			// Temporary models live in the dynamic model buffers, which are never compacted
+			if (m.isTemp() || m.packedFaces == null)
+				continue;
+
+			m.startpos += delta;
+			m.endpos += delta;
 		}
-
-		tboF = f;
-		tboM = m;
 	}
 
 	public static void freeZones(@Nullable Zone[][] zones) {
@@ -180,62 +235,37 @@ public class Zone implements Destructible {
 	@Override
 	@SuppressWarnings("deprecation")
 	protected void finalize() {
-		if (glVao != 0 || glVaoA != 0)
+		if (zoneId >= 0)
 			DestructibleHandler.queueLeakedDestruction(this);
 	}
 
 	@Override
 	public void destroy() {
-		if (vboO != null) {
-			vboO.destroy();
-			vboO = null;
-		}
-
-		if (vboA != null) {
-			vboA.destroy();
-			vboA = null;
-		}
-
-		if (vboM != null) {
-			vboM.destroy();
-			vboM = null;
-		}
-
-		if (tboF != null) {
-			tboF.destroy();
-			tboF = null;
-		}
-
-		if (tboM != null) {
-			tboM.destroy();
-			tboM = null;
-		}
-
-		if (glVao != 0) {
-			glDeleteVertexArrays(glVao);
-			glVao = 0;
-		}
-
-		if (glVaoA != 0) {
-			glDeleteVertexArrays(glVaoA);
-			glVaoA = 0;
-		}
-
 		if (uploadJob != null) {
 			uploadJob.cancel();
-			DestructibleHandler.destroy(uploadJob.zoneBeingUploaded);
+			Zone replaced = uploadJob.zoneBeingUploaded;
 			uploadJob = null;
+			if (replaced != null && replaced != this)
+				DestructibleHandler.destroy(replaced);
 		}
+
+		destroyStagingBuffers();
+		if (viewContext != null)
+			viewContext.freeZoneBlocks(this);
+		viewContext = null;
 
 		sortedAlphaFacesUpload.release();
 
 		sizeO = 0;
 		sizeA = 0;
 		sizeF = 0;
+		sizeM = 0;
 		bufLen = 0;
 		bufLenA = 0;
+		Arrays.fill(blockSizes, 0);
 
 		initialized = false;
+		uploadReady = false;
 		cull = false;
 		hasWater = false;
 		onlyWater = false;
@@ -244,9 +274,12 @@ public class Zone implements Destructible {
 		inShadowFrustum = false;
 
 		Arrays.fill(levelOffsets, 0);
+		Arrays.fill(alphaLevelOffsets, 0);
 		rids = null;
 		roofStart = null;
 		roofEnd = null;
+		alphaRoofStart = null;
+		alphaRoofEnd = null;
 
 		// don't add permanent alphamodels to the cache as permanent alphamodels are always allocated
 		// to avoid having to synchronize the cache
@@ -261,90 +294,6 @@ public class Zone implements Destructible {
 		);
 	}
 
-	public void unmap() {
-		assert client.isClientThread();
-
-		if (vboO != null)
-			vboO.unmap();
-		if (vboA != null)
-			vboA.unmap();
-		if (tboF != null)
-			tboF.unmap();
-		if (tboM != null)
-			tboM.unmap();
-
-		if (vboO != null) {
-			this.bufLen = vboO.mapped().byteView().position() / ZONE_VERTEX_NUM_BYTES;
-		}
-
-		if (vboA != null) {
-			this.bufLenA = vboA.mapped().byteView().position() / ZONE_VERTEX_NUM_BYTES;
-		}
-	}
-
-	private void setupVao(int vao, int buffer, int metadata) {
-		glBindVertexArray(vao);
-		glBindBuffer(GL_ARRAY_BUFFER, buffer);
-
-		// Position
-		glEnableVertexAttribArray(0);
-		glVertexAttribPointer(0, 4, GL_SHORT, false, ZONE_VERTEX_NUM_BYTES, 0);
-
-		// UVs (u, v, w)
-		glEnableVertexAttribArray(1);
-		glVertexAttribPointer(1, 4, GL_HALF_FLOAT, false, ZONE_VERTEX_NUM_BYTES, 14);
-
-		// Normals + modelIdx (nx, ny, nz, modelIdx)
-		glEnableVertexAttribArray(2);
-		glVertexAttribPointer(2, 4, GL_SHORT, false, ZONE_VERTEX_NUM_BYTES, 6);
-
-		// TextureFaceIdx
-		glEnableVertexAttribArray(3);
-		glVertexAttribIPointer(3, 1, GL_INT, ZONE_VERTEX_NUM_BYTES, 20);
-
-		glBindBuffer(GL_ARRAY_BUFFER, metadata);
-
-		// WorldView index (not ID)
-		glEnableVertexAttribArray(6);
-		glVertexAttribDivisor(6, 1);
-		glVertexAttribIPointer(6, 1, GL_INT, METADATA_NUM_BYTES, 0);
-
-		// Scene offset
-		glEnableVertexAttribArray(7);
-		glVertexAttribDivisor(7, 1);
-		glVertexAttribIPointer(7, 2, GL_INT, METADATA_NUM_BYTES, 4);
-
-		// Zone fade
-		glEnableVertexAttribArray(8);
-		glVertexAttribDivisor(8, 1);
-		glVertexAttribPointer(8, 1, GL_FLOAT, false, METADATA_NUM_BYTES, 12);
-
-		checkGLErrors();
-
-		glBindVertexArray(0);
-		glBindBuffer(GL_ARRAY_BUFFER, 0);
-	}
-
-	public void setMetadata(WorldViewContext viewContext, SceneContext sceneContext, int mx, int mz) {
-		if (vboM == null)
-			return;
-
-		float fade = saturate(fadingAlpha);
-		int baseX = (mx - (sceneContext.sceneOffset >> 3)) << 10;
-		int baseZ = (mz - (sceneContext.sceneOffset >> 3)) << 10;
-
-		try (MemoryStack stack = MemoryStack.stackPush()) {
-			// METADATA_FORMAT
-			IntBuffer buf = stack.mallocInt(METADATA_NUM_INTS)
-				.put(viewContext.uboWorldViewStruct != null ? viewContext.uboWorldViewStruct.worldViewIdx + 1 : 0)
-				.put(baseX)
-				.put(baseZ)
-				.put(Float.floatToIntBits(fade));
-			buf.flip();
-			vboM.upload(buf);
-		}
-	}
-
 	void updateRoofs(Int2IntHashMap updates) {
 		for (int level = 0; level < 4; ++level) {
 			for (int i = 0; i < rids[level].length; ++i) {
@@ -356,142 +305,12 @@ public class Zone implements Destructible {
 			m.rid = (short) updates.getOrDefault(m.rid, m.rid);
 	}
 
-	private static final int NUM_DRAW_RANGES = 512;
-	private static final int[] drawOff = new int[NUM_DRAW_RANGES];
-	private static final int[] drawEnd = new int[NUM_DRAW_RANGES];
-
-	private static final int[] glDrawOffset = new int[NUM_DRAW_RANGES];
-	private static final int[] glDrawLength = new int[NUM_DRAW_RANGES];
-	private static int drawIdx = 0;
-
-	private void convertForDraw(int vertSize) {
-		for (int i = 0; i < drawIdx; ++i) {
-			assert drawEnd[i] >= drawOff[i];
-
-			// convert from bytes to verts
-			drawOff[i] /= vertSize >> 2;
-			drawEnd[i] /= vertSize >> 2;
-
-			drawEnd[i] -= drawOff[i]; // convert from end pos to length
-		}
-
-		copyTo(glDrawOffset, drawOff, 0, drawIdx);
-		copyTo(glDrawLength, drawEnd, 0, drawIdx);
+	int levelStart(int level) {
+		return level == 0 ? vertexBaseO : levelOffsets[level - 1];
 	}
 
-	void renderOpaque(CommandBuffer cmd, WorldViewContext ctx, @Nullable ZoneRoofFades.Fade fade, int flags) {
-		if (fadingAlpha > 1.0)
-			return;
-		drawIdx = 0;
-
-		final boolean fadingOnly = (flags & DRAW_FADING_ONLY) != 0;
-
-		int currentLevel = ctx.level;
-		int maxLevel = ctx.maxLevel;
-		int fadedLevels = fade != null ? fade.levels : 0;
-		var hidden = fade != null && fade.roofs != null ? fade.roofs : ctx.hideRoofIds;
-		if ((flags & DRAW_INCLUDE_ROOFS) != 0) {
-			maxLevel = 3;
-			hidden = EMPTY_ROOF;
-		}
-
-		// Fading levels can sit outside the visible range, so the fading pass checks all of them
-		int firstLevel = fadingOnly ? 0 : ctx.minLevel;
-		int lastLevel = fadingOnly ? 3 : maxLevel;
-
-		for (int level = firstLevel; level <= lastLevel; ++level) {
-			int[] rids = this.rids[level];
-			int[] roofStart = this.roofStart[level];
-			int[] roofEnd = this.roofEnd[level];
-
-			boolean levelFading = (fadedLevels & (1 << level)) != 0;
-
-			if (levelFading) {
-				if (fadingOnly) {
-					int start = level == 0 ? 0 : this.levelOffsets[level - 1];
-					pushRange(start, this.levelOffsets[level]);
-				}
-				// The main pass leaves it to the fading pass, otherwise it would be drawn twice
-				continue;
-			}
-
-			if (!fadingOnly && (rids.length == 0 || hidden.isEmpty() || level <= currentLevel)) {
-				// draw the whole level
-				int start = level == 0 ? 0 : this.levelOffsets[level - 1];
-				int end = this.levelOffsets[level];
-				pushRange(start, end);
-				continue;
-			}
-
-			for (int roofIdx = 0; roofIdx < rids.length; ++roofIdx) {
-				int rid = rids[roofIdx];
-				if (rid > 0 && hidden.contains(rid) == fadingOnly) {
-					// draw the roof
-					assert roofEnd[roofIdx] >= roofStart[roofIdx];
-					if (roofEnd[roofIdx] > roofStart[roofIdx]) {
-						pushRange(roofStart[roofIdx], roofEnd[roofIdx]);
-					}
-				}
-			}
-
-			if (fadingOnly)
-				continue;
-
-			// push from the end of the last roof to the end of the level
-			int endpos = level == 0 ? 0 : this.levelOffsets[level - 1];
-			for (int roofIdx = rids.length - 1; roofIdx >= 0; --roofIdx) {
-				int rid = rids[roofIdx];
-				if (rid > 0) {
-					endpos = roofEnd[roofIdx];
-					break;
-				}
-			}
-			// draw the non roofs
-			pushRange(endpos, this.levelOffsets[level]);
-		}
-
-		if (drawIdx == 0)
-			return;
-
-		lastDrawMode = STATIC_UNSORTED;
-		lastVao = glVao;
-		lastTboF = tboF;
-		lastTboM = tboM;
-		flush(cmd);
-	}
-
-	void renderOpaqueLevel(CommandBuffer cmd, int level) {
-		if (fadingAlpha > 1.0)
-			return;
-
-		drawIdx = 0;
-
-		pushRange(this.levelOffsets[level - 1], this.levelOffsets[level]);
-
-		if (drawIdx == 0)
-			return;
-
-		lastDrawMode = STATIC_UNSORTED;
-		lastVao = glVao;
-		lastTboF = tboF;
-		lastTboM = tboM;
-		flush(cmd);
-	}
-
-	private static void pushRange(int start, int end) {
-		assert end >= start;
-		if (end <= start)
-			return;
-
-		if (drawIdx > 0 && drawEnd[drawIdx - 1] == start) {
-			drawEnd[drawIdx - 1] = end;
-		} else if (drawIdx >= NUM_DRAW_RANGES) {
-			log.debug("draw ranges exhausted");
-		} else {
-			drawOff[drawIdx] = start;
-			drawEnd[drawIdx] = end;
-			drawIdx++;
-		}
+	int alphaLevelStart(int level) {
+		return level == 0 ? vertexBaseA : alphaLevelOffsets[level - 1];
 	}
 
 	public static final class AlphaModel {
@@ -501,6 +320,7 @@ public class Zone implements Destructible {
 		short x, y, z; // local position
 		short rid;
 		int vao;
+		int zoneId = -1;
 		@Nullable
 		GLShaderStorage tboF, tboM;
 		byte level;
@@ -547,6 +367,7 @@ public class Zone implements Destructible {
 			tboM = view.tboMBuffer;
 			startpos = view.getStartOffset();
 			endpos = view.getEndOffset();
+			zoneId = SharedZoneBuffers.DYNAMIC_ZONE_ID;
 		}
 	}
 
@@ -554,6 +375,7 @@ public class Zone implements Destructible {
 		HdPlugin plugin,
 		MaterialManager materialManager,
 		int vao,
+		int zoneId,
 		GLShaderStorage tboF,
 		GLShaderStorage tboM,
 		Model model,
@@ -580,6 +402,7 @@ public class Zone implements Destructible {
 		m.y = (short) y;
 		m.z = (short) z;
 		m.vao = vao;
+		m.zoneId = zoneId;
 		m.tboF = tboF;
 		m.tboM = tboM;
 		m.rid = (short) rid;
@@ -751,6 +574,7 @@ public class Zone implements Destructible {
 		m.z = (short) z;
 		m.level = (byte) level;
 		m.vao = m.rid = m.lx = m.lz = m.ux = m.uz = -1;
+		m.zoneId = -1;
 		m.tboF = m.tboM = null;
 		m.flags = 0;
 		m.zofx = m.zofz = 0;
@@ -781,18 +605,6 @@ public class Zone implements Destructible {
 		}
 	}
 
-	private static final int STATIC = 1;
-	private static final int TEMP = 2;
-	private static final int STATIC_UNSORTED = 3;
-
-	private static int alphaFaceCount;
-	private static int eboAlphaOffset;
-	private static int lastDrawMode;
-	private static int lastVao;
-	@Nullable
-	private static GLShaderStorage lastTboF, lastTboM;
-	private static int lastzx, lastzz;
-
 	static class AlphaModelComparator implements Comparator<AlphaModel> {
 		int zx, zz;
 		int cx, cy, cz;
@@ -807,7 +619,7 @@ public class Zone implements Destructible {
 	}
 
 	private static final AlphaModelComparator alphaModelComparator = new AlphaModelComparator();
-	private final EboAlphaWriterJob sortedAlphaFacesUpload = new EboAlphaWriterJob();
+	final EboAlphaWriterJob sortedAlphaFacesUpload = new EboAlphaWriterJob();
 
 	synchronized void alphaSort(int zx, int zz, Camera camera) {
 		final int alphaModelCount = alphaModels.size();
@@ -834,152 +646,6 @@ public class Zone implements Destructible {
 			alphaSortingJob.addAlphaModel(m);
 		}
 		alphaSortingJob.queue(camera);
-	}
-
-	void renderAlpha(
-		CommandBuffer cmd,
-		int zx,
-		int zz,
-		int level,
-		WorldViewContext ctx,
-		@Nullable ZoneRoofFades.Fade fade,
-		int flags
-	) {
-		if (alphaModels.isEmpty() || fadingAlpha > 1.0)
-			return;
-
-		final boolean fadingOnly = (flags & DRAW_FADING_ONLY) != 0;
-		final boolean depthOnly = (flags & DRAW_DEPTH_ONLY) != 0;
-
-		int minLevel = ctx.minLevel;
-		int currentLevel = ctx.level;
-		int maxLevel = ctx.maxLevel;
-		int fadedLevels = fade != null ? fade.levels : 0;
-		var hidden = fade != null && fade.roofs != null ? fade.roofs : ctx.hideRoofIds;
-		if ((flags & DRAW_INCLUDE_ROOFS) != 0) {
-			maxLevel = 3;
-			hidden = EMPTY_ROOF;
-		}
-
-		drawIdx = 0;
-
-		if (!depthOnly)
-			sortedAlphaFacesUpload.waitForCompletion();
-
-		int eboAlphaStart = eboAlphaOffset = ZoneRenderer.eboAlphaWriter.getWrittenInts();
-		for (int i = 0; i < alphaModels.size(); i++) {
-			final AlphaModel m = alphaModels.get(i);
-			if ((m.flags & AlphaModel.SKIP) != 0 || m.level != level || m.vao == -1)
-				continue;
-
-			boolean levelFading = (fadedLevels & (1 << m.level)) != 0;
-
-			if (levelFading) {
-				// The level is drawn in full by the fading pass, so the main pass leaves it alone
-				if (!fadingOnly)
-					continue;
-			} else if (fadingOnly) {
-				// Fading roofs are drawn separately, and may sit outside the visible level range, e.g. right after
-				// maxLevel was lowered, so the range is only enforced for the main pass
-				if (!hidden.contains(m.rid))
-					continue;
-			} else if (level < minLevel || level > maxLevel) {
-				continue;
-			} else if (level > currentLevel && hidden.contains(m.rid)) {
-				// Above the player's level, roofs being faded are excluded so they can be drawn separately
-				continue;
-			}
-
-			int drawMode = STATIC;
-			if (m.isTemp()) {
-				// these are already sorted and so just requires a glMultiDrawArrays() from the active vao
-				drawMode = TEMP;
-			} else if (depthOnly || m.asyncSortIdx < 0) {
-				drawMode = STATIC_UNSORTED;
-			}
-
-			if (lastDrawMode != drawMode ||
-				lastVao != m.vao ||
-				lastTboF != m.tboF ||
-				lastTboM != m.tboM ||
-				lastzx != (zx - m.zofx) ||
-				lastzz != (zz - m.zofz)
-			) {
-				flush(cmd);
-				lastDrawMode = drawMode;
-				lastVao = m.vao;
-				lastTboF = m.tboF;
-				lastTboM = m.tboM;
-				lastzx = zx - m.zofx;
-				lastzz = zz - m.zofz;
-			}
-
-			if (drawMode != STATIC) {
-				pushRange(m.startpos, m.endpos);
-				continue;
-			}
-
-			// Check if we the faces have already been sorted, if not then the client will steal the work,
-			// if the model is already being processed then we'll have to wait for the result to finish
-			if (m.needsSorting() && !alphaSortingJob.forceProcessModelClient(m)) {
-				while (m.needsSorting() && !alphaSortingJob.isDone())
-					alphaSortingJob.waitForCompletion(10);
-			}
-
-			if (m.tempSortedFaces == null || m.sortedFacesLen <= 0)
-				continue;
-
-			sortedAlphaFacesUpload.alphaModels.add(m);
-
-			eboAlphaOffset += m.sortedFacesLen;
-			alphaFaceCount += m.sortedFacesLen / 3;
-			lastDrawMode = STATIC;
-		}
-
-		if (eboAlphaOffset > eboAlphaStart && !sortedAlphaFacesUpload.alphaModels.isEmpty()) {
-			sortedAlphaFacesUpload.eboAlphaView = ZoneRenderer.eboAlphaWriter.reserve(eboAlphaOffset - eboAlphaStart);
-			sortedAlphaFacesUpload.queue();
-		}
-
-		flush(cmd);
-	}
-
-	private void flush(CommandBuffer cmd) {
-		if (lastDrawMode == STATIC) {
-			if (alphaFaceCount > 0 && lastVao != 0) {
-				int vertexCount = alphaFaceCount * 3;
-				long byteOffset = 4L * (eboAlphaOffset - vertexCount);
-				cmd.BindVertexArray(lastVao, eboAlpha);
-				cmd.bindShaderStorage(lastTboF);
-				cmd.bindShaderStorage(lastTboM);
-				// The EBO & IDO is bound by in ZoneRenderer
-				if (SUPPORTS_INDIRECT_DRAW) {
-					cmd.DrawElementsIndirect(GL_TRIANGLES, vertexCount, (int) (byteOffset / 4L), ZoneRenderer.indirectDrawCmdsStaging);
-				} else {
-					cmd.DrawElements(GL_TRIANGLES, vertexCount, byteOffset);
-				}
-			}
-			alphaFaceCount = 0;
-		} else if (drawIdx != 0) {
-			convertForDraw(ZONE_VERTEX_NUM_BYTES);
-			cmd.BindVertexArray(lastVao);
-			cmd.bindShaderStorage(lastTboF);
-			cmd.bindShaderStorage(lastTboM);
-			if (drawIdx == 1) {
-				if (SUPPORTS_INDIRECT_DRAW) {
-					cmd.DrawArraysIndirect(GL_TRIANGLES, drawOff[0], drawEnd[0], ZoneRenderer.indirectDrawCmdsStaging);
-				} else {
-					cmd.DrawArrays(GL_TRIANGLES, drawOff[0], drawEnd[0]);
-				}
-			} else {
-				if (SUPPORTS_MULTI_INDIRECT_DRAW) {
-					cmd.MultiDrawArraysIndirect(GL_TRIANGLES, glDrawOffset, glDrawLength, drawIdx, ZoneRenderer.indirectDrawCmdsStaging);
-				} else {
-					cmd.MultiDrawArrays(GL_TRIANGLES, glDrawOffset, glDrawLength, drawIdx);
-				}
-			}
-			drawIdx = 0;
-		}
 	}
 
 	synchronized void multizoneLocs(SceneContext ctx, int zx, int zz, Camera camera, Zone[][] zones) {
@@ -1033,6 +699,7 @@ public class Zone implements Destructible {
 				m2.y = m.y;
 				m2.z = m.z;
 				m2.vao = m.vao;
+				m2.zoneId = m.zoneId;
 				m2.tboF = m.tboF;
 				m2.tboM = m.tboM;
 				m2.rid = m.rid;

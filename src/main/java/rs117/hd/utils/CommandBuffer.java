@@ -4,7 +4,6 @@ import java.nio.IntBuffer;
 import java.util.ArrayDeque;
 import java.util.Arrays;
 import java.util.stream.Collectors;
-import javax.annotation.Nullable;
 import lombok.Setter;
 import lombok.extern.slf4j.Slf4j;
 import org.lwjgl.system.MemoryStack;
@@ -16,10 +15,10 @@ import rs117.hd.utils.buffer.GLBuffer;
 import rs117.hd.utils.buffer.GLShaderStorage;
 import rs117.hd.utils.buffer.GpuIntBuffer;
 
+import static org.lwjgl.opengl.ARBShaderStorageBufferObject.GL_SHADER_STORAGE_BUFFER;
 import static org.lwjgl.opengl.GL33C.*;
 import static org.lwjgl.opengl.GL40.glDrawArraysIndirect;
 import static org.lwjgl.opengl.GL40.glDrawElementsIndirect;
-import static org.lwjgl.opengl.GL43.GL_SHADER_STORAGE_BUFFER;
 import static org.lwjgl.opengl.GL43.glMultiDrawArraysIndirect;
 import static rs117.hd.HdPlugin.SUPPORTS_SHADER_STORAGE;
 import static rs117.hd.utils.MathUtils.*;
@@ -35,17 +34,19 @@ public class CommandBuffer {
 	private static final int GL_DRAW_CALL_TYPE_COUNT = 6;
 
 	private static final int GL_BIND_VERTEX_ARRAY_TYPE = 6;
-	private static final int GL_BIND_INDIRECT_ARRAY_TYPE = 8;
-	private static final int GL_BIND_TEXTURE_UNIT_TYPE = 9;
+	private static final int GL_BIND_INDIRECT_ARRAY_TYPE = 7;
+	private static final int GL_BIND_TEXTURE_UNIT_TYPE = 8;
+	private static final int GL_BIND_SHADER_STORAGE_TYPE = 9;
 	private static final int GL_DEPTH_MASK_TYPE = 10;
 	private static final int GL_COLOR_MASK_TYPE = 11;
-	private static final int GL_USE_PROGRAM = 12;
+	private static final int GL_BLEND_FUNC_TYPE = 12;
+	private static final int GL_USE_PROGRAM = 13;
+	private static final int GL_TIMER = 14;
 
-	private static final int GL_TOGGLE_TYPE = 13; // Combined glEnable & glDisable
-	private static final int GL_FENCE_SYNC = 14;
+	private static final int GL_TOGGLE_TYPE = 15; // Combined glEnable & glDisable
+	private static final int GL_FENCE_SYNC = 16;
 
-	private static final int GL_EXECUTE_SUB_COMMAND_BUFFER = 15;
-	private static final int GL_BIND_SHADER_STORAGE_TYPE = 16;
+	private static final int GL_EXECUTE_SUB_COMMAND_BUFFER = 17;
 
 	private static final long INT_MASK = 0xFFFF_FFFFL;
 	private static final int DRAW_MODE_MASK = 0xF;
@@ -54,6 +55,7 @@ public class CommandBuffer {
 
 	private Object[] objects = new Object[8];
 	private int objectCount = 0;
+	private int lastObjectIdx = -1;
 
 	public final String name;
 
@@ -117,11 +119,7 @@ public class CommandBuffer {
 		cmd[writeHead++] = texId | (long) bindingIndex << 32;
 	}
 
-	public void bindShaderStorage(@Nullable GLShaderStorage buffer) {
-		if (buffer == null)
-			return;
-
-		// The object is resolved on execution, so the buffer is always bound with the id it has by then
+	public void bindShaderStorage(GLShaderStorage buffer) {
 		ensureCapacity(1);
 		cmd[writeHead++] = GL_BIND_SHADER_STORAGE_TYPE & 0xFF | (long) writeObject(buffer) << 8;
 	}
@@ -130,6 +128,16 @@ public class CommandBuffer {
 		ensureCapacity(1);
 		int objectIdx = writeObject(program);
 		cmd[writeHead++] = GL_USE_PROGRAM & 0xFF | (long) objectIdx << 8;
+	}
+
+	public void PushTimer(Timer timer) {
+		ensureCapacity(1);
+		cmd[writeHead++] = GL_TIMER & 0xFF | 1 << 8 | (long) timer.ordinal() << 9;
+	}
+
+	public void PopTimer(Timer timer) {
+		ensureCapacity(1);
+		cmd[writeHead++] = GL_TIMER & 0xFF | (long) timer.ordinal() << 9;
 	}
 
 	public void ExecuteSubCommandBuffer(CommandBuffer subCommandBuffer) {
@@ -152,6 +160,14 @@ public class CommandBuffer {
 			(writeGreen ? 1 : 0) << 9 |
 			(writeBlue ? 1 : 0) << 10 |
 			(writeAlpha ? 1 : 0) << 11;
+	}
+
+	public void BlendFunc(int sfactorRGB, int dfactorRGB, int sfactorAlpha, int dfactorAlpha) {
+		ensureCapacity(3);
+
+		cmd[writeHead++] = GL_BLEND_FUNC_TYPE & 0xFF;
+		cmd[writeHead++] = ((long) sfactorRGB & INT_MASK) | ((long) dfactorRGB & INT_MASK) << 32;
+		cmd[writeHead++] = ((long) sfactorAlpha & INT_MASK) | ((long) dfactorAlpha & INT_MASK) << 32;
 	}
 
 	public void MultiDrawArrays(int mode, int[] offsets, int[] counts) {
@@ -282,46 +298,67 @@ public class CommandBuffer {
 	}
 
 	public void Toggle(int capability, boolean enabled) {
-		ensureCapacity(2);
-		cmd[writeHead++] = GL_TOGGLE_TYPE;
-		cmd[writeHead++] = (enabled ? 1L : 0) << 32 | capability & INT_MASK;
+		ensureCapacity(1);
+		cmd[writeHead++] = GL_TOGGLE_TYPE | (enabled ? 1L : 0L) << 8 | (capability & INT_MASK) << 9;
 	}
 
 	public void execute(RenderState renderState) {
-		// Force VAO state to reapply to ensure it is in sync with the render state
-		renderState.vao.invalidate();
+		var callStack = CALL_STACK.get();
+		if (callStack.contains(this))
+			throw new IllegalStateException(String.format(
+				"Command buffer recursion error: [%s, %s]",
+				callStack.stream().map(Object::toString).collect(Collectors.joining(", ")),
+				this
+			));
 
 		if (frameTimer != null)
 			frameTimer.begin(Timer.EXECUTE_COMMAND_BUFFER);
+		callStack.push(this);
+
+		// Force VAO state to reapply to ensure it is in sync with the render state
+		renderState.vao.invalidate();
+
 		try (MemoryStack stack = MemoryStack.stackPush()) {
 			IntBuffer offsets = null, counts = null;
-			int readHead = 0;
+			long data;
+			int readHead = 0, type;
 			while (readHead < writeHead) {
 				// Casting from long to int keeps the lower 32 bits
-				long data = cmd[readHead++];
-				int type = (int) data & 0xFF;
+				data = cmd[readHead++];
+				type = (int) data & 0xFF;
 				if (type < GL_DRAW_CALL_TYPE_COUNT)
 					renderState.apply();
 
 				switch (type) {
 					case GL_DEPTH_MASK_TYPE: {
-						int state = (int) (data >> 8) & 1;
+						final int state = (int) (data >> 8) & 1;
 						renderState.depthMask.set(state == 1);
 						break;
 					}
 					case GL_COLOR_MASK_TYPE: {
-						boolean red = ((data >> 8) & 1) == 1;
-						boolean green = ((data >> 9) & 1) == 1;
-						boolean blue = ((data >> 10) & 1) == 1;
-						boolean alpha = ((data >> 11) & 1) == 1;
+						final boolean red = ((data >> 8) & 1) == 1;
+						final boolean green = ((data >> 9) & 1) == 1;
+						final boolean blue = ((data >> 10) & 1) == 1;
+						final boolean alpha = ((data >> 11) & 1) == 1;
 						renderState.colorMask.set(red, green, blue, alpha);
 						break;
 					}
+					case GL_BLEND_FUNC_TYPE: {
+						data = cmd[readHead++];
+						final int sfactorRGB = (int) data;
+						final int dfactorRGB = (int) (data >>> 32);
+
+						data = cmd[readHead++];
+						final int sfactorAlpha = (int) data;
+						final int dfactorAlpha = (int) (data >>> 32);
+						renderState.blendFunc.set(sfactorRGB, dfactorRGB, sfactorAlpha, dfactorAlpha);
+						break;
+					}
 					case GL_BIND_VERTEX_ARRAY_TYPE: {
-						long packed = cmd[readHead++];
-						int eboIdx = (int) (packed >> 32);
-						int vao = (int) packed;
-						int ebo = eboIdx >= 0 ? ((GLBuffer) objects[eboIdx]).id : 0;
+						data = cmd[readHead++];
+						final int eboIdx = (int) (data >> 32);
+						final int vao = (int) data;
+						final int ebo = eboIdx >= 0 ? ((GLBuffer) objects[eboIdx]).id : 0;
 						renderState.vao.setVaoAndEbo(vao, ebo);
 						break;
 					}
@@ -330,13 +367,12 @@ public class CommandBuffer {
 						break;
 					}
 					case GL_BIND_TEXTURE_UNIT_TYPE: {
-						long packed = cmd[readHead++];
-						int texType = (int) (data >> 8);
-						int texUnit = (int) (packed >> 32);
-						int texId = (int) packed;
+						final int texType = (int) (data >> 8);
+						data = cmd[readHead++];
+						final int texUnit = (int) (data >> 32);
+						final int texId = (int) data;
 
-						glActiveTexture(texUnit);
-						glBindTexture(texType, texId);
+						renderState.texture.set(texType, texUnit, texId);
 						break;
 					}
 					case GL_BIND_SHADER_STORAGE_TYPE: {
@@ -345,20 +381,31 @@ public class CommandBuffer {
 						if (SUPPORTS_SHADER_STORAGE) {
 							glBindBufferBase(GL_SHADER_STORAGE_BUFFER, buffer.getBindingIndex(), buffer.id);
 						} else {
-							glActiveTexture(buffer.getTextureUnit());
-							glBindTexture(GL_TEXTURE_BUFFER, buffer.getTexId());
+							renderState.texture.set(GL_TEXTURE_BUFFER, buffer.getTextureUnit(), buffer.getTexId());
 						}
 						break;
 					}
 					case GL_USE_PROGRAM: {
-						int objectIdx = (int) (data >> 8);
+						final int objectIdx = (int) (data >> 8);
 						renderState.program.set((ShaderProgram) objects[objectIdx]);
 						break;
 					}
+					case GL_TIMER: {
+						if (frameTimer != null) {
+							final int timerOrdinal = (int) (data >> 9);
+							assert timerOrdinal >= 0 && timerOrdinal < Timer.TIMERS.length;
+							final var timer = Timer.TIMERS[timerOrdinal];
+							if (((data >> 8) & 1) == 1) {
+								frameTimer.begin(timer);
+							} else {
+								frameTimer.end(timer);
+							}
+						}
+						break;
+					}
 					case GL_TOGGLE_TYPE: {
-						long packed = cmd[readHead++];
-						int capability = (int) (packed & INT_MASK);
-						if ((packed >> 32) != 0) {
+						final int capability = (int) (data >>> 9);
+						if (((data >> 8) & 1) != 0) {
 							renderState.enable.set(capability);
 						} else {
 							renderState.disable.set(capability);
@@ -366,31 +413,29 @@ public class CommandBuffer {
 						break;
 					}
 					case GL_FENCE_SYNC: {
-						int condition = (int) (data >> 8);
+						final int condition = (int) (data >> 8);
 						GLFence fence = (GLFence) objects[(int) cmd[readHead++]];
 						fence.handle = glFenceSync(condition, 0);
 						break;
 					}
 					case GL_DRAW_ARRAYS_TYPE: {
-						long packed = cmd[readHead++];
-						int mode = (int) data >> 8;
-						int offset = (int) (packed >> 32);
-						int count = (int) packed;
+						final int mode = (int) data >> 8;
+						data = cmd[readHead++];
+						final int offset = (int) (data >> 32);
+						final int count = (int) data;
 
 						glDrawArrays(mode, offset, count);
 						break;
 					}
 					case GL_DRAW_ELEMENTS_TYPE: {
-						int mode = (int) data >> 8;
-						int vertexCount = (int) (data >> 32);
-						long byteOffset = cmd[readHead++];
-
-						glDrawElements(mode, vertexCount, GL_UNSIGNED_INT, byteOffset);
+						final int mode = (int) data >> 8;
+						final int vertexCount = (int) (data >> 32);
+						glDrawElements(mode, vertexCount, GL_UNSIGNED_INT, cmd[readHead++]);
 						break;
 					}
 					case GL_MULTI_DRAW_ARRAYS_TYPE: {
-						int mode = (int) data >> 8;
-						int drawCount = (int) (data >> 32);
+						final int mode = (int) data >> 8;
+						final int drawCount = (int) (data >> 32);
 
 						if (offsets == null || offsets.capacity() < drawCount) {
 							offsets = stack.callocInt(drawCount);
@@ -398,9 +443,9 @@ public class CommandBuffer {
 						}
 
 						for (int i = 0; i < drawCount; i++) {
-							long packed = cmd[readHead++];
-							offsets.put((int) (packed >> 32));
-							counts.put((int) packed);
+							data = cmd[readHead++];
+							offsets.put((int) (data >> 32));
+							counts.put((int) data);
 						}
 
 						offsets.flip();
@@ -413,40 +458,23 @@ public class CommandBuffer {
 						break;
 					}
 					case GL_DRAW_ARRAYS_INDIRECT_TYPE: {
-						int mode = (int) data >> 8;
+						final int mode = (int) data >> 8;
 						glDrawArraysIndirect(mode, cmd[readHead++]);
 						break;
 					}
 					case GL_DRAW_ELEMENTS_INDIRECT_TYPE: {
-						int mode = (int) data >> 8;
+						final int mode = (int) data >> 8;
 						glDrawElementsIndirect(mode, GL_UNSIGNED_INT, cmd[readHead++]);
 						break;
 					}
 					case GL_MULTI_DRAW_ARRAYS_INDIRECT_TYPE: {
-						int mode = (int) data >> 8;
-						int drawCount = (int) (data >> 32);
-						long offset = cmd[readHead++];
-						glMultiDrawArraysIndirect(mode, offset, drawCount, 0);
+						final int mode = (int) data >> 8;
+						final int drawCount = (int) (data >> 32);
+						glMultiDrawArraysIndirect(mode, cmd[readHead++], drawCount, 0);
 						break;
 					}
 					case GL_EXECUTE_SUB_COMMAND_BUFFER: {
-						final CommandBuffer subCmd = (CommandBuffer) objects[(int) (data >> 8)];
-						var callStack = CALL_STACK.get();
-						if (callStack.contains(subCmd))
-							throw new IllegalStateException(String.format(
-								"Command buffer recursion error: [%s, %s]",
-								callStack
-									.stream()
-									.map(Object::toString)
-									.collect(Collectors.joining(", ")),
-								this
-							));
-						callStack.push(this);
-						try {
-							subCmd.execute(renderState);
-						} finally {
-							callStack.pop();
-						}
+						((CommandBuffer) objects[(int) (data >> 8)]).execute(renderState);
 						break;
 					}
 					default:
@@ -454,23 +482,28 @@ public class CommandBuffer {
 				}
 			}
 			renderState.apply();
+		} finally {
+			callStack.pop();
+			if (frameTimer != null)
+				frameTimer.end(Timer.EXECUTE_COMMAND_BUFFER);
 		}
-		if (frameTimer != null)
-			frameTimer.end(Timer.EXECUTE_COMMAND_BUFFER);
 	}
 
 	private int writeObject(Object obj) {
 		if (obj == null)
 			return -1;
 
+		if (lastObjectIdx >= 0 && objects[lastObjectIdx] == obj)
+			return lastObjectIdx;
+
 		for (int i = 0; i < objectCount; i++)
 			if (objects[i] == obj)
-				return i;
+				return lastObjectIdx = i;
 
 		if (objectCount == objects.length)
 			objects = Arrays.copyOf(objects, objects.length * 2);
 		objects[objectCount] = obj;
-		return objectCount++;
+		return lastObjectIdx = objectCount++;
 	}
 
 	public void reset() {
@@ -478,5 +511,6 @@ public class CommandBuffer {
 
 		writeHead = 0;
 		objectCount = 0;
+		lastObjectIdx = -1;
 	}
 }

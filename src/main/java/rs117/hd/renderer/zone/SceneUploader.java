@@ -113,13 +113,6 @@ public class SceneUploader implements AutoCloseable {
 	@Inject
 	private ProceduralGenerator proceduralGenerator;
 
-	@FunctionalInterface
-	public interface OnBeforeProcessTileFunc {
-		void invoke(Tile t, boolean isEstimate) throws InterruptedException;
-	}
-
-	public OnBeforeProcessTileFunc onBeforeProcessTile;
-
 	private int basex, basez, rid, level;
 
 	private final PrimitiveIntArray roofIds = new PrimitiveIntArray();
@@ -148,11 +141,6 @@ public class SceneUploader implements AutoCloseable {
 	private final int[] tzHaarRecolored = new int[3];
 	private final float[] projected = new float[4];
 
-	private final GpuIntBuffer zoneVboO = new GpuIntBuffer(false);
-	private final GpuIntBuffer zoneVboA = new GpuIntBuffer(false);
-	private final GpuIntBuffer zoneTboF = new GpuIntBuffer(false);
-	private final GpuIntBuffer zoneTboM = new GpuIntBuffer(false);
-
 	// Lazily initialized staging buffers
 	public VertexWriteCache.Collection writeCache;
 
@@ -173,7 +161,6 @@ public class SceneUploader implements AutoCloseable {
 		roofs = null;
 		tileHeights = null;
 		currentScene = null;
-		onBeforeProcessTile = null;
 
 		PooledArrayType.INT.release(intModelVertices);
 		PooledArrayType.FLOAT.release(floatModelVertices);
@@ -202,11 +189,8 @@ public class SceneUploader implements AutoCloseable {
 			for (int xoff = 0; xoff < CHUNK_SIZE; ++xoff) {
 				for (int zoff = 0; zoff < CHUNK_SIZE; ++zoff) {
 					Tile t = tiles[z][(mzx << 3) + xoff][(mzz << 3) + zoff];
-					if (t != null) {
-						if (onBeforeProcessTile != null)
-							onBeforeProcessTile.invoke(t, true);
+					if (t != null)
 						estimateZoneTileSize(ctx, zone, t);
-					}
 				}
 			}
 		}
@@ -224,11 +208,10 @@ public class SceneUploader implements AutoCloseable {
 	}
 
 	public void uploadZone(ZoneSceneContext ctx, Zone zone, int mzx, int mzz) throws InterruptedException {
-		var vb = zone.vboO != null ? zoneVboO.setBuffer(zone.vboO.mapped()) : null;
-		var ab = zone.vboA != null ? zoneVboA.setBuffer(zone.vboA.mapped()) : null;
-		var fb = zone.tboF != null ? zoneTboF.setBuffer(zone.tboF.mapped()) : null;
-		var md = zone.tboM != null ? zoneTboM.setBuffer(zone.tboM.mapped()) : null;
-		assert zone.tboF != null;
+		GpuIntBuffer vb = zone.prepareStagingBuffer(SharedZoneBuffers.KIND_OPAQUE);
+		GpuIntBuffer ab = zone.prepareStagingBuffer(SharedZoneBuffers.KIND_ALPHA);
+		GpuIntBuffer fb = zone.prepareStagingBuffer(SharedZoneBuffers.KIND_FACES);
+		GpuIntBuffer md = zone.prepareStagingBuffer(SharedZoneBuffers.KIND_MODELS);
 
 		roofIds.length = 0;
 		for (int level = 0; level <= 3; ++level) {
@@ -247,6 +230,8 @@ public class SceneUploader implements AutoCloseable {
 		zone.rids = new int[4][roofIds.length];
 		zone.roofStart = new int[4][roofIds.length];
 		zone.roofEnd = new int[4][roofIds.length];
+		zone.alphaRoofStart = new int[4][roofIds.length];
+		zone.alphaRoofEnd = new int[4][roofIds.length];
 
 		for (int z = 0; z <= 3; ++z) {
 			this.level = z;
@@ -263,6 +248,8 @@ public class SceneUploader implements AutoCloseable {
 
 			if (vb != null)
 				zone.levelOffsets[z] = vb.position();
+			if (ab != null)
+				zone.alphaLevelOffsets[z] = ab.position();
 		}
 
 		if (vb != null) {
@@ -272,8 +259,28 @@ public class SceneUploader implements AutoCloseable {
 			zone.levelOffsets[Zone.LEVEL_WATER_SURFACE] = vb.position();
 
 			if (zone.hasGapFiller)
-				uploadZoneGapFillers(ctx, mzx, mzz, vb, fb);
+				uploadZoneGapFillers(ctx, zone, mzx, mzz, vb, fb);
 			zone.levelOffsets[Zone.LEVEL_GAP_FILLER] = vb.position();
+		}
+
+		if (ab != null) {
+			for (int i = 0; i < zone.alphaLevelOffsets.length; ++i)
+				zone.alphaLevelOffsets[i] += zone.vertexBaseA;
+			for (int level = 0; level < zone.alphaRoofStart.length; ++level)
+				for (int i = 0; i < zone.alphaRoofStart[level].length; ++i) {
+					zone.alphaRoofStart[level][i] += zone.vertexBaseA;
+					zone.alphaRoofEnd[level][i] += zone.vertexBaseA;
+				}
+		}
+
+		if (vb != null) {
+			for (int i = 0; i < zone.levelOffsets.length; ++i)
+				zone.levelOffsets[i] += zone.vertexBaseO;
+			for (int level = 0; level < zone.roofStart.length; ++level)
+				for (int i = 0; i < zone.roofStart[level].length; ++i) {
+					zone.roofStart[level][i] += zone.vertexBaseO;
+					zone.roofEnd[level][i] += zone.vertexBaseO;
+				}
 		}
 	}
 
@@ -295,15 +302,19 @@ public class SceneUploader implements AutoCloseable {
 		for (int i = 0; i < roofIds.length; ++i) {
 			final int id = roofIds.array[i];
 			int pos = vb != null ? vb.position() : 0;
+			int alphaPos = ab != null ? ab.position() : 0;
 
 			uploadZoneLevelRoof(ctx, zone, mzx, mzz, level, id, visbelow, vb, ab, fb, md);
 
 			int endpos = vb != null ? vb.position() : 0;
+			int alphaEnd = ab != null ? ab.position() : 0;
 
-			if (endpos > pos) {
+			if (endpos > pos || alphaEnd > alphaPos) {
 				zone.rids[level][ridx] = id;
 				zone.roofStart[level][ridx] = pos;
 				zone.roofEnd[level][ridx] = endpos;
+				zone.alphaRoofStart[level][ridx] = alphaPos;
+				zone.alphaRoofEnd[level][ridx] = alphaEnd;
 				++ridx;
 			}
 		}
@@ -355,8 +366,6 @@ public class SceneUploader implements AutoCloseable {
 					Tile t = tiles[level][msx][msz];
 					if (t != null) {
 						this.rid = rid;
-						if (onBeforeProcessTile != null)
-							onBeforeProcessTile.invoke(t, false);
 						uploadZoneTile(ctx, zone, t, false, false, vb, ab, fb, md);
 					}
 				}
@@ -383,9 +392,6 @@ public class SceneUploader implements AutoCloseable {
 					final Tile t = tiles[level][msx][msz];
 					if (t == null)
 						continue;
-
-					if (onBeforeProcessTile != null)
-						onBeforeProcessTile.invoke(t, false);
 
 					uploadZoneTile(ctx, zone, t, false, true, vb, null, fb, null);
 				}
@@ -536,13 +542,15 @@ public class SceneUploader implements AutoCloseable {
 				tileExX, tileExY, tileZ,
 				vertexBuffer,
 				textureBuffer,
+				0,
+				zone.zoneId,
 				tilePoint.getX() * 128 - basex, tilePoint.getY() * 128 - basez
 			);
 		}
 
 		SceneTileModel model = t.getSceneTileModel();
 		if (model != null && drawTile)
-			uploadTileModel(ctx, t, model, onlyWaterSurface, tileExX, tileExY, tileZ, basex, basez, vertexBuffer, textureBuffer);
+			uploadTileModel(ctx, t, model, onlyWaterSurface, tileExX, tileExY, tileZ, basex, basez, vertexBuffer, textureBuffer, 0, zone.zoneId);
 
 		if (!onlyWaterSurface)
 			uploadZoneTileRenderables(ctx, zone, t, tileExX, tileExY, tileZ, vertexBuffer, alphaBuffer, textureBuffer, modelBuffer);
@@ -856,10 +864,13 @@ public class SceneUploader implements AutoCloseable {
 				zone.addAlphaModel(
 					plugin,
 					materialManager,
-					zone.glVaoA,
-					zone.tboF,
-					zone.tboM,
-					model, modelOverride, alphaStart, alphaEnd,
+					zone.viewContext.sharedBuffers.glVaoA,
+					zone.zoneId,
+					zone.viewContext.sharedBuffers.tboF,
+					zone.viewContext.sharedBuffers.tboM,
+					model, modelOverride,
+					alphaStart + zone.vertexBaseA,
+					alphaEnd + zone.vertexBaseA,
 					x - basex, y + modelOverride.heightOffset, z - basez,
 					lx, lz, ux, uz,
 					rid, level, id
@@ -892,12 +903,14 @@ public class SceneUploader implements AutoCloseable {
 		int tileExX, int tileExY, int tileZ,
 		GpuIntBuffer opaqueBuffer,
 		GpuIntBuffer textureBuffer,
+		int faceBase,
+		int zoneId,
 		int lx,
 		int lz
 	) {
 		if (writeCache == null)
 			writeCache = new VertexWriteCache.Collection();
-		writeCache.setOutputBuffers(opaqueBuffer, opaqueBuffer, textureBuffer);
+		writeCache.setOutputBuffers(opaqueBuffer, opaqueBuffer, textureBuffer, faceBase, zoneId);
 
 		int swColor = paint.getSwColor();
 		int seColor = paint.getSeColor();
@@ -1217,11 +1230,13 @@ public class SceneUploader implements AutoCloseable {
 		int tileExX, int tileExY, int tileZ,
 		int basex, int basez,
 		GpuIntBuffer opaqueBuffer,
-		GpuIntBuffer textureBuffer
+		GpuIntBuffer textureBuffer,
+		int faceBase,
+		int zoneId
 	) {
 		if (writeCache == null)
 			writeCache = new VertexWriteCache.Collection();
-		writeCache.setOutputBuffers(opaqueBuffer, opaqueBuffer, textureBuffer);
+		writeCache.setOutputBuffers(opaqueBuffer, opaqueBuffer, textureBuffer, faceBase, zoneId);
 
 		final int[] triangleTextures = model.getTriangleTextureId();
 		boolean isFallbackWater = false;
@@ -1604,7 +1619,7 @@ public class SceneUploader implements AutoCloseable {
 	) {
 		if (writeCache == null)
 			writeCache = new VertexWriteCache.Collection();
-		writeCache.setOutputBuffers(opaqueBuffer, alphaBuffer, textureBuffer);
+		writeCache.setOutputBuffers(opaqueBuffer, alphaBuffer, textureBuffer, 0, zone.zoneId);
 
 		final int faceCount = model.getFaceCount();
 		final int vertexCount = model.getVerticesCount();
@@ -2266,7 +2281,9 @@ public class SceneUploader implements AutoCloseable {
 			opaqueView.vbo.getBuffer(),
 			alphaView.vbo.getBuffer(),
 			opaqueView.tboF.getBuffer(),
-			alphaView.tboF.getBuffer()
+			alphaView.tboF.getBuffer(),
+			0,
+			SharedZoneBuffers.DYNAMIC_ZONE_ID
 		);
 
 		final int[] indices1 = model.getFaceIndices1();
@@ -2464,6 +2481,7 @@ public class SceneUploader implements AutoCloseable {
 
 	public void uploadZoneGapFillers(
 		ZoneSceneContext ctx,
+		Zone zone,
 		int mzx,
 		int mzz,
 		GpuIntBuffer vb,
@@ -2472,7 +2490,7 @@ public class SceneUploader implements AutoCloseable {
 		assert vb != null && fb != null;
 		if (writeCache == null)
 			writeCache = new VertexWriteCache.Collection();
-		writeCache.setOutputBuffers(vb, vb, fb);
+		writeCache.setOutputBuffers(vb, vb, fb, 0, zone.zoneId);
 
 		int basex = (mzx - (ctx.sceneOffset >> 3)) << 10;
 		int basez = (mzz - (ctx.sceneOffset >> 3)) << 10;

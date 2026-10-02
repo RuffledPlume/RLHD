@@ -2,9 +2,10 @@
 
 #include <utils/texture_buffer_reader.glsl>
 
-#define TEXTURE_FACE_IS_WINDING_REVERSED (1 << 31)
-#define TEXTURE_FACE_IS_MODEL (1 << 30)
-#define TEXTURE_FACE_OFFSET_MASK 0x3FFFFFFF
+#define TEXTURE_FACE_IS_MODEL (1 << 31)
+#define TEXTURE_FACE_ZONE_ID_SHIFT 20
+#define TEXTURE_FACE_ZONE_ID_MASK 0x7FF00000
+#define TEXTURE_FACE_OFFSET_MASK 0xFFFFF
 
 #define PARSER_TARGET_BUFFER textureFaces
 
@@ -23,12 +24,13 @@ struct ModelFaceData {
     int MaterialData;
 };
 
-bool isFaceWindingReversed(int packedFaceData) {
-    return (packedFaceData & TEXTURE_FACE_IS_WINDING_REVERSED) != 0;
-}
-
 bool isModelFace(int packedFaceData) {
     return (packedFaceData & TEXTURE_FACE_IS_MODEL) != 0;
+}
+
+// Id of the zone the face belongs to, used to look up the zone's data in the zone table.
+int getZoneId(int packedFaceData) {
+    return (packedFaceData & TEXTURE_FACE_ZONE_ID_MASK) >> TEXTURE_FACE_ZONE_ID_SHIFT;
 }
 
 int getFaceOffset(int packedFaceData) {

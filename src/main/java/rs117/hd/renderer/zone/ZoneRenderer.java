@@ -84,6 +84,7 @@ import static rs117.hd.HdPlugin.ORTHOGRAPHIC_ZOOM;
 import static rs117.hd.HdPlugin.SUPPORTS_INDIRECT_DRAW;
 import static rs117.hd.HdPlugin.checkGLErrors;
 import static rs117.hd.HdPluginConfig.*;
+import static rs117.hd.renderer.zone.FrameContext.VAO_ALPHA;
 import static rs117.hd.renderer.zone.FrameContext.VAO_OPAQUE;
 import static rs117.hd.renderer.zone.FrameContext.VAO_PLAYER;
 import static rs117.hd.renderer.zone.FrameContext.VAO_PRESCENE;
@@ -98,10 +99,12 @@ public class ZoneRenderer implements Renderer {
 	private static int TEXTURE_UNIT_COUNT = HdPlugin.TEXTURE_UNIT_COUNT;
 	public static final int TEXTURE_UNIT_TEXTURED_FACES = GL_TEXTURE0 + TEXTURE_UNIT_COUNT++;
 	public static final int TEXTURE_UNIT_MODEL_DATA = GL_TEXTURE0 + TEXTURE_UNIT_COUNT++;
+	public static final int TEXTURE_UNIT_ZONE_DATA = GL_TEXTURE0 + TEXTURE_UNIT_COUNT++;
 
 	private static int SHADER_STORAGE_BINDING_COUNT = 0;
 	public static final int SHADER_STORAGE_BUFFER_TEXTURED_FACES = SHADER_STORAGE_BINDING_COUNT++;
 	public static final int SHADER_STORAGE_BUFFER_MODEL_DATA = SHADER_STORAGE_BINDING_COUNT++;
+	public static final int SHADER_STORAGE_BUFFER_ZONE_DATA = SHADER_STORAGE_BINDING_COUNT++;
 	public static final int SHADER_STORAGE_BUFFER_COUNT = SHADER_STORAGE_BINDING_COUNT;
 
 	private static int UNIFORM_BLOCK_COUNT = HdPlugin.UNIFORM_BLOCK_COUNT;
@@ -356,6 +359,7 @@ public class ZoneRenderer implements Renderer {
 			ctx.maxLevel = maxLevel;
 			ctx.vaoSceneCmd.reset();
 			ctx.vaoDirectionalCmd.reset();
+			ctx.zoneDrawContext.reset();
 			ctx.resetDrawRanges();
 
 			ctx.hideRoofIds.clear();
@@ -371,6 +375,8 @@ public class ZoneRenderer implements Renderer {
 			}
 
 			ctx.completeInvalidation();
+
+			ctx.flushSharedBuffers();
 
 			int offset = ctx.sceneContext.sceneOffset >> 3;
 			for (int zx = 0; zx < ctx.sizeX; ++zx)
@@ -1011,24 +1017,29 @@ public class ZoneRenderer implements Renderer {
 				final boolean allowDiscard = !sceneManager.isRoot(ctx) || z.sceneCameraIntersects;
 
 				if (roofCmd != null)
-					z.renderOpaque(roofCmd, ctx, fade, Zone.DRAW_FADING_ONLY);
+					ctx.zoneDrawContext.renderGeometry(z, roofCmd, null, fade, Zone.DRAW_FADING_ONLY);
 
-				if (allowDiscard)
-					sceneCmd.SetShader(sceneDiscardProgram);
-
-				z.renderOpaque(sceneCmd, ctx, fade, 0);
-
-				if (allowDiscard)
-					sceneCmd.SetShader(sceneProgram);
+				ctx.zoneDrawContext.renderGeometry(
+					z,
+					ctx.vaoSceneCmd,
+					allowDiscard ? sceneDiscardProgram : sceneProgram,
+					fade,
+					0
+				);
 
 				if (z.hasGapFiller)
-					z.renderOpaqueLevel(gapFillerCmd, Zone.LEVEL_GAP_FILLER);
+					ctx.zoneDrawContext.renderGeometryLevel(z, gapFillerCmd, sceneProgram, Zone.LEVEL_GAP_FILLER);
 			}
 
 			final boolean isSquashed = ctx.uboWorldViewStruct != null && ctx.uboWorldViewStruct.isSquashed();
 			if (!isSquashed && (!sceneManager.isRoot(ctx) || z.inShadowFrustum)) {
-				directionalCmd.SetShader(fastShadowProgram);
-				z.renderOpaque(directionalCmd, ctx, null, shouldDrawRoofShadows ? Zone.DRAW_INCLUDE_ROOFS : 0);
+				ctx.zoneDrawContext.renderGeometry(
+					z,
+					ctx.vaoDirectionalCmd,
+					fastShadowProgram,
+					null,
+					shouldDrawRoofShadows ? Zone.DRAW_INCLUDE_ROOFS : 0
+				);
 			}
 			frameTimer.end(Timer.DRAW_ZONE_OPAQUE);
 
@@ -1055,8 +1066,10 @@ public class ZoneRenderer implements Renderer {
 
 			frameTimer.begin(Timer.DRAW_ZONE_ALPHA);
 			final boolean renderWater = z.inSceneFrustum && level == 0 && z.hasWater;
-			if (renderWater)
-				z.renderOpaqueLevel(sceneCmd, Zone.LEVEL_WATER_SURFACE);
+			if (renderWater) {
+				ctx.zoneDrawContext.renderGeometryLevel(z, ctx.vaoSceneCmd, sceneProgram, Zone.LEVEL_WATER_SURFACE);
+				ctx.zoneDrawContext.flush(ctx.vaoSceneCmd);
+			}
 
 			modelStreamingManager.ensureAsyncUploadsComplete(z);
 
@@ -1072,15 +1085,6 @@ public class ZoneRenderer implements Renderer {
 				if (level == 0 && (!sceneManager.isRoot(ctx) || z.inSceneFrustum))
 					z.alphaSort(lzx, lzz, sceneCamera);
 
-				final boolean isSquashed = ctx.uboWorldViewStruct != null && ctx.uboWorldViewStruct.isSquashed();
-				if (!isSquashed && (!sceneManager.isRoot(ctx) || z.inShadowFrustum)) {
-					directionalCmd.SetShader(plugin.configShadowMode == ShadowMode.DETAILED ? detailedShadowProgram : fastShadowProgram);
-					int shadowFlags = Zone.DRAW_DEPTH_ONLY;
-					if (shouldDrawRoofShadows)
-						shadowFlags |= Zone.DRAW_INCLUDE_ROOFS;
-					z.renderAlpha(directionalCmd, lzx, lzz, level, ctx, null, shadowFlags);
-				}
-
 				// Called per visible level, but fading geometry can be outside the visible range, so draw it all here
 				final boolean drawFadingAlpha = roofCmd != null && roofFades.claimAlpha(z);
 
@@ -1090,9 +1094,9 @@ public class ZoneRenderer implements Renderer {
 						// can Z-fight depending on draw order. To avoid alpha models above water causing the water surface to fail its
 						// depth test, we disable depth writes for alpha models and rely on correct back to front ordering of the zones
 						sceneCmd.DepthMask(false);
-						z.renderAlpha(sceneCmd, lzx, lzz, level, ctx, fade, 0);
+						ctx.zoneDrawContext.renderAlpha(z, sceneCmd, lzx, lzz, level, fade, 0);
 						if (drawFadingAlpha)
-							renderFadingAlpha(roofCmd, z, lzx, lzz, ctx, fade);
+							ctx.zoneDrawContext.renderFadingAlpha(roofCmd, z, lzx, lzz, fade);
 						sceneCmd.DepthMask(true);
 					} else {
 						// Draw alpha models in two passes, first blending colors correctly, then writing depth for subsequent opaque models
@@ -1101,14 +1105,14 @@ public class ZoneRenderer implements Renderer {
 						// Write color without depth writes
 						sceneCmd.DepthMask(false);
 						sceneCmd.ColorMask(true, true, true, true);
-						z.renderAlpha(sceneCmd, lzx, lzz, level, ctx, fade, 0);
+						ctx.zoneDrawContext.renderAlpha(z, sceneCmd, lzx, lzz, level, fade, 0);
 						if (drawFadingAlpha)
-							renderFadingAlpha(roofCmd, z, lzx, lzz, ctx, fade);
+							ctx.zoneDrawContext.renderFadingAlpha(roofCmd, z, lzx, lzz, fade);
 
 						// Write depth without color
 						sceneCmd.DepthMask(true);
 						sceneCmd.ColorMask(false, false, false, false);
-						z.renderAlpha(sceneCmd, lzx, lzz, level, ctx, fade, Zone.DRAW_DEPTH_ONLY);
+						ctx.zoneDrawContext.renderAlpha(z, sceneCmd, lzx, lzz, level, fade, Zone.DRAW_DEPTH_ONLY);
 
 						// Restore color writes
 						sceneCmd.ColorMask(true, true, true, true);
@@ -1122,11 +1126,6 @@ public class ZoneRenderer implements Renderer {
 			log.error("Error in drawZoneAlpha({}, {}, {}, {}):", zx, zz, level, scene != null ? scene.getWorldViewId() : null, ex);
 			plugin.requestPluginStop();
 		}
-	}
-
-	private static void renderFadingAlpha(CommandBuffer cmd, Zone z, int zx, int zz, WorldViewContext ctx, ZoneRoofFades.Fade fade) {
-		for (int l = 0; l <= 3; ++l)
-			z.renderAlpha(cmd, zx, zz, l, ctx, fade, Zone.DRAW_FADING_ONLY);
 	}
 
 	@Override
@@ -1143,6 +1142,7 @@ public class ZoneRenderer implements Renderer {
 
 			switch (pass) {
 				case DrawCallbacks.PASS_OPAQUE:
+					ctx.zoneDrawContext.flush();
 					directionalCmd.SetShader(fastShadowProgram);
 					directionalCmd.ExecuteSubCommandBuffer(ctx.vaoDirectionalCmd);
 
@@ -1152,6 +1152,18 @@ public class ZoneRenderer implements Renderer {
 					modelStreamingManager.ensureAsyncUploadsComplete(null);
 
 					// Draw shadows
+					if (ctx.uboWorldViewStruct == null || !ctx.uboWorldViewStruct.isSquashed()) {
+						ctx.vaoDirectionalCmd.SetShader(
+							plugin.configShadowMode == ShadowMode.DETAILED ? detailedShadowProgram : fastShadowProgram
+						);
+						ctx.zoneDrawContext.renderAlphaShadows(
+							ctx.vaoDirectionalCmd,
+							shouldDrawRoofShadows,
+							sceneManager.isRoot(ctx)
+						);
+						ctx.drawAll(VAO_ALPHA, ctx.vaoDirectionalCmd);
+						ctx.vaoDirectionalCmd.SetShader(fastShadowProgram);
+					}
 					ctx.drawAll(VAO_OPAQUE, ctx.vaoDirectionalCmd);
 					ctx.drawAll(VAO_PLAYER, ctx.vaoDirectionalCmd);
 					ctx.drawAll(VAO_SHADOW, ctx.vaoDirectionalCmd);

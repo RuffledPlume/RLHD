@@ -6,9 +6,12 @@ import rs117.hd.utils.buffer.GpuIntBuffer;
 import rs117.hd.utils.collections.PooledArrayType;
 
 import static rs117.hd.renderer.zone.Zone.MODEL_FACE_NUM_INTS;
+import static rs117.hd.renderer.zone.Zone.MODEL_INDEX_MASK;
+import static rs117.hd.renderer.zone.Zone.MODEL_INDEX_WINDING_REVERSED;
 import static rs117.hd.renderer.zone.Zone.STATIC_FACE_NUM_INTS;
+import static rs117.hd.renderer.zone.Zone.TEXTURE_FACE_ZONE_ID_MASK;
+import static rs117.hd.renderer.zone.Zone.TEXTURE_FACE_ZONE_ID_SHIFT;
 import static rs117.hd.renderer.zone.Zone.TEXTURE_FACE_IS_MODEL;
-import static rs117.hd.renderer.zone.Zone.TEXTURE_FACE_IS_WINDING_REVERSED;
 import static rs117.hd.renderer.zone.Zone.ZONE_VERTEX_NUM_INTS;
 import static rs117.hd.utils.MathUtils.*;
 
@@ -21,6 +24,9 @@ public final class VertexWriteCache {
 	private final int maxCapacity;
 	private int[] stagingBuffer;
 	private int stagingPosition;
+	private int indexBase;
+	// Packed zone id bits.
+	private int zoneIdBits;
 
 	public VertexWriteCache(String name, int initialCapacity) {
 		this(name, initialCapacity, initialCapacity);
@@ -33,7 +39,18 @@ public final class VertexWriteCache {
 	}
 
 	public void setOutputBuffer(IntBuffer outputBuffer) {
+		setOutputBuffer(outputBuffer, 0);
+	}
+
+	/** Base offset subtracted from face indices. */
+	public void setOutputBuffer(IntBuffer outputBuffer, int indexBase) {
+		setOutputBuffer(outputBuffer, indexBase, 0);
+	}
+
+	public void setOutputBuffer(IntBuffer outputBuffer, int indexBase, int zoneId) {
 		this.outputBuffer = outputBuffer;
+		this.indexBase = indexBase;
+		this.zoneIdBits = (zoneId << TEXTURE_FACE_ZONE_ID_SHIFT) & TEXTURE_FACE_ZONE_ID_MASK;
 		stagingPosition = 0;
 		stagingBuffer = PooledArrayType.INT.ensureCapacity(stagingBuffer, initialCapacity);
 	}
@@ -75,8 +92,8 @@ public final class VertexWriteCache {
 				stagingBuffer[i + 7] == terrainDataB &&
 				stagingBuffer[i + 8] == terrainDataC
 			) {
-				final int textureFaceIdx = outputBuffer.position() + i;
-				return textureFaceIdx;
+				final int textureFaceIdx = outputBuffer.position() + i - indexBase;
+				return zoneIdBits | textureFaceIdx;
 			}
 		}
 
@@ -91,7 +108,7 @@ public final class VertexWriteCache {
 		if (stagingPosition + 9 > stagingBuffer.length)
 			flushAndGrow();
 
-		final int textureFaceIdx = outputBuffer.position() + stagingPosition;
+		final int textureFaceIdx = zoneIdBits | (outputBuffer.position() + stagingPosition - indexBase);
 		final int[] stagingBuffer = this.stagingBuffer;
 		final int stagingPosition = this.stagingPosition;
 
@@ -138,8 +155,8 @@ public final class VertexWriteCache {
 				stagingBuffer[i + 1] == packedHslCAlphaBias &&
 				stagingBuffer[i + 2] == materialData
 			) {
-				final int textureFaceIdx = outputBuffer.position() + i;
-				return TEXTURE_FACE_IS_MODEL | textureFaceIdx;
+				final int textureFaceIdx = outputBuffer.position() + i - indexBase;
+				return TEXTURE_FACE_IS_MODEL | zoneIdBits | textureFaceIdx;
 			}
 		}
 
@@ -157,7 +174,7 @@ public final class VertexWriteCache {
 		if (stagingPosition + MODEL_FACE_NUM_INTS > stagingBuffer.length)
 			flushAndGrow();
 
-		final int textureFaceIdx = outputBuffer.position() + stagingPosition;
+		final int textureFaceIdx = outputBuffer.position() + stagingPosition - indexBase;
 
 		final int[] stagingBuffer = this.stagingBuffer;
 		final int stagingPosition = this.stagingPosition;
@@ -173,7 +190,7 @@ public final class VertexWriteCache {
 		stagingBuffer[stagingPosition + 2] = materialData;
 
 		this.stagingPosition += MODEL_FACE_NUM_INTS;
-		return TEXTURE_FACE_IS_MODEL | textureFaceIdx;
+		return TEXTURE_FACE_IS_MODEL | zoneIdBits | textureFaceIdx;
 	}
 
 
@@ -185,17 +202,20 @@ public final class VertexWriteCache {
 	) {
 		if (stagingPosition + 6 > stagingBuffer.length)
 			flushAndGrow();
+		if (modelIdx < 0 || modelIdx > MODEL_INDEX_MASK)
+			throw new IllegalArgumentException("Model index exceeds the 15-bit vertex format: " + modelIdx);
 
 		final int[] stagingBuffer = this.stagingBuffer;
 		final int stagingPosition = this.stagingPosition;
+		final int packedModelIdx = modelIdx | (windingReversed ? MODEL_INDEX_WINDING_REVERSED : 0);
 
 		// ZONE_VERTEX_FORMAT
 		stagingBuffer[stagingPosition]     = (y & 0xFFFF) << 16 | (x & 0xFFFF);
 		stagingBuffer[stagingPosition + 1] = (nx & 0xFFFF) << 16 | (z & 0xFFFF);
 		stagingBuffer[stagingPosition + 2] = (nz & 0xFFFF) << 16 | (ny & 0xFFFF);
-		stagingBuffer[stagingPosition + 3] = (float16(u) & 0xFFFF) << 16 | (modelIdx & 0xFFFF);
+		stagingBuffer[stagingPosition + 3] = (float16(u) & 0xFFFF) << 16 | packedModelIdx;
 		stagingBuffer[stagingPosition + 4] = (float16(w) & 0xFFFF) << 16 | (float16(v) & 0xFFFF);
-		stagingBuffer[stagingPosition + 5] = (windingReversed ? TEXTURE_FACE_IS_WINDING_REVERSED : 0) | textureFaceIdx;
+		stagingBuffer[stagingPosition + 5] = textureFaceIdx;
 
 		this.stagingPosition += ZONE_VERTEX_NUM_INTS;
 	}
@@ -208,6 +228,7 @@ public final class VertexWriteCache {
 			outputBuffer.put(stagingBuffer, 0, stagingPosition);
 		} catch (Exception e) {
 			log.error("Failed to flush vertex write cache {} written: {} remaining: {}", name, stagingPosition, outputBuffer.remaining(), e);
+			throw new IllegalStateException("Failed to flush vertex write cache " + name, e);
 		} finally {
 			stagingPosition = 0;
 		}
@@ -222,29 +243,30 @@ public final class VertexWriteCache {
 		public final VertexWriteCache alphaTex = new VertexWriteCache("ALPHA_TEX", CAPACITY);
 		public boolean useAlphaBuffer;
 
-		public void setOutputBuffers(IntBuffer opaque, IntBuffer alpha, IntBuffer opaqueTex, IntBuffer alphaTex) {
-			this.opaque.setOutputBuffer(opaque);
-			this.opaqueTex.setOutputBuffer(opaqueTex);
+		/** Sets output buffers and the zone-relative face-index base. */
+		public void setOutputBuffers(IntBuffer opaque, IntBuffer alpha, IntBuffer opaqueTex, IntBuffer alphaTex, int indexBase, int zoneId) {
+			this.opaque.setOutputBuffer(opaque, 0, zoneId);
+			this.opaqueTex.setOutputBuffer(opaqueTex, indexBase, zoneId);
 			useAlphaBuffer = alpha != opaque && alphaTex != opaqueTex;
 			if (useAlphaBuffer) {
-				this.alpha.setOutputBuffer(alpha);
-				this.alphaTex.setOutputBuffer(alphaTex);
+				this.alpha.setOutputBuffer(alpha, 0, zoneId);
+				this.alphaTex.setOutputBuffer(alphaTex, indexBase, zoneId);
 			} else {
-				this.alpha.setOutputBuffer(null);
-				this.alphaTex.setOutputBuffer(null);
+				this.alpha.setOutputBuffer(null, 0, zoneId);
+				this.alphaTex.setOutputBuffer(null, 0, zoneId);
 			}
 		}
 
-		public void setOutputBuffers(GpuIntBuffer opaque, GpuIntBuffer alpha, GpuIntBuffer tex) {
-			this.opaque.setOutputBuffer(opaque.getBuffer());
-			this.opaqueTex.setOutputBuffer(tex.getBuffer());
+		public void setOutputBuffers(GpuIntBuffer opaque, GpuIntBuffer alpha, GpuIntBuffer tex, int indexBase, int zoneId) {
+			this.opaque.setOutputBuffer(opaque.getBuffer(), 0, zoneId);
+			this.opaqueTex.setOutputBuffer(tex.getBuffer(), indexBase, zoneId);
 			useAlphaBuffer = alpha != null && opaque != alpha;
 			if (useAlphaBuffer) {
-				this.alpha.setOutputBuffer(alpha.getBuffer());
-				this.alphaTex.setOutputBuffer(null);
+				this.alpha.setOutputBuffer(alpha.getBuffer(), 0, zoneId);
+				this.alphaTex.setOutputBuffer(null, 0, zoneId);
 			} else {
-				this.alpha.setOutputBuffer(null);
-				this.alphaTex.setOutputBuffer(null);
+				this.alpha.setOutputBuffer(null, 0, zoneId);
+				this.alphaTex.setOutputBuffer(null, 0, zoneId);
 			}
 		}
 

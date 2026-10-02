@@ -1,22 +1,10 @@
 package rs117.hd.renderer.zone;
 
 import lombok.extern.slf4j.Slf4j;
-import net.runelite.api.*;
 import rs117.hd.utils.DestructibleHandler;
-import rs117.hd.utils.buffer.GLBuffer;
-import rs117.hd.utils.buffer.GLShaderStorage;
+import rs117.hd.utils.buffer.GpuIntBuffer;
 import rs117.hd.utils.collections.ConcurrentPool;
 import rs117.hd.utils.jobs.Job;
-
-import static org.lwjgl.opengl.GL33C.*;
-import static rs117.hd.renderer.zone.Zone.MODEL_DATA_NUM_BYTES;
-import static rs117.hd.renderer.zone.Zone.STATIC_FACE_NUM_BYTES;
-import static rs117.hd.renderer.zone.Zone.ZONE_VERTEX_NUM_BYTES;
-import static rs117.hd.renderer.zone.ZoneRenderer.SHADER_STORAGE_BUFFER_MODEL_DATA;
-import static rs117.hd.renderer.zone.ZoneRenderer.SHADER_STORAGE_BUFFER_TEXTURED_FACES;
-import static rs117.hd.renderer.zone.ZoneRenderer.TEXTURE_UNIT_MODEL_DATA;
-import static rs117.hd.renderer.zone.ZoneRenderer.TEXTURE_UNIT_TEXTURED_FACES;
-import static rs117.hd.utils.buffer.GLBuffer.MAP_WRITE;
 
 @Slf4j
 public final class ZoneUploadJob extends Job {
@@ -28,83 +16,71 @@ public final class ZoneUploadJob extends Job {
 	Zone zoneToBeReplaced;
 	Zone zoneBeingUploaded;
 	int x, z;
-	boolean shouldUnmap;
 
 	@Override
 	protected void onRun() throws InterruptedException {
-		try (SceneUploader sceneUploader = SceneUploader.POOL.acquire()) {
-			workerHandleCancel();
-
-			sceneUploader.onBeforeProcessTile = this::onBeforeProcessTile;
-			sceneUploader.setScene(sceneContext.scene);
-			sceneUploader.estimateZoneSize(sceneContext, zoneBeingUploaded, x, z);
-
-			if (zoneBeingUploaded.sizeO > 0 || zoneBeingUploaded.sizeA > 0) {
+		SceneUploader sceneUploader = SceneUploader.POOL.acquire();
+		try (sceneUploader) {
+			try {
 				workerHandleCancel();
 
-				invokeClientCallback(this::mapZoneVertexBuffers);
-				workerHandleCancel();
+				sceneUploader.setScene(sceneContext.scene);
+				sceneUploader.estimateZoneSize(sceneContext, zoneBeingUploaded, x, z);
 
-				sceneUploader.uploadZone(sceneContext, zoneBeingUploaded, x, z);
-				workerHandleCancel();
+				if (zoneBeingUploaded.sizeO > 0 || zoneBeingUploaded.sizeA > 0) {
+					workerHandleCancel();
 
-				if (shouldUnmap)
-					invokeClientCallback(zoneBeingUploaded::unmap);
+					allocateZoneBlocks();
+					workerHandleCancel();
+
+					sceneUploader.uploadZone(sceneContext, zoneBeingUploaded, x, z);
+					workerHandleCancel();
+				}
+				zoneBeingUploaded.uploadReady = true;
+			} catch (InterruptedException ex) {
+				zoneBeingUploaded.destroyStagingBuffers();
+				throw ex;
+			} catch (RuntimeException | Error ex) {
+				int[] written = getStagingLengths();
+				zoneBeingUploaded.destroyStagingBuffers();
+				log.error(
+					"Zone upload failed: worldViewId={} zone=({}, {}) id={} estimatedFaces=[opaque={}, alpha={}, faces={}, models={}] writtenInts=[opaque={}, alpha={}, faces={}, models={}] bases=[opaque={}, alpha={}, faces={}, models={}]",
+					viewContext.worldViewId,
+					x,
+					z,
+					zoneBeingUploaded.zoneId,
+					zoneBeingUploaded.sizeO,
+					zoneBeingUploaded.sizeA,
+					zoneBeingUploaded.sizeF,
+					zoneBeingUploaded.sizeM,
+					written[SharedZoneBuffers.KIND_OPAQUE],
+					written[SharedZoneBuffers.KIND_ALPHA],
+					written[SharedZoneBuffers.KIND_FACES],
+					written[SharedZoneBuffers.KIND_MODELS],
+					zoneBeingUploaded.vertexBaseO,
+					zoneBeingUploaded.vertexBaseA,
+					zoneBeingUploaded.faceBase,
+					zoneBeingUploaded.modelBase,
+					ex
+				);
+				throw ex;
 			}
-			zoneBeingUploaded.initialized = true;
 		}
 	}
 
-	private void onBeforeProcessTile(Tile t, boolean isEstimate) throws InterruptedException {
-		workerHandleCancel();
+	private int[] getStagingLengths() {
+		int[] lengths = new int[SharedZoneBuffers.KIND_COUNT];
+		for (int kind = 0; kind < lengths.length; kind++) {
+			GpuIntBuffer staging = zoneBeingUploaded.staging[kind];
+			lengths[kind] = staging != null ? staging.position() : 0;
+		}
+		return lengths;
 	}
 
-	private void mapZoneVertexBuffers() {
-		try {
-			GLBuffer o = null, a = null;
-			int sz = zoneBeingUploaded.sizeO * ZONE_VERTEX_NUM_BYTES * 3;
-			if (sz > 0) {
-				o = new GLBuffer("Zone::VBO::Opaque", GL_ARRAY_BUFFER, GL_STATIC_DRAW);
-				o.initialize(sz);
-				o.map(MAP_WRITE);
-			}
-
-			sz = zoneBeingUploaded.sizeA * ZONE_VERTEX_NUM_BYTES * 3;
-			if (sz > 0) {
-				a = new GLBuffer("Zone::VBO::Alpha", GL_ARRAY_BUFFER, GL_STATIC_DRAW);
-				a.initialize(sz);
-				a.map(MAP_WRITE);
-			}
-
-			GLShaderStorage f = null;
-			sz = zoneBeingUploaded.sizeF * STATIC_FACE_NUM_BYTES;
-			if (sz > 0) {
-				f = new GLShaderStorage("Zone::TexturedFaces", GL_STATIC_DRAW);
-				f.initialize(sz, SHADER_STORAGE_BUFFER_TEXTURED_FACES, TEXTURE_UNIT_TEXTURED_FACES);
-				f.map(MAP_WRITE);
-			}
-
-			GLShaderStorage m = null;
-			sz = zoneBeingUploaded.sizeM * MODEL_DATA_NUM_BYTES;
-			if (sz > 0) {
-				m = new GLShaderStorage("Zone::ModelData", GL_STATIC_DRAW);
-				m.initialize(sz, SHADER_STORAGE_BUFFER_MODEL_DATA, TEXTURE_UNIT_MODEL_DATA);
-				m.map(MAP_WRITE);
-			}
-
-			zoneBeingUploaded.initialize(o, a, f, m);
-			zoneBeingUploaded.setMetadata(viewContext, sceneContext, x, z);
-		} catch (Throwable ex) {
-			log.warn(
-				"Caught exception whilst processing zone [{}, {}] worldId [{}] group priority [{}] cancelling...\n",
-				x,
-				z,
-				viewContext.worldViewId,
-				isHighPriority(),
-				ex
-			);
-			cancel();
-		}
+	private void allocateZoneBlocks() {
+		zoneBeingUploaded.viewContext = viewContext;
+		viewContext.sharedBuffers.allocate(zoneBeingUploaded);
+		viewContext.setZoneData(zoneBeingUploaded, sceneContext, x, z);
 	}
 
 	@Override
@@ -134,7 +110,6 @@ public final class ZoneUploadJob extends Job {
 		WorldViewContext viewContext,
 		ZoneSceneContext sceneContext,
 		Zone uploadZone,
-		boolean shouldUnmap,
 		int x,
 		int z
 	) {
@@ -147,10 +122,10 @@ public final class ZoneUploadJob extends Job {
 		newTask.viewContext = viewContext;
 		newTask.sceneContext = sceneContext;
 		newTask.zoneBeingUploaded = uploadZone;
-		newTask.shouldUnmap = shouldUnmap;
 		newTask.x = x;
 		newTask.z = z;
 		newTask.zoneToBeReplaced = null;
+		uploadZone.uploadReady = false;
 		newTask.resetReleased();
 
 		return newTask;

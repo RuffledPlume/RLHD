@@ -25,6 +25,7 @@ BEGIN_BUFFER_PARSER(readModelData, ModelData, true)
     READ_FLOAT(fade)
 END_BUFFER_PARSER()
 
+// modelIdx is a one-based record index; a zone's zero-based model offset is added before this call
 ModelData getModelData(int modelIdx) {
     return readModelData((modelIdx - 1) * MODEL_DATA_SIZE);
 }

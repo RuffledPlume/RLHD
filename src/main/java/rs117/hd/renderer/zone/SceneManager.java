@@ -318,6 +318,8 @@ public class SceneManager {
 
 	public void completeAllStreaming() {
 		root.sceneLoadGroup.complete();
+		if (nextZones != null)
+			root.commitReadyZoneUploads(nextZones);
 		root.streamingGroup.complete();
 		root.invalidationGroup.complete();
 
@@ -327,8 +329,11 @@ public class SceneManager {
 				WorldViewContext ctx = getContext(we.getWorldView());
 				if (ctx != null) {
 					ctx.sceneLoadGroup.complete();
+					ctx.commitReadyZoneUploads(ctx.zones);
 					ctx.streamingGroup.complete();
 					ctx.invalidationGroup.complete();
+					if (!ctx.isLoading)
+						ctx.processZoneSwaps();
 				}
 			}
 		}
@@ -440,8 +445,12 @@ public class SceneManager {
 			root.isLoading = true;
 
 			root.sceneLoadGroup.complete();
+			if (nextZones != null)
+				root.commitReadyZoneUploads(nextZones);
 			root.streamingGroup.complete();
 			root.invalidationGroup.complete();
+			root.processZoneSwaps();
+			root.completeInvalidation();
 
 			if (nextSceneContext != null)
 				nextSceneContext.destroy();
@@ -584,7 +593,7 @@ public class SceneManager {
 						float dist = distance(vec(x, z), vec(NUM_ZONES / 2, NUM_ZONES / 2));
 						if (!staggerLoad || dist < ZONE_DEFER_DIST_START) {
 							ZoneUploadJob
-								.build(ctx, nextSceneContext, zone, true, x, z)
+								.build(ctx, nextSceneContext, zone, x, z)
 								.queue(ctx.sceneLoadGroup, generateSceneDataTask);
 							nextSceneContext.totalMapZones++;
 						} else {
@@ -611,7 +620,7 @@ public class SceneManager {
 					// Synchronize creation of delayed upload jobs with zone swaps and invalidation
 					synchronized (ctx) {
 						ZoneUploadJob upload = ZoneUploadJob
-						.build(ctx, nextSceneContext, newZone, false, sorted.x, sorted.z)
+						.build(ctx, nextSceneContext, newZone, sorted.x, sorted.z)
 						.queue(ctx.streamingGroup, roundRobinDependencies[robinIdx]);
 
 						// Round Robin the streaming in zones to avoid saturating the Job queue
@@ -622,7 +631,7 @@ public class SceneManager {
 				} else {
 					nextZones[sorted.x][sorted.z] = newZone;
 					ZoneUploadJob
-						.build(ctx, nextSceneContext, newZone, true, sorted.x, sorted.z)
+						.build(ctx, nextSceneContext, newZone, sorted.x, sorted.z)
 						.queue(ctx.sceneLoadGroup, generateSceneDataTask);
 				}
 				sorted.free();
@@ -693,6 +702,7 @@ public class SceneManager {
 		long sceneUploadTimeStart = sw.elapsed(TimeUnit.NANOSECONDS);
 		int blockingCount = root.sceneLoadGroup.getPendingCount();
 		root.sceneLoadGroup.complete();
+		root.commitReadyZoneUploads(nextZones);
 
 		int totalOpaque = 0;
 		int totalAlpha = 0;
@@ -705,16 +715,16 @@ public class SceneManager {
 
 		root.uploadTime = sw.elapsed(TimeUnit.NANOSECONDS) - sceneUploadTimeStart;
 		log.debug(
-			"upload time {} reused {} deferred {} map {} sceneLoad {} len opaque {} size opaque {} KiB len alpha {} size alpha {} KiB",
+			"upload time {} reused {} deferred {} map {} sceneLoad {} len opaque {} uploaded opaque {} KiB len alpha {} uploaded alpha {} KiB",
 			TimeUnit.MILLISECONDS.convert(root.uploadTime, TimeUnit.NANOSECONDS),
 			nextSceneContext.totalReused,
 			nextSceneContext.totalDeferred,
 			nextSceneContext.totalMapZones,
 			blockingCount,
 			totalOpaque,
-			(totalOpaque * Zone.ZONE_VERTEX_NUM_BYTES * 3L) / KiB,
+			(totalOpaque * Integer.BYTES) / KiB,
 			totalAlpha,
-			(totalAlpha * Zone.ZONE_VERTEX_NUM_BYTES * 3L) / KiB
+			(totalAlpha * Integer.BYTES) / KiB
 		);
 
 		for (int x = 0; x < ctx.sizeX; ++x) {
@@ -726,7 +736,7 @@ public class SceneManager {
 				if (preZone.cull)
 					DestructibleHandler.queueDestruction(preZone);
 
-				nextZone.setMetadata(ctx, nextSceneContext, x, z);
+				ctx.setZoneData(nextZone, nextSceneContext, x, z);
 				if (preZone.rebuild)
 					nextZone.rebuild = true;
 				nextSceneContext.animatedDynamicObjectIds.addAll(nextZone.animatedDynamicObjectIds);
@@ -736,6 +746,8 @@ public class SceneManager {
 		ctx.zones = nextZones;
 		root.sceneContext = nextSceneContext;
 		root.isLoading = false;
+
+		ctx.updateDynamicZoneData(nextSceneContext);
 
 		nextZones = null;
 		nextSceneContext = null;
@@ -785,7 +797,7 @@ public class SceneManager {
 		for (int x = 0; x < ctx.sizeX; ++x)
 			for (int z = 0; z < ctx.sizeZ; ++z)
 				ZoneUploadJob
-					.build(ctx, sceneContext, ctx.zones[x][z], true, x, z)
+					.build(ctx, sceneContext, ctx.zones[x][z], x, z)
 					.queue(ctx.sceneLoadGroup);
 
 		ctx.loadTime = sw.elapsed(TimeUnit.NANOSECONDS);
@@ -798,6 +810,8 @@ public class SceneManager {
 
 		Stopwatch sw = Stopwatch.createStarted();
 		ctx.sceneLoadGroup.complete();
+		ctx.commitReadyZoneUploads(ctx.zones);
+		ctx.updateDynamicZoneData(ctx.sceneContext);
 		ctx.uploadTime = sw.elapsed(TimeUnit.NANOSECONDS);
 		ctx.sceneSwapTime = sw.elapsed(TimeUnit.NANOSECONDS);
 		ctx.isLoading = false;

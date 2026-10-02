@@ -8,13 +8,14 @@ import javax.annotation.Nullable;
 import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
-import net.runelite.client.callback.ClientThread;
 import rs117.hd.HdPlugin;
 import rs117.hd.opengl.uniforms.UBOWorldViews;
 import rs117.hd.opengl.uniforms.UBOWorldViews.WorldViewStruct;
+import rs117.hd.scene.SceneContext;
 import rs117.hd.utils.Camera;
 import rs117.hd.utils.CommandBuffer;
 import rs117.hd.utils.DestructibleHandler;
+import rs117.hd.utils.buffer.GpuIntBuffer;
 import rs117.hd.utils.collections.IntHashSet;
 import rs117.hd.utils.jobs.JobGroup;
 
@@ -29,7 +30,7 @@ public class WorldViewContext {
 	private Injector injector;
 
 	@Inject
-	private ClientThread clientThread;
+	private Client client;
 
 	@Inject
 	private HdPlugin plugin;
@@ -39,6 +40,8 @@ public class WorldViewContext {
 
 	@Inject
 	private SceneManager sceneManager;
+
+	SharedZoneBuffers sharedBuffers;
 
 	final int worldViewId;
 	final int sizeX, sizeZ;
@@ -58,6 +61,7 @@ public class WorldViewContext {
 
 	CommandBuffer vaoSceneCmd;
 	CommandBuffer vaoDirectionalCmd;
+	ZoneDrawContext zoneDrawContext;
 
 	public long loadTime;
 	public long uploadTime;
@@ -86,6 +90,12 @@ public class WorldViewContext {
 
 		vaoSceneCmd = new CommandBuffer("WorldViewScene");
 		vaoDirectionalCmd = new CommandBuffer("WorldViewDirectional");
+		zoneDrawContext = new ZoneDrawContext(this);
+
+		if (sharedBuffers == null) {
+			sharedBuffers = new SharedZoneBuffers();
+			sharedBuffers.initialize();
+		}
 
 		for (int x = 0; x < sizeX; ++x)
 			for (int z = 0; z < sizeZ; ++z)
@@ -144,10 +154,14 @@ public class WorldViewContext {
 
 	void drawAll(int type, CommandBuffer cmd) {
 		FrameContext ctx = zoneRenderer.frameContext();
-		ctx.dynamicModelVaos[type].draw(cmd, dynamicDrawRanges[type * 2], dynamicDrawRanges[type * 2 + 1]);
+		ctx.dynamicModelVaos[type].draw(cmd, dynamicDrawRanges[type * 2], dynamicDrawRanges[type * 2 + 1], sharedBuffers.tboZ);
 	}
 
 	void handleZoneSwap(int zx, int zz) {
+		if (zones == null || zx < 0 || zx >= zones.length || zones[zx] == null ||
+			zz < 0 || zz >= zones[zx].length || zones[zx][zz] == null)
+			return;
+
 		Zone curZone = zones[zx][zz];
 		ZoneUploadJob uploadTask = curZone.uploadJob;
 		if (uploadTask == null)
@@ -168,12 +182,16 @@ public class WorldViewContext {
 					curZone.rebuild = true;
 					return;
 				}
+				if (!commitZoneUpload(uploadedZone, zx, zz)) {
+					curZone.rebuild = true;
+					uploadTask.release();
+					return;
+				}
 				log.trace("swapping zone({}): [{}-{},{}]", uploadedZone.hashCode(), worldViewId, zx, zz);
 
 				Zone prevZone = curZone;
 				// Swap the zone out with the one we just uploaded
 				zones[zx][zz] = curZone = uploadedZone;
-				clientThread.invoke(curZone::unmap);
 
 				if (prevZone != curZone) {
 					curZone.inSceneFrustum = prevZone.inSceneFrustum;
@@ -204,8 +222,14 @@ public class WorldViewContext {
 	}
 
 	void processZoneSwaps() {
+		if (zones == null || sceneContext == null)
+			return;
+
 		for (int x = 0; x < sizeX; x++) {
 			for (int z = 0; z < sizeZ; z++) {
+				if (zones[x] == null || zones[x][z] == null)
+					continue;
+
 				handleZoneSwap(x, z);
 
 				final Zone zone = zones[x][z];
@@ -213,15 +237,65 @@ public class WorldViewContext {
 					continue;
 
 				zone.fadingAlpha = max(0.0f, zone.fadingAlpha - plugin.deltaTime);
-				zone.setMetadata(this, sceneContext, x, z);
+				setZoneData(zone, sceneContext, x, z);
+			}
+
+		}
+	}
+
+	void commitReadyZoneUploads(Zone[][] zones) {
+		if (zones == null)
+			return;
+
+		for (int x = 0; x < zones.length; ++x) {
+			if (zones[x] == null)
+				continue;
+
+			for (int z = 0; z < zones[x].length; ++z) {
+				Zone zone = zones[x][z];
+				if (zone != null && zone.uploadReady && !commitZoneUpload(zone, x, z))
+					zone.rebuild = true;
 			}
 		}
 	}
 
+	private boolean commitZoneUpload(Zone zone, int zx, int zz) {
+		assert client.isClientThread();
+
+		try {
+			if (!zone.uploadReady) {
+				if (zone.initialized)
+					return true;
+
+				log.error("Completed zone upload has no staged data to commit: [{}-{},{}]", worldViewId, zx, zz);
+			} else {
+				GpuIntBuffer opaque = zone.staging[SharedZoneBuffers.KIND_OPAQUE];
+				GpuIntBuffer alpha = zone.staging[SharedZoneBuffers.KIND_ALPHA];
+				zone.bufLen = opaque != null ? opaque.position() : 0;
+				zone.bufLenA = alpha != null ? alpha.position() : 0;
+
+				sharedBuffers.commit(zone);
+				zone.initialized = true;
+				zone.uploadReady = false;
+				return true;
+			}
+		} catch (RuntimeException | Error ex) {
+			log.error("Failed to commit zone upload: worldViewId={} zone=({}, {}) id={}", worldViewId, zx, zz, zone.zoneId, ex);
+		} finally {
+			zone.destroyStagingBuffers();
+		}
+
+		zone.destroy();
+		return false;
+	}
+
 	void processZoneRebuilds() {
+		if (zones == null)
+			return;
+
 		for (int x = 0; x < sizeX; x++) {
 			for (int z = 0; z < sizeZ; z++) {
-				if (zones[x][z].rebuild) {
+				if (zones[x] != null && zones[x][z] != null && zones[x][z].rebuild) {
 					zones[x][z].rebuild = false;
 					invalidateZone(x, z);
 				}
@@ -235,14 +309,23 @@ public class WorldViewContext {
 
 		invalidationGroup.complete();
 
-		for (int x = 0; x < sizeX; x++)
+		if (zones == null)
+			return;
+
+		for (int x = 0; x < sizeX; x++) {
+			if (zones[x] == null)
+				continue;
+
 			for (int z = 0; z < sizeZ; z++)
 				handleZoneSwap(x, z);
+		}
 	}
 
 	void free() {
+		isLoading = true;
 		sceneLoadGroup.cancel();
 		streamingGroup.cancel();
+		invalidationGroup.cancel();
 
 		if (sceneContext != null)
 			sceneContext.destroy();
@@ -252,11 +335,62 @@ public class WorldViewContext {
 			uboWorldViewStruct.free();
 		uboWorldViewStruct = null;
 
-		for (int x = 0; x < sizeX; ++x)
-			for (int z = 0; z < sizeZ; ++z)
-				zones[x][z].destroy();
+		if (zones != null) {
+			for (int x = 0; x < sizeX; ++x)
+				for (int z = 0; z < sizeZ; ++z)
+					if (zones[x] != null && zones[x][z] != null)
+						zones[x][z].destroy();
+			zones = null;
+		}
 
-		isLoading = true;
+		if (sharedBuffers != null) {
+			sharedBuffers.destroy();
+			sharedBuffers = null;
+		}
+	}
+
+	void freeZoneBlocks(Zone zone) {
+		if (sharedBuffers != null)
+			sharedBuffers.free(zone, plugin.frame);
+	}
+
+	void setZoneData(Zone zone, SceneContext sceneContext, int x, int z) {
+		if (sharedBuffers == null)
+			return;
+
+		int baseX = (x - (sceneContext.sceneOffset >> 3)) << 10;
+		int baseZ = (z - (sceneContext.sceneOffset >> 3)) << 10;
+		int worldViewIdx = uboWorldViewStruct != null ? uboWorldViewStruct.worldViewIdx + 1 : 0;
+		sharedBuffers.setZoneData(zone, worldViewIdx, baseX, baseZ, saturate(zone.fadingAlpha));
+	}
+
+	/** Flushes zone metadata and compacts buffers when uploads are idle and fragmentation warrants it. */
+	void flushSharedBuffers() {
+		if (sharedBuffers == null)
+			return;
+
+		sharedBuffers.flushZoneData();
+		sharedBuffers.age(plugin.frame);
+
+		if (!sharedBuffers.isFragmented())
+			return;
+
+		if (sceneLoadGroup.getPendingCount() > 0 ||
+			streamingGroup.getPendingCount() > 0 ||
+			invalidationGroup.getPendingCount() > 0)
+			return;
+
+		sharedBuffers.defragment();
+	}
+
+	void updateDynamicZoneData(SceneContext sceneContext) {
+		int sceneBase = -(sceneContext.sceneOffset >> 3) << 10;
+		sharedBuffers.setDynamicZoneData(
+			this,
+			sceneBase,
+			sceneBase
+		);
+		sharedBuffers.flushZoneData();
 	}
 
 	void invalidate() {
@@ -292,7 +426,7 @@ public class WorldViewContext {
 		Zone newZone = injector.getInstance(Zone.class);
 		newZone.dirty = zones[zx][zz].dirty;
 
-		curZone.setUploadJob(ZoneUploadJob.build(this, sceneContext, newZone, false, zx, zz));
+		curZone.setUploadJob(ZoneUploadJob.build(this, sceneContext, newZone, zx, zz));
 		curZone.uploadJob.queue(invalidationGroup, sceneManager.getGenerateSceneDataTask());
 	}
 }

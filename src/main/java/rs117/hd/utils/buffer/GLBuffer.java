@@ -442,6 +442,7 @@ public class GLBuffer implements Destructible {
 			unmap();
 
 		int oldBuffer = id;
+		long oldSize = size;
 		// Create a new buffer if we have to preserve existing data
 		if (byteOffset > 0 || (storageFlags & STORAGE_IMMUTABLE) != 0)
 			id = glGenBuffers();
@@ -509,7 +510,9 @@ public class GLBuffer implements Destructible {
 
 		if (id != oldBuffer && oldBuffer != 0 && byteOffset > 0) {
 			// Neither buffer must be mapped before this, except for with the persistent bit
-			copyRangeTo(oldBuffer, id, 0, 0, byteOffset);
+			long bytesToPreserve = min(byteOffset, oldSize);
+			if (bytesToPreserve > 0)
+				copyRangeTo(oldBuffer, id, 0, 0, bytesToPreserve);
 			glDeleteBuffers(oldBuffer);
 		}
 

@@ -924,6 +924,7 @@ public class HdPlugin extends Plugin {
 			.define("SHADER_STORAGE_BUFFERS", SUPPORTS_SHADER_STORAGE)
 			.define("TEXTURE_FACES_SSBO_BINDING", ZoneRenderer.SHADER_STORAGE_BUFFER_TEXTURED_FACES)
 			.define("MODEL_DATA_SSBO_BINDING", ZoneRenderer.SHADER_STORAGE_BUFFER_MODEL_DATA)
+			.define("ZONE_DATA_SSBO_BINDING", ZoneRenderer.SHADER_STORAGE_BUFFER_ZONE_DATA)
 			.define("UI_SCALING_MODE", config.uiScalingMode())
 			.define("COLOR_BLINDNESS", config.colorBlindness())
 			.define("DITHER_FADE", config.ditherFade())

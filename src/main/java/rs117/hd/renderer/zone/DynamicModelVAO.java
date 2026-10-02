@@ -1,11 +1,9 @@
 package rs117.hd.renderer.zone;
 
-import java.nio.IntBuffer;
 import java.util.ArrayDeque;
 import java.util.Arrays;
 import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
-import org.lwjgl.system.MemoryStack;
 import rs117.hd.utils.CommandBuffer;
 import rs117.hd.utils.Destructible;
 import rs117.hd.utils.buffer.GLBuffer;
@@ -17,8 +15,6 @@ import static org.lwjgl.opengl.GL33C.*;
 import static rs117.hd.HdPlugin.SUPPORTS_INDIRECT_DRAW;
 import static rs117.hd.HdPlugin.SUPPORTS_MULTI_INDIRECT_DRAW;
 import static rs117.hd.HdPlugin.SUPPORTS_STORAGE_BUFFERS;
-import static rs117.hd.renderer.zone.Zone.METADATA_NUM_BYTES;
-import static rs117.hd.renderer.zone.Zone.METADATA_NUM_INTS;
 import static rs117.hd.renderer.zone.Zone.MODEL_DATA_NUM_INTS;
 import static rs117.hd.renderer.zone.Zone.MODEL_FACE_NUM_INTS;
 import static rs117.hd.renderer.zone.Zone.ZONE_VERTEX_NUM_BYTES;
@@ -42,7 +38,6 @@ public class DynamicModelVAO implements Destructible {
 
 	private final GLBuffer vboRender;
 	private final GLBuffer vboStaging;
-	private final GLBuffer stubMetadata;
 	private final GLShaderStorage tboF;
 	private final GLShaderStorage tboM;
 
@@ -88,7 +83,6 @@ public class DynamicModelVAO implements Destructible {
 				GL_STREAM_DRAW
 			);
 		}
-		this.stubMetadata = new GLBuffer("DynamicModel::Metadata", GL_ARRAY_BUFFER, GL_STATIC_DRAW);
 		this.vboWriter = new GLMappedBufferIntWriter(this.vboStaging);
 
 		this.tboF = new GLShaderStorage(
@@ -117,16 +111,6 @@ public class DynamicModelVAO implements Destructible {
 		if (vboRender != vboStaging)
 			vboStaging.initialize(INITIAL_SIZE);
 
-		// Build stub metadata
-		stubMetadata.initialize(METADATA_NUM_BYTES);
-		try (MemoryStack stack = MemoryStack.stackPush()) {
-			int intsCount = METADATA_NUM_INTS;
-			IntBuffer buf = stack.mallocInt(intsCount);
-			for (int i = 0; i < intsCount; i++)
-				buf.put(0);
-			stubMetadata.upload(buf);
-		}
-
 		bindRenderVAO();
 	}
 
@@ -149,24 +133,6 @@ public class DynamicModelVAO implements Destructible {
 		// TextureFaceIdx
 		glEnableVertexAttribArray(3);
 		glVertexAttribIPointer(3, 1, GL_INT, ZONE_VERTEX_NUM_BYTES, 20);
-
-		glBindBuffer(GL_ARRAY_BUFFER, stubMetadata.id);
-
-		// WorldView index (not ID)
-		glEnableVertexAttribArray(6);
-		glVertexAttribDivisor(6, 1);
-		glVertexAttribIPointer(6, 1, GL_INT, METADATA_NUM_BYTES, 0);
-
-		// Scene offset
-		glEnableVertexAttribArray(7);
-		glVertexAttribDivisor(7, 1);
-		glVertexAttribIPointer(7, 2, GL_INT, METADATA_NUM_BYTES, 4);
-
-		// Zone fading
-		glEnableVertexAttribArray(8);
-		glVertexAttribDivisor(8, 1);
-		glVertexAttribPointer(8, 1, GL_FLOAT, false, METADATA_NUM_BYTES, 12);
-
 
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
 		glBindVertexArray(0);
@@ -307,14 +273,14 @@ public class DynamicModelVAO implements Destructible {
 		pendingCopyCount++;
 	}
 
-	void draw(CommandBuffer cmd, int fromDrawIdx, int toDrawIdx) {
+	void draw(CommandBuffer cmd, int fromDrawIdx, int toDrawIdx, GLShaderStorage tboZ) {
 		ensureMergedCapacity(toDrawIdx - fromDrawIdx);
 
 		int rangeCount = 0;
 		for (int i = fromDrawIdx; i < toDrawIdx; i++)
 			rangeCount = appendMergedRange(i, rangeCount);
 
-		issueDraw(cmd, rangeCount);
+		issueDraw(cmd, rangeCount, tboZ);
 	}
 
 	private void ensureMergedCapacity(int maxCount) {
@@ -353,13 +319,14 @@ public class DynamicModelVAO implements Destructible {
 		return count;
 	}
 
-	private void issueDraw(CommandBuffer cmd, int rangeCount) {
+	private void issueDraw(CommandBuffer cmd, int rangeCount, GLShaderStorage tboZ) {
 		if (rangeCount <= 0)
 			return;
 
 		cmd.BindVertexArray(vao);
 		cmd.bindShaderStorage(tboF);
 		cmd.bindShaderStorage(tboM);
+		cmd.bindShaderStorage(tboZ);
 
 		if (rangeCount == 1) {
 			if (SUPPORTS_INDIRECT_DRAW) {
