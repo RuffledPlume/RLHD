@@ -1,5 +1,6 @@
 package rs117.hd.renderer.zone.passes;
 
+import java.io.IOException;
 import java.util.Arrays;
 import java.util.Set;
 import javax.inject.Inject;
@@ -8,18 +9,20 @@ import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.hooks.*;
 import rs117.hd.HdPlugin;
 import rs117.hd.config.ReflectionMode;
+import rs117.hd.opengl.shader.SceneShaderProgram;
+import rs117.hd.opengl.shader.ShaderException;
 import rs117.hd.opengl.shader.ShaderIncludes;
 import rs117.hd.opengl.uniforms.UBOReflectionPlanes;
 import rs117.hd.opengl.uniforms.UBOReflectionPlanes.WaterPlaneStruct;
 import rs117.hd.overlays.FrameTimer;
 import rs117.hd.overlays.Timer;
 import rs117.hd.renderer.zone.ModelStreamingManager;
-import rs117.hd.renderer.zone.SceneManager;
 import rs117.hd.renderer.zone.WorldViewContext;
 import rs117.hd.renderer.zone.Zone;
 import rs117.hd.renderer.zone.ZoneRenderer;
 import rs117.hd.scene.EnvironmentManager;
 import rs117.hd.scene.SceneContext;
+import rs117.hd.scene.SceneCullingManager;
 import rs117.hd.utils.Camera;
 import rs117.hd.utils.ColorUtils;
 import rs117.hd.utils.CommandBuffer;
@@ -47,7 +50,7 @@ public final class ReflectionPass implements RenderPass {
 	private ZoneRenderer zoneRenderer;
 
 	@Inject
-	private SceneManager sceneManager;
+	private SceneCullingManager sceneCullingManager;
 
 	@Inject
 	private EnvironmentManager environmentManager;
@@ -60,6 +63,9 @@ public final class ReflectionPass implements RenderPass {
 
 	@Inject
 	private FrameTimer frameTimer;
+
+	@Inject
+	public SceneShaderProgram.ZoneReflection sceneReflectionProgram;
 
 	private final int[] weightKeys = new int[MAX_REFLECTION_RENDERS * 8];
 	private final int[] weightCounts = new int[MAX_REFLECTION_RENDERS * 8];
@@ -75,10 +81,11 @@ public final class ReflectionPass implements RenderPass {
 	private boolean waterReflectionsEnabled;
 
 	@Override
-	public void initialize(RenderState renderState) {
+	public void initialize() {
 		for (int i = 0; i < MAX_REFLECTION_RENDERS; i++) {
 			if (planes[i] == null)
 				planes[i] = new WaterPlane(uboReflectionPlanes.planes[i], i);
+			sceneCullingManager.addCamera(planes[i].camera);
 		}
 		uboReflectionPlanes.initialize(UNIFORM_BLOCK_REFLECTION_PLANES);
 	}
@@ -96,6 +103,16 @@ public final class ReflectionPass implements RenderPass {
 		if (keys.contains(KEY_PLANAR_REFLECTIONS)) {
 			updateWaterReflectionsFbo();
 		}
+	}
+
+	@Override
+	public void initializeShaders(ShaderIncludes includes) throws ShaderException, IOException {
+		sceneReflectionProgram.compile(includes);
+	}
+
+	@Override
+	public void destroyShaders() {
+		sceneReflectionProgram.destroy();
 	}
 
 	private void updateWaterReflectionsFbo() {
@@ -202,7 +219,7 @@ public final class ReflectionPass implements RenderPass {
 
 		for (int i = 0; i < activePlanes; i++) {
 			if (z.isVisible(planes[i].camera))
-				z.renderOpaque(planes[i].cmd, ctx, plugin.configRoofReflections);
+				z.renderOpaque(planes[i].cmd, ctx, planes[i].camera, plugin.configRoofReflections);
 		}
 	}
 
@@ -214,7 +231,7 @@ public final class ReflectionPass implements RenderPass {
 		final int offset = ctx.sceneContext.sceneOffset >> 3;
 		for (int i = 0; i < activePlanes; i++) {
 			if (z.isVisible(planes[i].camera))
-				z.renderAlpha(planes[i].cmd, zx - offset, zz - offset, level, ctx, true, plugin.configRoofReflections);
+				z.renderAlpha(planes[i].cmd, zx - offset, zz - offset, level, ctx, planes[i].camera, false, plugin.configRoofReflections);
 		}
 	}
 
@@ -230,14 +247,9 @@ public final class ReflectionPass implements RenderPass {
 	}
 
 	@Override
-	public void preSceneDraw(WorldViewContext ctx) {
-		if (ctx != sceneManager.getRoot())
+	public void preSceneDraw(WorldViewContext ctx, boolean isTopLevel) {
+		if (!isTopLevel || !ctx.sceneContext.hasWater)
 			return;
-
-		if (!ctx.sceneContext.hasWater) {
-			waterReflectionsEnabled = false;
-			return;
-		}
 
 		updateWaterReflectionsFbo();
 
@@ -321,13 +333,9 @@ public final class ReflectionPass implements RenderPass {
 		if (!waterReflectionsEnabled || activePlanes <= 0)
 			return;
 
-		frameTimer.begin(Timer.RENDER_REFLECTIONS);
-
-		zoneRenderer.sceneReflectionProgram.use();
+		sceneReflectionProgram.use();
 		for (int i = 0; i < activePlanes; i++)
 			planes[i].render(renderState);
-
-		frameTimer.end(Timer.RENDER_REFLECTIONS);
 
 		// Bind the water reflection texture array to the reflection map unit
 		glActiveTexture(TEXTURE_UNIT_WATER_REFLECTION_MAP);
@@ -341,9 +349,11 @@ public final class ReflectionPass implements RenderPass {
 	@Override
 	public void destroy() {
 		destroyWaterReflectionsFbo();
-
 		uboReflectionPlanes.destroy();
 	}
+
+	@Override
+	public RenderPassType getType() { return RenderPassType.REFLECTION; }
 
 	final class WaterPlane {
 		public final WaterPlaneStruct struct;
@@ -489,12 +499,11 @@ public final class ReflectionPass implements RenderPass {
 			plugin.uboGlobal.upload();
 
 			glViewport(0, 0, waterReflectionResolution[0], waterReflectionResolution[1]);
-
-			glBindFramebuffer(GL_DRAW_FRAMEBUFFER, fboWaterReflection);
+			glBindFramebuffer(GL_FRAMEBUFFER, fboWaterReflection);
 
 			// Redirect both attachments to this plane's layer before clearing/drawing
-			glFramebufferTextureLayer(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, texWaterReflection, 0, layer);
-			glFramebufferTextureLayer(GL_DRAW_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, texWaterReflectionDepthMap, 0, layer);
+			glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, texWaterReflection, 0, layer);
+			glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, texWaterReflectionDepthMap, 0, layer);
 
 			float[] fogColor = ColorUtils.linearToSrgb(environmentManager.currentFogColor);
 			if (plugin.configLinearAlphaBlending) {
@@ -524,7 +533,6 @@ public final class ReflectionPass implements RenderPass {
 			renderState.disable.set(GL_DEPTH_TEST);
 			renderState.disable.set(GL_CLIP_DISTANCE0);
 			renderState.disable.set(GL_FRAMEBUFFER_SRGB);
-			renderState.apply();
 		}
 	}
 }

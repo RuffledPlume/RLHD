@@ -15,6 +15,8 @@ import org.lwjgl.system.MemoryStack;
 import rs117.hd.HdPlugin;
 import rs117.hd.opengl.uniforms.UBOWorldViews;
 import rs117.hd.opengl.uniforms.UBOWorldViews.WorldViewStruct;
+import rs117.hd.overlays.FrameTimer;
+import rs117.hd.scene.SceneCullingManager;
 import rs117.hd.utils.Camera;
 import rs117.hd.utils.CommandBuffer;
 import rs117.hd.utils.DestructibleHandler;
@@ -26,7 +28,7 @@ import static org.lwjgl.opengl.GL33C.*;
 import static rs117.hd.renderer.zone.DynamicModelVAO.METADATA_SIZE;
 import static rs117.hd.renderer.zone.SceneManager.NUM_ZONES;
 import static rs117.hd.renderer.zone.ZoneRenderer.FRAMES_IN_FLIGHT;
-import static rs117.hd.renderer.zone.ZoneRenderer.SCENE_CAMERA_ID;
+import static rs117.hd.utils.MathUtils.*;
 import static rs117.hd.utils.collections.Util.quickSort;
 
 @Slf4j
@@ -55,10 +57,16 @@ public class WorldViewContext {
 	@Inject
 	private SceneManager sceneManager;
 
+	@Inject
+	private FrameTimer frameTimer;
+
+	@Inject
+	private SceneCullingManager sceneCullingManager;
+
 	public final int worldViewId;
 	public final int sizeX, sizeZ;
 	@Nullable
-	WorldViewStruct uboWorldViewStruct;
+	public WorldViewStruct uboWorldViewStruct;
 	public ZoneSceneContext sceneContext;
 	public Zone[][] zones;
 	GLBuffer vboM;
@@ -71,7 +79,7 @@ public class WorldViewContext {
 	private final List<Zone> alphaZones = new ArrayList<>();
 
 	public CommandBuffer vaoSceneCmd;
-	CommandBuffer vaoDirectionalCmd;
+	public CommandBuffer vaoDirectionalCmd;
 	final DynamicModelVAO[][] dynamicModelVaos = new DynamicModelVAO[FRAMES_IN_FLIGHT][VAO_COUNT];
 
 	public long loadTime;
@@ -135,11 +143,6 @@ public class WorldViewContext {
 		log.trace("WorldViewContext - WorldViewId: {} initBuffers took {}ms", worldViewId, (System.nanoTime() - start) / 1000000);
 	}
 
-	void map() {
-		for (int i = 0; i < VAO_COUNT; i++)
-			dynamicModelVaos[plugin.frame % FRAMES_IN_FLIGHT][i].map();
-	}
-
 	DynamicModelVAO.View beginDraw(int type, int faces) {
 		return dynamicModelVaos[plugin.frame % FRAMES_IN_FLIGHT][type].beginDraw(faces);
 	}
@@ -152,7 +155,7 @@ public class WorldViewContext {
 		return dynamicModelVaos[plugin.frame % FRAMES_IN_FLIGHT][type].obtainDrawIndex();
 	}
 
-	void drawAll(int type, CommandBuffer cmd) {
+	public void drawAll(int type, CommandBuffer cmd) {
 		dynamicModelVaos[plugin.frame % FRAMES_IN_FLIGHT][type].draw(cmd);
 	}
 
@@ -172,7 +175,7 @@ public class WorldViewContext {
 		for (int zx = 0; zx < sizeX; zx++) {
 			for (int zz = 0; zz < sizeZ; zz++) {
 				final Zone z = zones[zx][zz];
-				if (z.alphaModels.isEmpty() || (worldViewId == WorldView.TOPLEVEL && !z.isVisible(SCENE_CAMERA_ID)))
+				if (z.staticAlphaModels.isEmpty() || (worldViewId == WorldView.TOPLEVEL && !z.isVisible(camera)))
 					continue;
 
 				final int dx = camPosX - ((zx - offset) << 10);
@@ -227,10 +230,8 @@ public class WorldViewContext {
 				zones[zx][zz] = curZone = uploadedZone;
 				clientThread.invoke(curZone::unmap);
 
-				if (prevZone != curZone) {
-					curZone.visibilityFlags = prevZone.visibilityFlags;
+				if (prevZone != curZone)
 					DestructibleHandler.queueDestruction(prevZone);
-				}
 
 				sceneContext.animatedDynamicObjectIds.addAll(curZone.animatedDynamicObjectIds);
 			} else if (uploadTask.wasCancelled() && !curZone.cull) {
@@ -267,6 +268,58 @@ public class WorldViewContext {
 					zones[x][z].rebuild = false;
 					invalidateZone(x, z);
 				}
+			}
+		}
+	}
+
+	void preSceneDraw(Camera camera) {
+		completeInvalidation();
+
+		if(!plugin.freezeCulling) {
+			final Projection projection = uboWorldViewStruct != null ? uboWorldViewStruct.worldView.getMainWorldProjection() : null;
+			for (int zx = 0; zx < sizeX; ++zx) {
+				for (int zz = 0; zz < sizeZ; ++zz)
+					zones[zx][zz].queueVisibility(this, zx, zz, projection);
+				sceneCullingManager.flush();
+			}
+		}
+
+		for (int i = 0; i < VAO_COUNT; i++)
+			dynamicModelVaos[plugin.frame % FRAMES_IN_FLIGHT][i].map();
+
+		int offset = sceneContext.sceneOffset >> 3;
+		for (int zx = 0; zx < sizeX; ++zx) {
+			for (int zz = 0; zz < sizeZ; ++zz) {
+				final Zone z = zones[zx][zz];
+				z.resolveVisibility();
+
+				if(!z.isVisible(camera))
+					z.multizoneLocs(sceneContext, zx - offset, zz - offset, camera, zones);
+			}
+		}
+
+		sortStaticAlphaModels(camera);
+	}
+
+	void debugDraw(Camera camera) {
+		int offset = sceneContext.sceneOffset >> 3;
+		int startX = clamp(((int)camera.getPositionX() >> 10) + offset, 0, sizeX - 1);
+		int startZ = clamp(((int)camera.getPositionZ() >> 10) + offset, 0, sizeZ - 1);
+
+		int drawRange = 2;
+		for(int x = -drawRange; x < drawRange; x++) {
+			int zx = startX + x;
+			if(zx < 0 || zx >= sizeX)
+				continue;
+
+			for(int z = -drawRange; z < drawRange; z++) {
+				int zz = startZ + z;
+				if(zz < 0 || zz >= sizeZ)
+					continue;
+
+				Zone zone = zones[zx][zz];
+				if(zone != null)
+					zone.debugDrawVisibility(sceneCullingManager);
 			}
 		}
 	}

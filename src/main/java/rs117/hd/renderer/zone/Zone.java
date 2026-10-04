@@ -15,6 +15,8 @@ import org.lwjgl.system.MemoryStack;
 import rs117.hd.HdPlugin;
 import rs117.hd.scene.MaterialManager;
 import rs117.hd.scene.SceneContext;
+import rs117.hd.scene.SceneCullingManager;
+import rs117.hd.scene.SceneCullingManager.CullingResult;
 import rs117.hd.scene.materials.Material;
 import rs117.hd.scene.model_overrides.ModelOverride;
 import rs117.hd.utils.Camera;
@@ -34,7 +36,6 @@ import static org.lwjgl.opengl.GL33C.*;
 import static rs117.hd.HdPlugin.SUPPORTS_INDIRECT_DRAW;
 import static rs117.hd.HdPlugin.SUPPORTS_MULTI_INDIRECT_DRAW;
 import static rs117.hd.HdPlugin.checkGLErrors;
-import static rs117.hd.renderer.zone.ZoneRenderer.SCENE_CAMERA_ID;
 import static rs117.hd.renderer.zone.ZoneRenderer.TEXTURE_UNIT_TEXTURED_FACES;
 import static rs117.hd.renderer.zone.ZoneRenderer.eboAlpha;
 import static rs117.hd.utils.MathUtils.*;
@@ -89,6 +90,7 @@ public class Zone implements Destructible {
 	public boolean onlyWater; // whether the zone only contains water tiles
 	public boolean hasGapFiller; // whether the zone has any gap filler geometry
 	public boolean isFirstLoadingAttempt = true;
+
 	public byte visibilityFlags = (byte) 0xFF;
 	public int mostPrevalentWaterLevel = -1;
 
@@ -104,12 +106,15 @@ public class Zone implements Destructible {
 	}
 
 	int[] levelOffsets = new int[LEVEL_COUNT]; // buffer pos in ints for the end of the level
+	CullingResult[] levelCullingResults = new CullingResult[LEVEL_COUNT];
 
 	int[][] rids;
 	int[][] roofStart;
 	int[][] roofEnd;
 
-	final List<AlphaModel> alphaModels = new ArrayList<>(0);
+	public final List<AlphaModel> staticAlphaModels = new ArrayList<>(0);
+	public final List<AlphaModel> visibleAlphaModels = new ArrayList<>(0);
+
 	final ConcurrentLinkedQueue<AsyncCachedModel> pendingModelJobs = new ConcurrentLinkedQueue<>();
 
 	public boolean setVisibility(Camera camera, boolean visible) {
@@ -210,6 +215,11 @@ public class Zone implements Destructible {
 
 		sortedAlphaFacesUpload.release();
 
+		for(int i = 0; i < LEVEL_COUNT; i++) {
+			if(levelCullingResults[i] != null)
+				levelCullingResults[i].release();
+		}
+
 		sizeO = 0;
 		sizeA = 0;
 		sizeF = 0;
@@ -230,7 +240,8 @@ public class Zone implements Destructible {
 
 		// don't add permanent alphamodels to the cache as permanent alphamodels are always allocated
 		// to avoid having to synchronize the cache
-		alphaModels.clear();
+		staticAlphaModels.clear();
+		visibleAlphaModels.clear();
 	}
 
 	@Override
@@ -298,12 +309,12 @@ public class Zone implements Destructible {
 		glBindBuffer(GL_ARRAY_BUFFER, 0);
 	}
 
-	public void setMetadata(WorldViewContext viewContext, SceneContext sceneContext, int mx, int mz) {
+	public void setMetadata(WorldViewContext viewContext, SceneContext sceneContext, int zx, int zz) {
 		if (vboM == null)
 			return;
 
-		int baseX = (mx - (sceneContext.sceneOffset >> 3)) << 10;
-		int baseZ = (mz - (sceneContext.sceneOffset >> 3)) << 10;
+		final int baseX = (zx - (sceneContext.sceneOffset >> 3)) << 10;
+		final int baseZ = (zz - (sceneContext.sceneOffset >> 3)) << 10;
 
 		try (MemoryStack stack = MemoryStack.stackPush()) {
 			IntBuffer buf = stack.mallocInt(3)
@@ -322,16 +333,13 @@ public class Zone implements Destructible {
 			}
 		}
 
-		for (AlphaModel m : alphaModels)
+		for (AlphaModel m : staticAlphaModels)
 			m.rid = (short) updates.getOrDefault(m.rid, m.rid);
 	}
 
 	private static final int NUM_DRAW_RANGES = 512;
 	private static final int[] drawOff = new int[NUM_DRAW_RANGES];
 	private static final int[] drawEnd = new int[NUM_DRAW_RANGES];
-
-	private static final int[] glDrawOffset = new int[NUM_DRAW_RANGES];
-	private static final int[] glDrawLength = new int[NUM_DRAW_RANGES];
 	private static int drawIdx = 0;
 
 	private void convertForDraw(int vertSize) {
@@ -344,12 +352,9 @@ public class Zone implements Destructible {
 
 			drawEnd[i] -= drawOff[i]; // convert from end pos to length
 		}
-
-		copyTo(glDrawOffset, drawOff, 0, drawIdx);
-		copyTo(glDrawLength, drawEnd, 0, drawIdx);
 	}
 
-	public void renderOpaque(CommandBuffer cmd, WorldViewContext ctx, boolean roofShadows) {
+	public void renderOpaque(CommandBuffer cmd, WorldViewContext ctx, Camera camera, boolean roofShadows) {
 		drawIdx = 0;
 
 		int currentLevel = ctx.level;
@@ -361,6 +366,9 @@ public class Zone implements Destructible {
 		}
 
 		for (int level = ctx.minLevel; level <= maxLevel; ++level) {
+			if(camera != null && (levelCullingResults[level] != null && !levelCullingResults[level].isVisible(camera)))
+				continue;
+
 			int[] rids = this.rids[level];
 			int[] roofStart = this.roofStart[level];
 			int[] roofEnd = this.roofEnd[level];
@@ -406,7 +414,7 @@ public class Zone implements Destructible {
 		flush(cmd);
 	}
 
-	void renderOpaqueLevel(CommandBuffer cmd, int level) {
+	public void renderOpaqueLevel(CommandBuffer cmd, int level) {
 		drawIdx = 0;
 
 		pushRange(this.levelOffsets[level - 1], this.levelOffsets[level]);
@@ -490,8 +498,64 @@ public class Zone implements Destructible {
 		}
 	}
 
+	void queueVisibility(WorldViewContext ctx, int zx, int zz, Projection projection) {
+		// Area Hiding, check if Zone is hidden and if so, then clear the Culling Results to hide the Zone
+		if (ctx.sceneContext.sceneBase != null && ctx.sceneContext.currentArea != null) {
+			final int x = zx * CHUNK_SIZE - ctx.sceneContext.sceneOffset;
+			final int z = zz * CHUNK_SIZE - ctx.sceneContext.sceneOffset;
+			final var base = ctx.sceneContext.sceneBase;
+			final boolean inArea = ctx.sceneContext.currentArea.intersects(
+				true,
+				base[0] + x,
+				base[1] + zx,
+				base[0] + x + 7,
+				base[1] + z + 7);
+
+			if(!inArea) {
+				for (int i = 0; i < LEVEL_COUNT; i++) {
+					final CullingResult result = levelCullingResults[i];
+					if (result != null)
+						result.reset();
+				}
+				return;
+			}
+		}
+
+		final int baseX = (zx - (ctx.sceneContext.sceneOffset >> 3)) << 10;
+		final int baseZ = (zz - (ctx.sceneContext.sceneOffset >> 3)) << 10;
+
+		for(int i = 0; i < LEVEL_COUNT; i++) {
+			final CullingResult result = levelCullingResults[i];
+			if(result != null) {
+				result.projection = projection;
+				result.offsetX = baseX;
+				result.offsetZ = baseZ;
+				result.queue(false);
+			}
+		}
+	}
+
+	void debugDrawVisibility(SceneCullingManager sceneCullingManager) {
+		sceneCullingManager.debugDraw(levelCullingResults);
+	}
+
+	void resolveVisibility() {
+		visibilityFlags = 0;
+		for(int i = 0; i < LEVEL_COUNT; i++) {
+			if(levelCullingResults[i] != null)
+				visibilityFlags |= levelCullingResults[i].getVisibilityFlags();
+		}
+
+		for(int i = 0; i < staticAlphaModels.size(); i++) {
+			final AlphaModel m = staticAlphaModels.get(i);
+			if(levelCullingResults[m.level] == null || levelCullingResults[m.level].isVisible())
+				visibleAlphaModels.add(m);
+		}
+	}
+
 	void addAlphaModel(
 		HdPlugin plugin,
+		SceneCullingManager sceneCullingManager,
 		MaterialManager materialManager,
 		int vao,
 		int tboF,
@@ -674,7 +738,7 @@ public class Zone implements Destructible {
 		m.doubleSidedBitSet = doubleSidedCount > 0 ? Arrays.copyOf(doubleSidedBitSet, ceil(bufferIdx / 32.0f)) : null;
 		m.doubleSidedCount = doubleSidedCount;
 
-		alphaModels.add(m);
+		staticAlphaModels.add(m);
 
 		PooledArrayType.INT.release(packedFaces);
 		PooledArrayType.INT.release(doubleSidedBitSet);
@@ -691,7 +755,7 @@ public class Zone implements Destructible {
 		m.vao = m.tboF = m.rid = m.lx = m.lz = m.ux = m.uz = -1;
 		m.flags = 0;
 		m.zofx = m.zofz = 0;
-		alphaModels.add(m);
+		visibleAlphaModels.add(m);
 		return m;
 	}
 
@@ -699,13 +763,12 @@ public class Zone implements Destructible {
 		sortedAlphaFacesUpload.waitForCompletion();
 		alphaSortingJob.waitForCompletion();
 
-		for (int i = alphaModels.size() - 1; i >= 0; --i) {
-			AlphaModel m = alphaModels.get(i);
+		for (int i = visibleAlphaModels.size() - 1; i >= 0; --i) {
+			AlphaModel m = visibleAlphaModels.get(i);
 			m.asyncSortIdx = -1;
 			m.flags &= ~(AlphaModel.SKIP | AlphaModel.SORT_COMPLETED);
 
 			if (m.isTemp() || (m.flags & AlphaModel.TEMP) != 0) {
-				alphaModels.remove(i);
 				m.packedFaces = null;
 				m.doubleSidedBitSet = null;
 				ALPHA_MODEL_POOL.recycle(m);
@@ -715,6 +778,7 @@ public class Zone implements Destructible {
 				PooledArrayType.INT.release(m.tempSortedFaces);
 			m.tempSortedFaces = null;
 		}
+		visibleAlphaModels.clear();
 	}
 
 	private static final int STATIC = 1;
@@ -745,7 +809,7 @@ public class Zone implements Destructible {
 	private final EboAlphaWriterJob sortedAlphaFacesUpload = new EboAlphaWriterJob();
 
 	synchronized void alphaSort(int zx, int zz, Camera camera) {
-		final int alphaModelCount = alphaModels.size();
+		final int alphaModelCount = visibleAlphaModels.size();
 		if (alphaModelCount <= 1)
 			return;
 
@@ -755,12 +819,12 @@ public class Zone implements Destructible {
 		alphaModelComparator.zx = zx;
 		alphaModelComparator.zz = zz;
 
-		quickSort(alphaModels, alphaModelComparator);
+		quickSort(visibleAlphaModels, alphaModelComparator);
 	}
 
 	void alphaStaticModelSort(Camera camera) {
 		alphaSortingJob.reset();
-		for (AlphaModel m : alphaModels) {
+		for (AlphaModel m : visibleAlphaModels) {
 			if ((m.flags & AlphaModel.SKIP) != 0 || m.isTemp())
 				continue;
 
@@ -777,10 +841,11 @@ public class Zone implements Destructible {
 		int zz,
 		int level,
 		WorldViewContext ctx,
+		Camera camera,
 		boolean depthOnly,
 		boolean includeRoof
 	) {
-		if (alphaModels.isEmpty())
+		if (visibleAlphaModels.isEmpty())
 			return;
 
 		int minLevel = ctx.minLevel;
@@ -798,13 +863,16 @@ public class Zone implements Destructible {
 			sortedAlphaFacesUpload.waitForCompletion();
 
 		int eboAlphaStart = eboAlphaOffset = ZoneRenderer.eboAlphaWriter.getWrittenInts();
-		for (int i = 0; i < alphaModels.size(); i++) {
-			final AlphaModel m = alphaModels.get(i);
-			if ((m.flags & AlphaModel.SKIP) != 0 || m.level != level || m.vao == -1)
+		for (int i = 0; i < visibleAlphaModels.size(); i++) {
+			final AlphaModel m = visibleAlphaModels.get(i);
+			final int l = level != -1 ? level : m.level;
+			if ((m.flags & AlphaModel.SKIP) != 0 || m.level != l || m.vao == -1)
 				continue;
 
-			if (level < minLevel || level > maxLevel ||
-				level > currentLevel && !hiddenRoofIds.isEmpty() && hiddenRoofIds.contains((int) m.rid))
+			if (l < minLevel || l > maxLevel || l > currentLevel && !hiddenRoofIds.isEmpty() && hiddenRoofIds.contains((int) m.rid))
+				continue;
+
+			if(camera != null && (levelCullingResults[l] != null && !levelCullingResults[l].isVisible(camera)))
 				continue;
 
 			int drawMode = STATIC;
@@ -886,9 +954,9 @@ public class Zone implements Destructible {
 				}
 			} else {
 				if (SUPPORTS_MULTI_INDIRECT_DRAW) {
-					cmd.MultiDrawArraysIndirect(GL_TRIANGLES, glDrawOffset, glDrawLength, drawIdx, ZoneRenderer.indirectDrawCmdsStaging);
+					cmd.MultiDrawArraysIndirect(GL_TRIANGLES, drawOff, drawEnd, drawIdx, ZoneRenderer.indirectDrawCmdsStaging);
 				} else {
-					cmd.MultiDrawArrays(GL_TRIANGLES, glDrawOffset, glDrawLength, drawIdx);
+					cmd.MultiDrawArrays(GL_TRIANGLES, drawOff, drawEnd, drawIdx);
 				}
 			}
 			drawIdx = 0;
@@ -899,8 +967,8 @@ public class Zone implements Destructible {
 		int offset = ctx.sceneOffset >> 3;
 		int cx = (int) camera.getPositionX();
 		int cz = (int) camera.getPositionZ();
-		for (int i = 0; i < alphaModels.size(); i++) {
-			final AlphaModel m = alphaModels.get(i);
+		for (int i = 0; i < visibleAlphaModels.size(); i++) {
+			final AlphaModel m = visibleAlphaModels.get(i);
 			if (m.lx == -1)
 				continue;
 
@@ -918,7 +986,7 @@ public class Zone implements Destructible {
 						int zx2 = (centerX >> 10) + offset;
 						int zz2 = (centerZ >> 10) + offset;
 						if (zx2 >= 0 && zx2 < zones.length && zz2 >= 0 && zz2 < zones[0].length) {
-							if (zones[zx2][zz2].isVisible(SCENE_CAMERA_ID) && zones[zx2][zz2].initialized) {
+							if (visibilityFlags != 0 && zones[zx2][zz2].initialized) {
 								max = distance;
 								closestZoneX = centerX >> 10;
 								closestZoneZ = centerZ >> 10;
@@ -967,7 +1035,7 @@ public class Zone implements Destructible {
 				m2.flags = AlphaModel.TEMP;
 				m.flags |= AlphaModel.SKIP;
 
-				z.alphaModels.add(m2);
+				z.visibleAlphaModels.add(m2);
 			}
 		}
 	}

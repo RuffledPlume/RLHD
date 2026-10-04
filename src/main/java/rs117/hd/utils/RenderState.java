@@ -37,6 +37,13 @@ public final class RenderState {
 			state.reset();
 	}
 
+	public void toggle(int capability, boolean enabled) {
+		if (enabled)
+			enable.set(capability);
+		else
+			disable.set(capability);
+	}
+
 	private <T extends GLState> T addState(Supplier<T> supplier) {
 		T state = supplier.get();
 		states.add(state);

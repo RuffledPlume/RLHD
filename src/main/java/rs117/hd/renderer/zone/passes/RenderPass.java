@@ -1,24 +1,29 @@
 package rs117.hd.renderer.zone.passes;
 
-import java.util.Comparator;
+import java.io.IOException;
 import java.util.Set;
+import net.runelite.api.*;
+import rs117.hd.opengl.shader.ShaderException;
 import rs117.hd.opengl.shader.ShaderIncludes;
 import rs117.hd.renderer.zone.WorldViewContext;
 import rs117.hd.renderer.zone.Zone;
+import rs117.hd.scene.model_overrides.ModelOverride;
 import rs117.hd.utils.RenderState;
 
 public interface RenderPass {
-	default int order() {
-		return 0;
-	}
+	int PASS_ENABLED = 1;
+	int PASS_ZONE_DRAWS = 1 << 1;
+	int PASS_DEFAULT = PASS_ENABLED | PASS_ZONE_DRAWS;
 
-	default String passName() {
-		return getClass().getSimpleName();
-	}
+	RenderPassType[] TYPES = RenderPassType.values();
 
-	default void initialize(RenderState renderState) {}
+	RenderPassType getType();
 
-	default void initializeShaders(ShaderIncludes includes) {}
+	default int preprocess() { return PASS_DEFAULT; }
+
+	default void initialize() {}
+
+	default void initializeShaders(ShaderIncludes includes) throws ShaderException, IOException {}
 
 	default void destroyShaders() {}
 
@@ -32,19 +37,21 @@ public interface RenderPass {
 		return false;
 	}
 
+	default boolean dynamicInFrustum(WorldViewContext ctx, Renderable renderable, Model model, ModelOverride modelOverride, int x, int y, int z) {
+		return false;
+	}
+
 	default void drawZoneOpaque(WorldViewContext ctx, Zone z, int zx, int zz) {}
 
 	default void drawZoneAlpha(WorldViewContext ctx, Zone z, int level, int zx, int zz) {}
 
 	default void drawPass(WorldViewContext ctx, int pass) {}
 
-	default void preSceneDraw(WorldViewContext ctx) {}
+	default void preSceneDraw(WorldViewContext ctx, boolean isTopLevel) {}
 
 	default void postSceneDraw(WorldViewContext ctx) {}
 
 	default void draw(RenderState renderState) {}
 
 	default void postDraw(RenderState renderState) {}
-
-	Comparator<RenderPass> ORDER_COMPARATOR = Comparator.comparingInt(RenderPass::order);
 }

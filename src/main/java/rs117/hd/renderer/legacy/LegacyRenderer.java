@@ -50,6 +50,7 @@ import rs117.hd.scene.ProceduralGenerator;
 import rs117.hd.scene.areas.Area;
 import rs117.hd.scene.lights.Light;
 import rs117.hd.scene.model_overrides.ModelOverride;
+import rs117.hd.utils.Camera.CameraStruct;
 import rs117.hd.utils.ColorUtils;
 import rs117.hd.utils.HDUtils;
 import rs117.hd.utils.Mat4;
@@ -697,11 +698,16 @@ public class LegacyRenderer implements Renderer {
 					}
 				}
 
+				plugin.uboGlobal.sceneCamera.nearPlane.set(NEAR_PLANE);
+				plugin.uboGlobal.sceneCamera.farPlane.set(0.0f);
+				plugin.uboGlobal.sceneCamera.flags.set(CameraStruct.REVERSE_Z | CameraStruct.INFINITE_FAR);
+				plugin.uboGlobal.sceneCamera.viewport.set(viewportWidth, viewportHeight);
 				plugin.uboGlobal.sceneCamera.position.set(plugin.cameraPosition);
 				plugin.uboGlobal.sceneCamera.viewMatrix.set(plugin.viewMatrix);
 				plugin.uboGlobal.sceneCamera.projMatrix.set(plugin.projMatrix);
 				plugin.uboGlobal.sceneCamera.viewProjMatrix.set(plugin.viewProjMatrix);
 				plugin.uboGlobal.sceneCamera.invViewProjMatrix.set(plugin.invViewProjMatrix);
+
 				plugin.uboGlobal.pointLightsCount.set(sceneContext.numVisibleLights);
 				plugin.uboGlobal.upload();
 			}

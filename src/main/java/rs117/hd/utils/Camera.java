@@ -8,6 +8,7 @@ import rs117.hd.opengl.uniforms.UniformBuffer.Property;
 import rs117.hd.opengl.uniforms.UniformBuffer.PropertyType;
 import net.runelite.api.*;
 
+
 import static rs117.hd.utils.MathUtils.*;
 
 @Slf4j
@@ -572,7 +573,7 @@ public final class Camera implements Projection {
 		return getFrustumCorners(new float[8][3]);
 	}
 
-	public boolean intersectsAABB(int minX, int minY, int minZ, int maxX, int maxY, int maxZ) {
+	public boolean intersectsAABB(float minX, float minY, float minZ, float maxX, float maxY, float maxZ) {
 		calculateFrustumPlanes();
 		return HDUtils.isAABBIntersectingFrustum(minX, minY, minZ, maxX, maxY, maxZ, frustumPlanes);
 	}
