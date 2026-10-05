@@ -20,5 +20,6 @@ public class UBOReflectionPlanes extends UniformBuffer<GLBuffer> {
 	public class WaterPlaneStruct extends StructProperty {
 		public Camera.CameraStruct camera = addStruct(new Camera.CameraStruct());
 		public Property height = addProperty(PropertyType.Float, "height");
+		public Property atlasRect = addProperty(PropertyType.FVec4, "atlasRect");
 	}
 }

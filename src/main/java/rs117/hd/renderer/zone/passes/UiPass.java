@@ -15,6 +15,7 @@ import rs117.hd.opengl.shader.ShaderIncludes;
 import rs117.hd.opengl.shader.UIShaderProgram;
 import rs117.hd.overlays.FrameTimer;
 import rs117.hd.overlays.GammaCalibrationOverlay;
+import rs117.hd.overlays.ReflectionMapOverlay;
 import rs117.hd.overlays.ShadowMapOverlay;
 import rs117.hd.overlays.TiledLightingOverlay;
 import rs117.hd.overlays.Timer;
@@ -81,6 +82,9 @@ public class UiPass implements RenderPass {
 
 	@Inject
 	private TiledLightingOverlay tiledLightingOverlay;
+
+	@Inject
+	private ReflectionMapOverlay reflectionMapOverlay;
 
 	private final AsyncUICopyJob uiCopyJob = new AsyncUICopyJob();
 
@@ -196,6 +200,7 @@ public class UiPass implements RenderPass {
 		}
 
 		tiledLightingOverlay.render();
+		reflectionMapOverlay.render();
 
 		renderState.program.set(uiProgram);
 		renderState.textureUnit.set(GL_TEXTURE_2D, TEXTURE_UNIT_UI, plugin.texUi);

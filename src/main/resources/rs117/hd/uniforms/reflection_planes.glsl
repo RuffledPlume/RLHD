@@ -8,6 +8,7 @@
 struct ReflectionPlane {
     Camera camera;
     float height;
+    vec4 atlasRect;
 };
 
 layout(std140) uniform UBOReflectionPlanes {

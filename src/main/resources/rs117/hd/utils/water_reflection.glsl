@@ -25,7 +25,7 @@
 #include <utils/constants.glsl>
 #include <uniforms/reflection_planes.glsl>
 
-uniform sampler2DArray waterReflectionMap;
+uniform sampler2D waterReflectionMap;
 
 vec3 sampleWaterReflection(vec3 flatR, vec3 R, float distortionFactor) {
     // Only use the reflection map when enabled, the height difference is negligible & the surface is roughly flat
@@ -78,8 +78,10 @@ vec3 sampleWaterReflection(vec3 flatR, vec3 R, float distortionFactor) {
         distortion = (R.xz - flatR.xz) * distortionFactor;
     }
 
-    vec2 uv = (baseUV + distortion) / sceneCamera.viewport;
-    vec3 c = texture(waterReflectionMap, vec3(uv, planeIdx)).rgb;
+    vec2 atlasUV = plane.atlasRect.xy + (baseUV + distortion) / vec2(plane.camera.viewport) * plane.atlasRect.zw;
+    vec2 halfTexel = 0.5 / vec2(textureSize(waterReflectionMap, 0));
+    atlasUV = clamp(atlasUV, plane.atlasRect.xy + halfTexel, plane.atlasRect.xy + plane.atlasRect.zw - halfTexel);
+    vec3 c = texture(waterReflectionMap, atlasUV).rgb;
 
     #if !LINEAR_ALPHA_BLENDING
         // When linear alpha blending is on, the texture is in sRGB, and OpenGL will automatically convert it to linear

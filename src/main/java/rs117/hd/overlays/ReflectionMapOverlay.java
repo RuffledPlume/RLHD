@@ -3,28 +3,24 @@ package rs117.hd.overlays;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.Graphics2D;
-import java.awt.event.MouseWheelEvent;
-import javax.inject.Inject;
+import java.awt.Rectangle;
 import javax.inject.Singleton;
-import lombok.extern.slf4j.Slf4j;
-import net.runelite.client.input.MouseManager;
-import net.runelite.client.input.MouseWheelListener;
 import net.runelite.client.ui.FontManager;
+import rs117.hd.renderer.zone.passes.ReflectionPass;
+import rs117.hd.utils.RectAtlasPacker;
 import rs117.hd.utils.HDUtils;
 
 import static org.lwjgl.opengl.GL33C.*;
 import static rs117.hd.HdPlugin.TEXTURE_UNIT_WATER_REFLECTION_MAP;
 import static rs117.hd.utils.MathUtils.*;
 
-@Slf4j
 @Singleton
-public class ReflectionMapOverlay extends ShaderOverlay<ReflectionMapOverlay.Shader> implements MouseWheelListener {
+public class ReflectionMapOverlay extends ShaderOverlay<ReflectionMapOverlay.Shader> {
 	static class Shader extends ShaderOverlay.Shader {
 		private final UniformTexture uniColorMap = addUniformTexture("colorMap");
-		private final Uniform1i uniTextureLayer = addUniform1i("layer");
 
 		public Shader() {
-			super(t -> t.add(GL_FRAGMENT_SHADER, "overlays/color_map_frag.glsl"));
+			super(t -> t.add(GL_FRAGMENT_SHADER, "overlays/reflection_map_frag.glsl"));
 		}
 
 		@Override
@@ -33,35 +29,33 @@ public class ReflectionMapOverlay extends ShaderOverlay<ReflectionMapOverlay.Sha
 		}
 	}
 
-	@Inject
-	private MouseManager mouseManager;
+	public int activePlanes;
+	private int textureWidth;
+	private int textureHeight;
+	private int atlasRectCount;
+	private int atlasSize;
+	private final int[] atlasRects = new int[ReflectionPass.MAX_REFLECTION_RENDERS * 3];
 
-	int textureLayer;
-	int numTextureLayers;
-
-	@Override
-	public void initialize() {
-		super.initialize();
-		mouseManager.registerMouseWheelListener(this);
-	}
-
-	@Override
-	public void destroy() {
-		mouseManager.unregisterMouseWheelListener(this);
-		numTextureLayers = 0;
-		super.destroy();
+	public void setAtlasRects(RectAtlasPacker.Rect[] rects, int count, int atlasSize) {
+		this.atlasRectCount = count;
+		this.atlasSize = atlasSize;
+		for (int i = 0; i < count; i++) {
+			atlasRects[i * 3] = rects[i].x;
+			atlasRects[i * 3 + 1] = rects[i].y;
+			atlasRects[i * 3 + 2] = rects[i].size;
+		}
 	}
 
 	@Override
 	protected void renderShader() {
-		if (numTextureLayers == 0) {
-			glActiveTexture(TEXTURE_UNIT_WATER_REFLECTION_MAP);
-			int bound = glGetInteger(GL_TEXTURE_BINDING_2D_ARRAY);
-			if (bound != 0)
-				numTextureLayers = glGetTexLevelParameteri(GL_TEXTURE_2D_ARRAY, 0, GL_TEXTURE_DEPTH);
+		glActiveTexture(TEXTURE_UNIT_WATER_REFLECTION_MAP);
+		if (glGetInteger(GL_TEXTURE_BINDING_2D) == 0) {
+			textureWidth = textureHeight = 0;
+			return;
 		}
 
-		shader.uniTextureLayer.set(textureLayer);
+		textureWidth = glGetTexLevelParameteri(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH);
+		textureHeight = glGetTexLevelParameteri(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT);
 		super.renderShader();
 	}
 
@@ -71,19 +65,22 @@ public class ReflectionMapOverlay extends ShaderOverlay<ReflectionMapOverlay.Sha
 
 		g.setFont(FontManager.getRunescapeBoldFont());
 		g.setColor(Color.YELLOW);
-		HDUtils.drawStringShadowed(g, String.format("Layer %d/%d", textureLayer + 1, numTextureLayers), 4, 18);
+		HDUtils.drawStringShadowed(g, String.format("Reflection atlas %d x %d", textureWidth, textureHeight), 4, 18);
+		HDUtils.drawStringShadowed(g, String.format("ActivePlanes %d", activePlanes), 4, 32);
 
-		return dims;
-	}
-
-	@Override
-	public MouseWheelEvent mouseWheelMoved(MouseWheelEvent e) {
-		if (numTextureLayers > 0 && getBounds().contains(e.getPoint())) {
-			int scroll = clamp(e.getWheelRotation(), -1, 1);
-			textureLayer = clamp(textureLayer + scroll, 0, numTextureLayers - 1);
-			e.consume();
+		if (textureWidth > 0 && textureHeight > 0 && atlasSize > 0) {
+			Rectangle bounds = getBounds();
+			for (int i = 0; i < atlasRectCount; i++) {
+				int offset = i * 3;
+				int x = round((float) atlasRects[offset] / atlasSize * bounds.width);
+				int y = round((float) (atlasSize - atlasRects[offset + 1] - atlasRects[offset + 2]) / atlasSize * bounds.height);
+				int width = round((float) atlasRects[offset + 2] / atlasSize * bounds.width);
+				int height = round((float) atlasRects[offset + 2] / atlasSize * bounds.height);
+				g.setColor(ReflectionPass.getDebugPlaneColor(i));
+				g.drawRect(x, y, width, height);
+			}
 		}
 
-		return e;
+		return dims;
 	}
 }
