@@ -684,11 +684,6 @@ public final class ReflectionPass implements RenderPass {
 			renderState.blendFunc.set(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
 
 			cmd.execute(renderState);
-
-			// Reset everything back to the main pass' state
-			renderState.disable.set(GL_DEPTH_TEST);
-			renderState.disable.set(GL_CLIP_DISTANCE0);
-			renderState.disable.set(GL_FRAMEBUFFER_SRGB);
 		}
 	}
 }
