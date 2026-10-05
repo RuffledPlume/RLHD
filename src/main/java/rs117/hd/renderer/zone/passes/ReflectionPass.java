@@ -26,6 +26,7 @@ import rs117.hd.utils.Camera;
 import rs117.hd.utils.ColorUtils;
 import rs117.hd.utils.CommandBuffer;
 import rs117.hd.utils.DebugDraw;
+import rs117.hd.utils.DeveloperTools;
 import rs117.hd.utils.Mat4;
 import rs117.hd.utils.RectAtlasPacker;
 import rs117.hd.utils.RenderState;
@@ -60,6 +61,9 @@ public final class ReflectionPass implements RenderPass {
 
 	@Inject
 	private ZoneRenderer zoneRenderer;
+
+	@Inject
+	private DeveloperTools developerTools;
 
 	@Inject
 	private EnvironmentManager environmentManager;
@@ -574,13 +578,15 @@ public final class ReflectionPass implements RenderPass {
 			zoneBounds[base + 3] = maxZ;
 			zoneCount++;
 
-			DebugDraw.drawMinMax(
-				minX, -waterHeight - 1, minZ,
-				maxX, -waterHeight + 1, maxZ,
-				getDebugPlaneColor(index),
-				0,
-				false
-			);
+			if (developerTools.isReflectionMapOverlayEnabled()) {
+				DebugDraw.drawMinMax(
+					minX, -waterHeight - 1, minZ,
+					maxX, -waterHeight + 1, maxZ,
+					getDebugPlaneColor(index),
+					0,
+					false
+				);
+			}
 		}
 
 		/**
