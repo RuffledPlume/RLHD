@@ -580,7 +580,7 @@ vec4 sampleWater(int waterTypeIndex, float waterDepth, vec3 viewDir) {
 
 #if WATER_FOAM
     if (waterType.hasFoam == 1) {
-    #if LEGEACY_FOAM
+    #if 1
         vec2 flowMapUv = worldUvs(5) + animationFrame(30 * waterType.duration);
         float flowMapStrength = .25;
         vec2 uvFlow = texture(textureArray, vec3(flowMapUv, MAT_WATER_FLOW_MAP.colorMap)).xy;
