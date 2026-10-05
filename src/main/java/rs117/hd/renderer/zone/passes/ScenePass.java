@@ -32,8 +32,6 @@ import static org.lwjgl.opengl.GL11C.GL_SRC_ALPHA;
 import static org.lwjgl.opengl.GL11C.GL_ZERO;
 import static org.lwjgl.opengl.GL13C.GL_MULTISAMPLE;
 import static org.lwjgl.opengl.GL30.GL_FRAMEBUFFER_SRGB;
-import static org.lwjgl.opengl.GL30C.GL_DRAW_FRAMEBUFFER;
-import static org.lwjgl.opengl.GL30C.glBindVertexArray;
 import static rs117.hd.renderer.zone.WorldViewContext.VAO_OPAQUE;
 import static rs117.hd.renderer.zone.WorldViewContext.VAO_PLAYER;
 import static rs117.hd.renderer.zone.WorldViewContext.VAO_PRESCENE;
@@ -72,6 +70,11 @@ public class ScenePass implements RenderPass {
 	private Camera sceneCamera;
 
 	@Override
+	public int preprocess() {
+		return PASS_DEFAULT | PASS_SCENE_RENDERING;
+	}
+
+	@Override
 	public void initialize() {
 		sceneCamera = renderer.sceneCamera;
 
@@ -100,13 +103,13 @@ public class ScenePass implements RenderPass {
 
 	@Override
 	public void preSceneDraw(WorldViewContext ctx, boolean isTopLevel) {
-		final Scene scene = ctx.sceneContext.scene;
-		if(scene.getWorldViewId() != WorldView.TOPLEVEL)
+		if(!isTopLevel)
 			return;
 
 		gapFillerCmd.reset();
 		sceneCmd.reset();
 
+		final Scene scene = ctx.sceneContext.scene;
 		Model skybox = scene.getSkybox();
 		if (skybox != null) {
 			skybox.calculateBoundsCylinder();
@@ -206,13 +209,11 @@ public class ScenePass implements RenderPass {
 	}
 
 	@Override
-	public void draw(RenderState renderState) {
-		sceneProgram.use();
-
+	public void draw(RenderState renderState, int overlayColor) {
 		plugin.uboGlobal.sceneCamera.write(sceneCamera);
 		plugin.uboGlobal.upload();
 
-		renderState.framebuffer.set(GL_DRAW_FRAMEBUFFER, plugin.fboScene);
+		renderState.drawFramebuffer.set(plugin.fboScene);
 		renderState.viewport.set(0, 0, plugin.sceneResolution[0], plugin.sceneResolution[1]);
 		if(renderer.indirectDrawCmds != null)
 			renderState.ido.set(renderer.indirectDrawCmds.id);
@@ -220,6 +221,8 @@ public class ScenePass implements RenderPass {
 		renderState.toggle(GL_MULTISAMPLE, plugin.msaaSamples > 1);
 		renderState.toggle(GL_FRAMEBUFFER_SRGB, plugin.configLinearAlphaBlending);
 
+		renderState.program.set(sceneProgram);
+		renderState.toggle(GL_MULTISAMPLE, plugin.msaaSamples > 1);
 		renderState.enable.set(GL_BLEND);
 		renderState.enable.set(GL_CULL_FACE);
 		renderState.enable.set(GL_DEPTH_TEST);
@@ -229,19 +232,10 @@ public class ScenePass implements RenderPass {
 		if (!gapFillerCmd.isEmpty()) {
 			renderState.depthMask.set(false);
 			gapFillerCmd.execute(renderState);
-			renderState.depthMask.set(true);
 		}
 
+		renderState.depthMask.set(true);
 		sceneCmd.execute(renderState);
-
-		glBindVertexArray(0);
-
-		// Done rendering the scene
-		renderState.disable.set(GL_BLEND);
-		renderState.disable.set(GL_CULL_FACE);
-		renderState.disable.set(GL_DEPTH_TEST);
-		renderState.disable.set(GL_FRAMEBUFFER_SRGB);
-		renderState.apply();
 	}
 
 	@Override

@@ -7,13 +7,10 @@ import rs117.hd.utils.ColorUtils;
 import rs117.hd.utils.RenderState;
 
 import static org.lwjgl.opengl.GL11.GL_DEPTH_BUFFER_BIT;
-import static org.lwjgl.opengl.GL11.glClearDepth;
 import static org.lwjgl.opengl.GL11C.GL_COLOR_BUFFER_BIT;
 import static org.lwjgl.opengl.GL11C.glClear;
-import static org.lwjgl.opengl.GL11C.glClearColor;
 import static org.lwjgl.opengl.GL13C.GL_MULTISAMPLE;
 import static org.lwjgl.opengl.GL30.GL_FRAMEBUFFER_SRGB;
-import static org.lwjgl.opengl.GL30C.GL_DRAW_FRAMEBUFFER;
 import static rs117.hd.utils.MathUtils.*;
 
 public class ClearScenePass implements RenderPass {
@@ -25,11 +22,11 @@ public class ClearScenePass implements RenderPass {
 	private EnvironmentManager environmentManager;
 
 	@Override
-	public int preprocess() { return PASS_ENABLED; }
+	public int preprocess() { return PASS_ENABLED | PASS_SCENE_RENDERING; }
 
 	@Override
-	public void draw(RenderState renderState) {
-		renderState.framebuffer.set(GL_DRAW_FRAMEBUFFER, plugin.fboScene);
+	public void draw(RenderState renderState, int overlayColor) {
+		renderState.drawFramebuffer.set(plugin.fboScene);
 		renderState.viewport.set(0, 0, plugin.sceneResolution[0], plugin.sceneResolution[1]);
 		renderState.toggle(GL_MULTISAMPLE, plugin.msaaSamples > 1);
 		renderState.toggle(GL_FRAMEBUFFER_SRGB, plugin.configLinearAlphaBlending);
@@ -39,18 +36,16 @@ public class ClearScenePass implements RenderPass {
 		if (plugin.configLinearAlphaBlending)
 			gammaCorrectedFogColor = ColorUtils.srgbToLinear(gammaCorrectedFogColor);
 
-		renderState.apply();
-		glClearColor(
+		renderState.toggle(GL_MULTISAMPLE, plugin.msaaSamples > 1);
+		renderState.clearColor.set(
 			gammaCorrectedFogColor[0],
 			gammaCorrectedFogColor[1],
 			gammaCorrectedFogColor[2],
 			1f
 		);
-		glClearDepth(0);
+		renderState.clearDepth.set(0);
+		renderState.apply();
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-		renderState.disable.set(GL_MULTISAMPLE);
-		renderState.disable.set(GL_FRAMEBUFFER_SRGB);
 	}
 
 

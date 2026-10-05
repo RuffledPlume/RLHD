@@ -7,6 +7,7 @@ import java.util.Comparator;
 import java.util.Set;
 import javax.inject.Inject;
 import javax.inject.Singleton;
+import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
@@ -31,6 +32,9 @@ public final class RenderPipeline {
 	private static final int DRAW_FUNCTION_TYPE = 2;
 
 	@Inject
+	private Client client;
+
+	@Inject
 	private Injector injector;
 
 	@Inject
@@ -52,6 +56,7 @@ public final class RenderPipeline {
 	public final DrawZoneOpaqueFunction       drawZoneOpaque       = new DrawZoneOpaqueFunction();
 	public final DrawZoneAlphaFunction        drawZoneAlpha        = new DrawZoneAlphaFunction();
 	public final DrawPassFunction             drawPass             = new DrawPassFunction();
+	public final PreDrawFunction              preDraw              = new PreDrawFunction();
 	public final DrawFunction                 draw                 = new DrawFunction();
 	public final PostDrawFunction             postDraw             = new PostDrawFunction();
 
@@ -63,6 +68,8 @@ public final class RenderPipeline {
 	private final int[] zonePasses = new int[passCount];
 	private int enabledCount = 0;
 	private int zoneCount = 0;
+	@Getter
+	private int sceneRenderingFrame = 0;
 
 	public void initialize() {
 		for(int i = 0; i < passCount; i++) {
@@ -83,11 +90,22 @@ public final class RenderPipeline {
 		Arrays.fill(passes, null);
 	}
 
+	@SuppressWarnings("unchecked")
+	public <T extends RenderPass> T getPass(RenderPassType type) { return (T) passes[type.ordinal()]; }
+
+	public boolean isSceneRendering() {
+		return sceneRenderingFrame == plugin.frame &&
+			   plugin.sceneResolution != null &&
+			   plugin.sceneViewport != null &&
+			   client.getGameState().getState() > GameState.LOADING.getState();
+	}
+
 	public void preprocess() {
 		frameTimer.begin(Timer.RENDER_PIPELINE);
 		enabledCount = 0;
 		zoneCount = 0;
 
+		final boolean isSceneRendering = this.isSceneRendering();
 		for(int i = 0; i < passCount; i++) {
 			final RenderPass renderPass = passes[i];
 			final RenderPassType type = types[i];
@@ -97,6 +115,9 @@ public final class RenderPipeline {
 
 			int flags = renderPass.preprocess();
 			if(flags == 0)
+				continue;
+
+			if((flags & RenderPass.PASS_SCENE_RENDERING) != 0 && !isSceneRendering)
 				continue;
 
 			enabledPasses[enabledCount++] = i;
@@ -264,6 +285,7 @@ public final class RenderPipeline {
 		public void execute(WorldViewContext ctx, boolean isTopLevel) {
 			this.ctx        = ctx;
 			this.isTopLevel = isTopLevel;
+			sceneRenderingFrame = plugin.frame;
 			execute();
 		}
 
@@ -419,11 +441,11 @@ public final class RenderPipeline {
 		}
 	}
 
-	public final class DrawFunction extends BaseRenderPassFunction {
+	public final class PreDrawFunction extends BaseRenderPassFunction {
 		private RenderState renderState;
 
-		private DrawFunction() {
-			super("draw", DRAW_FUNCTION_TYPE, true, false);
+		private PreDrawFunction() {
+			super("preDraw", DRAW_FUNCTION_TYPE, true, false);
 		}
 
 		public void execute(RenderState renderState) {
@@ -432,12 +454,34 @@ public final class RenderPipeline {
 		}
 
 		protected boolean accept(RenderPass renderPass) {
+			renderPass.preDraw(renderState);
+			return true;
+		}
+	}
+
+	public final class DrawFunction extends BaseRenderPassFunction {
+		private RenderState renderState;
+		private int overlayColor;
+
+		private DrawFunction() {
+			super("draw", DRAW_FUNCTION_TYPE, true, false);
+		}
+
+		public void execute(RenderState renderState, int overlayColor) {
+			this.renderState = renderState;
+			this.overlayColor = overlayColor;
+			execute();
+		}
+
+		protected boolean accept(RenderPass renderPass) {
 			final Timer gpuTimer = renderPass.getType().gpuTimer;
 			if(gpuTimer != null)
 				frameTimer.begin(gpuTimer);
 			try {
-				renderPass.draw(renderState);
+				renderState.reset();
+				renderPass.draw(renderState, overlayColor);
 			} finally {
+				renderState.reset();
 				if(gpuTimer != null)
 					frameTimer.end(gpuTimer);
 			}

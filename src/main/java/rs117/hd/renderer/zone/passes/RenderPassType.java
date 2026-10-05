@@ -10,7 +10,8 @@ public enum RenderPassType {
 	REFLECTION(ReflectionPass.class, Timer.REFLECTION_PASS, Timer.RENDER_REFLECTIONS),
 	SCENE(ScenePass.class, Timer.SCENE_PASS, Timer.RENDER_SCENE),
 	DEBUG_DRAW(DebugDrawPass.class, Timer.DEBUG_DRAW_PASS, Timer.RENDER_DEBUG_DRAW),
-	BLIT_SCENE(BlitScenePass.class, Timer.BLIT_SCENE_PASS);
+	BLIT_SCENE(BlitScenePass.class, Timer.BLIT_SCENE_PASS),
+	UI(UiPass.class, Timer.UI_PASS, Timer.RENDER_UI);
 
 	public final Class<? extends RenderPass> clazz;
 	public final String name;

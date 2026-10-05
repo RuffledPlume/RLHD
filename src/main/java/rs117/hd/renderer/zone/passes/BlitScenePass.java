@@ -14,7 +14,6 @@ import rs117.hd.utils.RenderState;
 import static org.lwjgl.opengl.GL11C.GL_COLOR_BUFFER_BIT;
 import static org.lwjgl.opengl.GL11C.GL_NEAREST;
 import static org.lwjgl.opengl.GL11C.glClear;
-import static org.lwjgl.opengl.GL11C.glClearColor;
 import static org.lwjgl.opengl.GL30C.GL_DRAW_FRAMEBUFFER;
 import static org.lwjgl.opengl.GL30C.GL_READ_FRAMEBUFFER;
 import static org.lwjgl.opengl.GL30C.glBindFramebuffer;
@@ -46,7 +45,7 @@ public class BlitScenePass implements RenderPass {
 	}
 
 	@Override
-	public int preprocess() { return PASS_ENABLED; }
+	public int preprocess() { return PASS_ENABLED | PASS_SCENE_RENDERING; }
 
 	@Override
 	public void drawZoneOpaque(WorldViewContext ctx, Zone z, int zx, int zz) {
@@ -54,10 +53,7 @@ public class BlitScenePass implements RenderPass {
 	}
 
 	@Override
-	public void draw(RenderState renderState) {
-		if (plugin.sceneResolution == null || plugin.sceneViewport == null)
-			return;
-
+	public void draw(RenderState renderState, int overlayColor) {
 		glBindFramebuffer(GL_READ_FRAMEBUFFER, plugin.fboScene);
 		if (plugin.fboSceneResolve != 0) {
 			// Blit from the scene FBO to the multisample resolve FBO
@@ -77,7 +73,8 @@ public class BlitScenePass implements RenderPass {
 			// On macOS, we need to ensure that the alpha channel is opaque to prevent whatever
 			// is beneath from leaking through. In fixed mode, the MSAA resolve alone is not
 			// sufficient, since the viewport only covers part of the screen.
-			glClearColor(0, 0, 0, 1);
+			renderState.clearColor.set(0, 0, 0, 1);
+			renderState.clearColor.apply();
 			glClear(GL_COLOR_BUFFER_BIT);
 		}
 

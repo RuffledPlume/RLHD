@@ -149,8 +149,6 @@ public class ZoneRenderer implements Renderer {
 	public static GLBuffer.EBO eboAlpha;
 	public static GLMappedBufferIntWriter eboAlphaWriter;
 
-	private boolean shouldExecuteRenderPipeline;
-
 	@Override
 	public boolean supportsGpu(GLCapabilities glCaps) {
 		return glCaps.OpenGL33;
@@ -318,13 +316,6 @@ public class ZoneRenderer implements Renderer {
 		jobSystem.processPendingClientCallbacks();
 
 		scene.setDrawDistance(plugin.getDrawDistance());
-
-		// Ensure that the previous frames commands have finished flushing
-		frameTimer.begin(Timer.DRAW_FLUSH);
-		glFlush();
-		frameTimer.end(Timer.DRAW_FLUSH);
-
-		renderPipeline.preprocess();
 
 		plugin.updateSceneFbo();
 
@@ -554,7 +545,6 @@ public class ZoneRenderer implements Renderer {
 
 		frameTimer.end(Timer.DRAW_SCENE);
 		frameTimer.begin(Timer.RENDER_FRAME);
-		shouldExecuteRenderPipeline = true;
 
 		// TODO: Add proper support for stat tracking to the FrameTimer or elsewhere
 		plugin.drawnDynamicRenderableCount += modelStreamingManager.getDrawnDynamicRenderableCount();
@@ -749,26 +739,14 @@ public class ZoneRenderer implements Renderer {
 				return;
 			}
 
-			try {
-				plugin.prepareInterfaceTexture();
-			} catch (Exception ex) {
-				// Fixes: https://github.com/runelite/runelite/issues/12930
-				// Gracefully Handle loss of opengl buffers and context
-				log.warn("prepareInterfaceTexture exception", ex);
-				plugin.restartPlugin();
-				return;
-			}
+			renderPipeline.preDraw.execute(renderState);
+
+			// Fix vanilla bug causing the overlay to remain on the login screen in areas like Fossil Island underwater
+			if (client.getGameState().getState() < GameState.LOADING.getState())
+				overlayColor = 0;
 
 			frameTimer.begin(Timer.DRAW_SUBMIT);
-			if (shouldExecuteRenderPipeline) {
-				renderPipeline.draw.execute(renderState);
-			} else {
-				glBindFramebuffer(GL_FRAMEBUFFER, plugin.awtContext.getFramebuffer(false));
-				glClearColor(0, 0, 0, 1);
-				glClear(GL_COLOR_BUFFER_BIT);
-			}
-
-			plugin.drawUi(overlayColor);
+			renderPipeline.draw.execute(renderState, overlayColor);
 			frameTimer.end(Timer.DRAW_SUBMIT);
 
 			jobSystem.processPendingClientCallbacks();
@@ -791,15 +769,12 @@ public class ZoneRenderer implements Renderer {
 				log.error("Unable to swap buffers:", ex);
 			}
 
-			if(shouldExecuteRenderPipeline)
-				renderPipeline.postDraw.execute(renderState);
+			renderPipeline.postDraw.execute(renderState);
 
 			glBindFramebuffer(GL_FRAMEBUFFER, plugin.awtContext.getFramebuffer(false));
 
 			frameTimer.endFrameAndReset();
 			checkGLErrors();
-
-			shouldExecuteRenderPipeline = false;
 		} catch (Throwable ex) {
 			log.error("Error in draw({}):", overlayColor, ex);
 			plugin.requestPluginStop();
@@ -807,13 +782,8 @@ public class ZoneRenderer implements Renderer {
 	}
 
 	@Subscribe
-	public void onGameStateChanged(GameStateChanged gameStateChanged) {
-		GameState state = gameStateChanged.getGameState();
-		if (state.getState() < GameState.LOADING.getState()) {
-			// this is to avoid scene fbo blit when going from <loading to >=loading,
-			// but keep it when doing >loading to loading
-			shouldExecuteRenderPipeline = false;
-		}
+	public void onBeforeRender(BeforeRender event) {
+		renderPipeline.preprocess();
 	}
 
 	@Override

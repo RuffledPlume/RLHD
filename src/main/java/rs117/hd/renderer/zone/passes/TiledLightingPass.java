@@ -22,15 +22,17 @@ public class TiledLightingPass implements RenderPass {
 
 	@Override
 	public int preprocess() {
-		return plugin.configTiledLighting && plugin.configDynamicLights != DynamicLights.NONE ? PASS_ENABLED : 0;
+		return plugin.configTiledLighting && plugin.configDynamicLights != DynamicLights.NONE
+			? PASS_ENABLED | PASS_SCENE_RENDERING
+			: 0;
 	}
 
 	@Override
-	public void draw(RenderState renderState) {
+	public void draw(RenderState renderState, int overlayColor) {
 		plugin.updateTiledLightingFbo(); // TODO: Once Legacy is deprecated, move this into here
 		assert plugin.fboTiledLighting != 0;
 
-		renderState.framebuffer.set(GL_FRAMEBUFFER, plugin.fboTiledLighting);
+		renderState.framebuffer.set(plugin.fboTiledLighting);
 		renderState.viewport.set(0, 0, plugin.tiledLightingResolution[0], plugin.tiledLightingResolution[1]);
 		renderState.vao.setVao(plugin.vaoTri);
 

@@ -16,7 +16,7 @@ public class SceneShaderProgram extends ShaderProgram {
 	public static final int RENDER_PASS_WATER = 2;
 
 	protected final UniformTexture uniTextureArray = addUniformTexture("textureArray");
-	protected final UniformTexture uniShadowMap = addUniformTexture("shadowMap");
+	public final UniformTexture uniShadowMap = addUniformTexture("shadowMap");
 	protected final UniformTexture uniTiledLightingTextureArray = addUniformTexture("tiledLightingArray");
 	protected final UniformTexture uniTextureFaces = addUniformTexture("textureFaces");
 	protected final UniformTexture uniWaterNormalMaps = addUniformTexture("waterNormalMaps");

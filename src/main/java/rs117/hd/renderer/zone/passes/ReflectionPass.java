@@ -329,11 +329,13 @@ public final class ReflectionPass implements RenderPass {
 	}
 
 	@Override
-	public void draw(RenderState renderState) {
+	public void draw(RenderState renderState, int overlayColor) {
 		if (!waterReflectionsEnabled || activePlanes <= 0)
 			return;
 
-		sceneReflectionProgram.use();
+		renderState.program.set(sceneReflectionProgram);
+		if (zoneRenderer.indirectDrawCmds != null)
+			renderState.ido.set(zoneRenderer.indirectDrawCmds.id);
 		for (int i = 0; i < activePlanes; i++)
 			planes[i].render(renderState);
 
@@ -498,22 +500,23 @@ public final class ReflectionPass implements RenderPass {
 			plugin.uboGlobal.sceneCamera.write(camera);
 			plugin.uboGlobal.upload();
 
-			glViewport(0, 0, waterReflectionResolution[0], waterReflectionResolution[1]);
-			glBindFramebuffer(GL_FRAMEBUFFER, fboWaterReflection);
+			renderState.drawFramebuffer.set(fboWaterReflection);
+			renderState.viewport.set(0, 0, waterReflectionResolution[0], waterReflectionResolution[1]);
 
 			// Redirect both attachments to this plane's layer before clearing/drawing
-			glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, texWaterReflection, 0, layer);
-			glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, texWaterReflectionDepthMap, 0, layer);
+			renderState.framebufferTextureLayer.set(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, texWaterReflection, 0, layer);
+			renderState.framebufferTextureLayer.set(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, texWaterReflectionDepthMap, 0, layer);
 
 			float[] fogColor = ColorUtils.linearToSrgb(environmentManager.currentFogColor);
 			if (plugin.configLinearAlphaBlending) {
-				glEnable(GL_FRAMEBUFFER_SRGB);
 				// This is kind of stupid, but our shader expects fogColor in sRGB, so we transform it back here
 				fogColor = ColorUtils.srgbToLinear(fogColor);
 			}
-			glClearColor(fogColor[0], fogColor[1], fogColor[2], 1f);
+			renderState.clearColor.set(fogColor[0], fogColor[1], fogColor[2], 1f);
+			renderState.clearDepth.set(0);
+			renderState.toggle(GL_FRAMEBUFFER_SRGB, plugin.configLinearAlphaBlending);
+			renderState.apply();
 
-			glClearDepth(0);
 			glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 			// Since the game was never designed to be viewed from below, a lot of
