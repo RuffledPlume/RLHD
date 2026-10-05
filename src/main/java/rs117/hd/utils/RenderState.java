@@ -119,8 +119,8 @@ public final class RenderState {
 	}
 
 	public final class GLFramebufferTextureLayer extends GLState {
-		private static final int MAX_ATTACHMENTS = 34;
-		private static final int VALUES_PER_ATTACHMENT = 4; // GL_COLOR_ATTACHMENTs + GL_DEPTH_ATTACHMENT + GL_STENCIL_ATTACHMENT
+		private static final int MAX_ATTACHMENTS = 34; // GL_COLOR_ATTACHMENTs + GL_DEPTH_ATTACHMENT + GL_STENCIL_ATTACHMENT
+		private static final int VALUES_PER_ATTACHMENT = 5;
 		private final int[] attachments = new int[VALUES_PER_ATTACHMENT * MAX_ATTACHMENTS];
 		private int pending;
 
