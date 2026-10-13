@@ -17,8 +17,6 @@ import rs117.hd.utils.buffer.GLShaderStorage;
 import rs117.hd.utils.buffer.GpuIntBuffer;
 
 import static org.lwjgl.opengl.GL33C.*;
-import static org.lwjgl.opengl.GL45.GL_BUFFER_UPDATE_BARRIER_BIT;
-import static org.lwjgl.opengl.GL45.glMemoryBarrier;
 import static rs117.hd.HdPlugin.checkGLErrors;
 import static rs117.hd.renderer.zone.Zone.MAX_FACE_OFFSET;
 import static rs117.hd.renderer.zone.Zone.MAX_ZONE_ID;
@@ -472,7 +470,6 @@ public class SharedZoneBuffers {
 
 			// The zone ids are unaffected, but the bases the table hands out to the shaders are not
 			flushZoneData();
-			glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
 		} else if (reclaimed > 0) {
 			log.debug("Reclaimed {} KiB of trailing zone buffer space", reclaimed / KiB);
 		}
