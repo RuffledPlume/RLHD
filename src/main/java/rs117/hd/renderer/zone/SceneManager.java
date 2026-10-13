@@ -791,14 +791,17 @@ public class SceneManager {
 		proceduralGenerator.generateSceneData(sceneContext, null);
 
 		final WorldViewContext ctx = new WorldViewContext(worldView, sceneContext, uboWorldViews);
-		ctx.initialize(injector);
+		clientThread.invoke(() -> {ctx.initialize(injector);});
 		subs[worldViewId] = ctx;
 
-		for (int x = 0; x < ctx.sizeX; ++x)
-			for (int z = 0; z < ctx.sizeZ; ++z)
+		for (int x = 0; x < ctx.sizeX; ++x) {
+			for (int z = 0; z < ctx.sizeZ; ++z) {
+				ctx.zones[x][z] = new Zone();
 				ZoneUploadJob
 					.build(ctx, sceneContext, ctx.zones[x][z], x, z)
 					.queue(ctx.sceneLoadGroup);
+			}
+		}
 
 		ctx.loadTime = sw.elapsed(TimeUnit.NANOSECONDS);
 	}
