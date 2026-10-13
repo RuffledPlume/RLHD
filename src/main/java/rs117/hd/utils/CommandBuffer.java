@@ -14,10 +14,12 @@ import rs117.hd.overlays.Timer;
 import rs117.hd.utils.buffer.GLBuffer;
 import rs117.hd.utils.buffer.GpuIntBuffer;
 
+import static org.lwjgl.opengl.GL32C.glDrawElementsBaseVertex;
 import static org.lwjgl.opengl.GL33C.*;
 import static org.lwjgl.opengl.GL40.glDrawArraysIndirect;
 import static org.lwjgl.opengl.GL40.glDrawElementsIndirect;
 import static org.lwjgl.opengl.GL43.glMultiDrawArraysIndirect;
+import static org.lwjgl.opengl.GL43C.glMultiDrawElementsIndirect;
 import static rs117.hd.utils.MathUtils.*;
 
 @Slf4j
@@ -29,21 +31,23 @@ public class CommandBuffer {
 	private static final int GL_DRAW_ELEMENTS_TYPE = 4;
 	private static final int GL_DRAW_ELEMENTS_INDIRECT_TYPE = 5;
 	private static final int GL_DRAW_ARRAYS_INSTANCED_TYPE = 6;
-	private static final int GL_DRAW_CALL_TYPE_COUNT = 7;
+	private static final int GL_DRAW_ELEMENTS_BASE_VERTEX_TYPE = 7;
+	private static final int GL_MULTI_DRAW_ELEMENTS_INDIRECT_TYPE = 8;
+	private static final int GL_DRAW_CALL_TYPE_COUNT = 9;
 
-	private static final int GL_BIND_VERTEX_ARRAY_TYPE = 7;
-	private static final int GL_BIND_INDIRECT_ARRAY_TYPE = 8;
-	private static final int GL_BIND_TEXTURE_UNIT_TYPE = 9;
-	private static final int GL_DEPTH_MASK_TYPE = 10;
-	private static final int GL_COLOR_MASK_TYPE = 11;
-	private static final int GL_BLEND_FUNC_TYPE = 12;
-	private static final int GL_USE_PROGRAM = 13;
-	private static final int GL_TIMER = 14;
+	private static final int GL_BIND_VERTEX_ARRAY_TYPE = 10;
+	private static final int GL_BIND_INDIRECT_ARRAY_TYPE = 11;
+	private static final int GL_BIND_TEXTURE_UNIT_TYPE = 12;
+	private static final int GL_DEPTH_MASK_TYPE = 13;
+	private static final int GL_COLOR_MASK_TYPE = 14;
+	private static final int GL_BLEND_FUNC_TYPE = 15;
+	private static final int GL_USE_PROGRAM = 16;
+	private static final int GL_TIMER = 17;
 
-	private static final int GL_TOGGLE_TYPE = 15; // Combined glEnable & glDisable
-	private static final int GL_FENCE_SYNC = 16;
+	private static final int GL_TOGGLE_TYPE = 18; // Combined glEnable & glDisable
+	private static final int GL_FENCE_SYNC = 19;
 
-	private static final int GL_EXECUTE_SUB_COMMAND_BUFFER = 17;
+	private static final int GL_EXECUTE_SUB_COMMAND_BUFFER = 20;
 
 	private static final long INT_MASK = 0xFFFF_FFFFL;
 	private static final int DRAW_MODE_MASK = 0xF;
@@ -185,6 +189,13 @@ public class CommandBuffer {
 		cmd[writeHead++] = offset;
 	}
 
+	public void DrawElementsBaseVertex(int mode, int vertexCount, long offset, int baseVertex) {
+		ensureCapacity(3);
+		cmd[writeHead++] = GL_DRAW_ELEMENTS_BASE_VERTEX_TYPE & 0xFF | (mode & DRAW_MODE_MASK) << 8 | (long) vertexCount << 32;
+		cmd[writeHead++] = offset;
+		cmd[writeHead++] = baseVertex & INT_MASK;
+	}
+
 	public void DrawArrays(int mode, int offset, int vertexCount) {
 		ensureCapacity(2);
 		cmd[writeHead++] = GL_DRAW_ARRAYS_TYPE & 0xFF | (mode & DRAW_MODE_MASK) << 8;
@@ -225,6 +236,10 @@ public class CommandBuffer {
 	}
 
 	public void DrawElementsIndirect(int mode, int indexCount, int indexOffset, GpuIntBuffer indirectBuffer) {
+		DrawElementsIndirect(mode, indexCount, indexOffset, 0, indirectBuffer);
+	}
+
+	public void DrawElementsIndirect(int mode, int indexCount, int indexOffset, int baseVertex, GpuIntBuffer indirectBuffer) {
 		ensureCapacity(2);
 
 		// https://registry.khronos.org/OpenGL-Refpages/gl4/html/glDrawElementsIndirect.xhtml
@@ -234,7 +249,7 @@ public class CommandBuffer {
 			drawArgs[0] = indexCount;   // count
 			drawArgs[1] = 1; 			// instanceCount
 			drawArgs[2] = indexOffset;  // firstIndex
-			drawArgs[3] = 0;            // baseVertex
+			drawArgs[3] = baseVertex;   // baseVertex
 			drawArgs[4] = 0;            // baseInstance
 			indirectBuffer.ensureCapacity(5).getBuffer().put(drawArgs, 0, 5);
 		} catch (Exception e) {
@@ -292,6 +307,52 @@ public class CommandBuffer {
 		}
 
 		cmd[writeHead++] = GL_MULTI_DRAW_ARRAYS_INDIRECT_TYPE & 0xFF | (long) mode << 8 | (long) drawCount << 32;
+		cmd[writeHead++] = (long) indirectOffset * Integer.BYTES;
+	}
+
+	public void MultiDrawElementsIndirect(
+		int mode,
+		int[] indexCounts, int[] indexOffsets, int[] baseVertices,
+		int drawCount,
+		GpuIntBuffer indirectBuffer
+	) {
+		assert indexCounts.length == indexOffsets.length && indexCounts.length == baseVertices.length;
+		assert indexCounts.length >= drawCount;
+		assert (mode & DRAW_MODE_MASK) == mode;
+		if (drawCount == 0)
+			return;
+
+		ensureCapacity(2);
+		int indirectOffset = indirectBuffer.position();
+
+		// https://registry.khronos.org/OpenGL-Refpages/gl4/html/glMultiDrawElementsIndirect.xhtml
+		indirectBuffer.ensureCapacity(drawCount * 5);
+		try {
+			int[] drawArgs = indirectStaging;
+			if (drawArgs.length < drawCount * 5)
+				indirectStaging = drawArgs = new int[drawCount * 5];
+
+			for (int i = 0; i < drawCount; i++) {
+				final int base = i * 5;
+				drawArgs[base]     = indexCounts[i];   // count
+				drawArgs[base + 1] = 1;                // instanceCount
+				drawArgs[base + 2] = indexOffsets[i];  // firstIndex
+				drawArgs[base + 3] = baseVertices[i];  // baseVertex
+				drawArgs[base + 4] = 0;                // baseInstance
+			}
+			indirectBuffer.getBuffer().put(drawArgs, 0, drawCount * 5);
+		} catch (Exception e) {
+			log.debug(
+				"Failed to write MultiDrawElementsIndirect buffer drawCount={} position={} remaining={} capacity={}",
+				drawCount,
+				indirectBuffer.getBuffer().position(),
+				indirectBuffer.getBuffer().remaining(),
+				indirectBuffer.getBuffer().capacity(),
+				e
+			);
+		}
+
+		cmd[writeHead++] = GL_MULTI_DRAW_ELEMENTS_INDIRECT_TYPE & 0xFF | (long) mode << 8 | (long) drawCount << 32;
 		cmd[writeHead++] = (long) indirectOffset * Integer.BYTES;
 	}
 
@@ -430,6 +491,15 @@ public class CommandBuffer {
 						glDrawElements(mode, vertexCount, GL_UNSIGNED_INT, byteOffset);
 						break;
 					}
+					case GL_DRAW_ELEMENTS_BASE_VERTEX_TYPE: {
+						int mode = (int) data >> 8;
+						int vertexCount = (int) (data >> 32);
+						long byteOffset = cmd[readHead++];
+						int baseVertex = (int) cmd[readHead++];
+
+						glDrawElementsBaseVertex(mode, vertexCount, GL_UNSIGNED_INT, byteOffset, baseVertex);
+						break;
+					}
 					case GL_MULTI_DRAW_ARRAYS_TYPE: {
 						int mode = (int) data >> 8;
 						int drawCount = (int) (data >> 32);
@@ -469,6 +539,13 @@ public class CommandBuffer {
 						int drawCount = (int) (data >> 32);
 						long offset = cmd[readHead++];
 						glMultiDrawArraysIndirect(mode, offset, drawCount, 0);
+						break;
+					}
+					case GL_MULTI_DRAW_ELEMENTS_INDIRECT_TYPE: {
+						int mode = (int) data >> 8;
+						int drawCount = (int) (data >> 32);
+						long offset = cmd[readHead++];
+						glMultiDrawElementsIndirect(mode, GL_UNSIGNED_INT, offset, drawCount, 0);
 						break;
 					}
 					case GL_EXECUTE_SUB_COMMAND_BUFFER: {

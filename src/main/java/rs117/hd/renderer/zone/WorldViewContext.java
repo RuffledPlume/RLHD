@@ -2,9 +2,7 @@ package rs117.hd.renderer.zone;
 
 import com.google.inject.Injector;
 import java.nio.IntBuffer;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
+import java.util.HashMap;
 import java.util.Set;
 import javax.annotation.Nullable;
 import javax.inject.Inject;
@@ -21,7 +19,6 @@ import rs117.hd.utils.DestructibleHandler;
 import rs117.hd.utils.Mat4;
 import rs117.hd.utils.buffer.GLBuffer;
 import rs117.hd.utils.collections.ConcurrentPool;
-import rs117.hd.utils.collections.PooledArrayType;
 import rs117.hd.utils.jobs.JobGroup;
 
 import static org.lwjgl.opengl.GL33C.*;
@@ -29,7 +26,6 @@ import static rs117.hd.renderer.zone.DynamicModelVAO.METADATA_SIZE;
 import static rs117.hd.renderer.zone.SceneManager.NUM_ZONES;
 import static rs117.hd.renderer.zone.ZoneRenderer.FRAMES_IN_FLIGHT;
 import static rs117.hd.utils.MathUtils.*;
-import static rs117.hd.utils.collections.Util.quickSort;
 
 @Slf4j
 public class WorldViewContext {
@@ -78,11 +74,12 @@ public class WorldViewContext {
 	int minLevel, level, maxLevel;
 	Set<Integer> hideRoofIds;
 
-	final EboAlphaWriterJob sortedAlphaFacesUpload = new EboAlphaWriterJob(this);
-	int[] eboAlphaIndices;
+	final StaticAlphaSortingJob alphaSortingJob = new StaticAlphaSortingJob(this);
+	int eboAlphaBaseOffset = -1;
 
-	private final Comparator<Zone> alphaSortComparator = Comparator.comparingInt((Zone z) -> z.dist).reversed();
-	private final List<Zone> alphaZones = new ArrayList<>();
+	// Interned StaticAlphaModels so identical static models can be shared across zones in this world view.
+	// Guarded by synchronizing on the map itself.
+	private final HashMap<StaticAlphaModel, StaticAlphaModel> staticAlphaModels = new HashMap<>();
 
 	CommandBuffer vaoSceneCmd;
 	CommandBuffer vaoDirectionalCmd;
@@ -240,48 +237,48 @@ public class WorldViewContext {
 		}
 	}
 
+	StaticAlphaModel dedupeStaticAlphaModel(StaticAlphaModel model) {
+		synchronized (staticAlphaModels) {
+			final StaticAlphaModel existing = staticAlphaModels.get(model);
+			if (existing != null) {
+				existing.refCount++;
+				return existing;
+			}
+			model.refCount = 1;
+			staticAlphaModels.put(model, model);
+			return model;
+		}
+	}
+
 	void sortStaticAlphaModels(Camera camera) {
-		alphaZones.clear();
+		alphaSortingJob.waitForCompletion();
+		alphaSortingJob.reset();
 
 		final int offset = sceneContext.sceneOffset >> 3;
-		final int camPosX = (int) camera.getPositionX();
-		final int camPosZ = (int) camera.getPositionZ();
+		final boolean frustumCull = worldViewId == WorldView.TOPLEVEL;
+
+		synchronized (staticAlphaModels) {
+			staticAlphaModels.values().removeIf((model) -> model.refCount <= 0);
+		}
+
 		for (int zx = 0; zx < sizeX; zx++) {
 			for (int zz = 0; zz < sizeZ; zz++) {
 				final Zone z = zones[zx][zz];
 				if (z.alphaModels.isEmpty())
 					continue;
 
-				final int dx = camPosX - ((zx - offset) << 10);
-				final int dz = camPosZ - ((zz - offset) << 10);
-				z.dist = dx * dx + dz * dz;
-				// AlphaModel distances are relative to scene-local coordinates (matching the camera and zone distances),
-				// so the extended zone index must be converted back to a scene-local one.
-				z.alphaSortingJob.setup(camera, zx - offset, zz - offset, worldViewId == WorldView.TOPLEVEL);
-				alphaZones.add(z);
+				z.determineAlphaModelVisibility(camera, zx - offset, zz - offset, frustumCull);
+
+				for (int i = 0; i < z.alphaModels.size(); i++) {
+					final AlphaModelInstance m = z.alphaModels.get(i);
+					if ((m.flags & AlphaModelInstance.SKIP) != 0 || m.isTemp() || !m.isVisible())
+						continue;
+					alphaSortingJob.addStaticAlphaModel(m.staticModel);
+				}
 			}
 		}
 
-		if (!alphaZones.isEmpty()) {
-			quickSort(alphaZones, alphaSortComparator);
-			int alphaFaceCount = 0;
-			for (int i = 0; i < alphaZones.size(); i++) {
-				final Zone z = alphaZones.get(i);
-				alphaFaceCount += z.setupAlphaModelSort(alphaFaceCount);
-			}
-
-			if(alphaFaceCount <= 0)
-				return;
-
-			ZoneRenderer.eboAlpha.ensureCapacity((long) alphaFaceCount * Integer.BYTES);
-			eboAlphaIndices = PooledArrayType.INT.ensureCapacity(eboAlphaIndices, alphaFaceCount);
-			for (int i = 0; i < alphaZones.size(); i++)
-				alphaZones.get(i).alphaSortingJob.queue(eboAlphaIndices);
-		} else {
-			if(eboAlphaIndices != null)
-				PooledArrayType.INT.release(eboAlphaIndices);
-			eboAlphaIndices = null;
-		}
+		eboAlphaBaseOffset = alphaSortingJob.queue(camera);
 	}
 
 	// Synchronize creation of delayed upload jobs with zone swaps and invalidation
@@ -320,7 +317,7 @@ public class WorldViewContext {
 				Zone prevZone = curZone;
 				// Swap the zone out with the one we just uploaded
 				zones[zx][zz] = curZone = uploadedZone;
-				clientThread.invoke(curZone::unmap);
+				clientThread.invoke(() -> uploadedZone.unmap(this));
 
 				if (prevZone != curZone) {
 					curZone.inSceneFrustum = prevZone.inSceneFrustum;
@@ -381,7 +378,7 @@ public class WorldViewContext {
 	void free() {
 		sceneLoadGroup.cancel();
 		streamingGroup.cancel();
-		sortedAlphaFacesUpload.cancel();
+		alphaSortingJob.destroy();
 
 		if (sceneContext != null) {
 			sceneContext.worldViewContext = null;
@@ -394,10 +391,6 @@ public class WorldViewContext {
 		uboWorldViewStruct = null;
 		projection = null;
 		isSquashed = false;
-
-		if(eboAlphaIndices != null)
-			PooledArrayType.INT.release(eboAlphaIndices);
-		eboAlphaIndices = null;
 
 		for (int i = 0; i < VAO_COUNT; i++) {
 			for (int k = 0; k < FRAMES_IN_FLIGHT; k++) {
@@ -413,6 +406,10 @@ public class WorldViewContext {
 		for (int x = 0; x < sizeX; ++x)
 			for (int z = 0; z < sizeZ; ++z)
 				zones[x][z].destroy();
+
+		synchronized (staticAlphaModels) {
+			staticAlphaModels.clear();
+		}
 
 		if (vboM != null)
 			vboM.destroy();
