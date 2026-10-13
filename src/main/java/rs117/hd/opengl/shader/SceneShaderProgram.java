@@ -8,6 +8,7 @@ import static rs117.hd.HdPlugin.TEXTURE_UNIT_SHADOW_MAP;
 import static rs117.hd.HdPlugin.TEXTURE_UNIT_TILED_LIGHTING_MAP;
 import static rs117.hd.renderer.zone.ZoneRenderer.TEXTURE_UNIT_MODEL_DATA;
 import static rs117.hd.renderer.zone.ZoneRenderer.TEXTURE_UNIT_TEXTURED_FACES;
+import static rs117.hd.renderer.zone.ZoneRenderer.TEXTURE_UNIT_ZONE_DATA;
 
 public class SceneShaderProgram extends ShaderProgram {
 	protected final UniformTexture uniTextureArray = addUniformTexture("textureArray");
@@ -15,6 +16,7 @@ public class SceneShaderProgram extends ShaderProgram {
 	protected final UniformTexture uniTiledLightingTextureArray = addUniformTexture("tiledLightingArray");
 	protected final UniformTexture uniTextureFaces = addUniformTexBuffer("textureFaces");
 	protected final UniformTexture uniModelData = addUniformTexBuffer("modelData");
+	protected final UniformTexture uniZoneData = addUniformTexBuffer("zoneData");
 	public final Uniform1f uniRoofFade = addUniform1f("roofFade");
 
 	protected boolean allowDiscard = false;
@@ -39,6 +41,7 @@ public class SceneShaderProgram extends ShaderProgram {
 		uniTiledLightingTextureArray.set(TEXTURE_UNIT_TILED_LIGHTING_MAP);
 		uniTextureFaces.set(TEXTURE_UNIT_TEXTURED_FACES);
 		uniModelData.set(TEXTURE_UNIT_MODEL_DATA);
+		uniZoneData.set(TEXTURE_UNIT_ZONE_DATA);
 	}
 
 	public static class Discard extends SceneShaderProgram {
