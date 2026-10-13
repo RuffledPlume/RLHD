@@ -246,6 +246,10 @@ public class WorldViewContext {
 			}
 			model.refCount = 1;
 			staticAlphaModels.put(model, model);
+
+			// Remove models with no references
+			staticAlphaModels.values().removeIf((other) -> other.refCount <= 0);
+
 			return model;
 		}
 	}
@@ -256,10 +260,6 @@ public class WorldViewContext {
 
 		final int offset = sceneContext.sceneOffset >> 3;
 		final boolean frustumCull = worldViewId == WorldView.TOPLEVEL;
-
-		synchronized (staticAlphaModels) {
-			staticAlphaModels.values().removeIf((model) -> model.refCount <= 0);
-		}
 
 		for (int zx = 0; zx < sizeX; zx++) {
 			for (int zz = 0; zz < sizeZ; zz++) {
