@@ -20155,6 +20155,7 @@
   },
   {
     "description": "STANDING_TORCH",
+    "excludeAreas": [ "TAVERLEY_STONE_CIRCLE" ],
     "height": 200,
     "radius": 500,
     "strength": 9,
@@ -20188,6 +20189,25 @@
       "FAI_BARBARIAN_TORCH",
       "ROYAL_TORCH",
       "DWARF_KELDAGRIM_LAMP_STAND"
+    ]
+  },
+  {
+    "description": "TAVERLEY_STONE_CIRCLE_STANDING_TORCH",
+    "areas": [ "TAVERLEY_STONE_CIRCLE" ],
+    "height": 200,
+    "radius": 275,
+    "strength": 13,
+    "nightMultiplier": 1.35,
+    "color": [
+      252,
+      148,
+      3
+    ],
+    "type": "FLICKER",
+    "duration": 0,
+    "range": 20,
+    "objectIds": [
+      "STANDING_TORCH"
     ]
   },
   {
@@ -20730,6 +20750,7 @@
   },
   {
     "description": "LANTERN",
+    "excludeAreas": [ "LADY_ZAY" ],
     "height": 250,
     "radius": 500,
     "strength": 12.5,
@@ -20746,6 +20767,80 @@
       "VC_LANTERN_DECOR",
       "QUEST_LUNAR_HANGING_LANTERN"
     ]
+  },
+  {
+    "description": "LADY_ZAY_LANTERN_UPPER",
+    "areas": [ "LADY_ZAY" ],
+    "excludeAreas": [ "LADY_ZAY_PLANE_0" ],
+    "visibleFromOtherPlanes": false,
+    "offset": [ 0, 250, -20 ],
+    "radius": 350,
+    "strength": 12.5,
+    "color": [
+      252,
+      148,
+      3
+    ],
+    "type": "FLICKER",
+    "duration": 0,
+    "range": 20,
+    "objectIds": [
+      "QUEST_LUNAR_HANGING_LANTERN"
+    ]
+  },
+  {
+    "description": "LADY_ZAY_LANTERN_LOWER",
+    "areas": [ "LADY_ZAY_PLANE_0" ],
+    "offset": [ 0, 300, -20 ],
+    "radius": 300,
+    "strength": 12.5,
+    "color": [
+      252,
+      148,
+      3
+    ],
+    "type": "FLICKER",
+    "duration": 0,
+    "range": 20,
+    "objectIds": [
+      "QUEST_LUNAR_HANGING_LANTERN"
+    ]
+  },
+  {
+    "description": "LADY_ZAY_TRANSITION_LIGHT_LUNAR",
+    "height": 300,
+    "worldX": 2140,
+    "worldY": 3912,
+    "visibleFromOtherPlanes": false,
+    "plane": 0,
+    "radius": 300,
+    "strength": 12.5,
+    "color": [
+      252,
+      148,
+      3
+    ],
+    "type": "FLICKER",
+    "duration": 0,
+    "range": 20
+  },
+  {
+    "description": "LADY_ZAY_TRANSITION_LIGHT_COVE",
+    "height": 300,
+    "worldX": 2224,
+    "worldY": 3809,
+    "visibleFromOtherPlanes": false,
+    "plane": 0,
+    "radius": 300,
+    "strength": 12.5,
+    "color": [
+      252,
+      148,
+      3
+    ],
+    "type": "FLICKER",
+    "duration": 0,
+    "range": 20
   },
   {
     "description": "LANTERN - VISIBLE ON OTHER PLANES",
@@ -47546,10 +47641,27 @@
     ]
   },
   {
-    "description": "Mercanry Ship Wreak Fire 1",
-    "excludeAreas": [ "FIRE_ALTAR_CULL_FIRE_LIGHTS" ],
-    "offset": [ -70, 350, 70 ],
-    "radius": 350,
+    "description": "Mercenary Ship Wreak Fire Main",
+    "offset": [ -70, 400, 70 ],
+    "nightMultiplier": 3,
+    "radius": 550,
+    "strength": 7,
+    "color": [
+      252,
+      148,
+      3
+    ],
+    "type": "FLICKER",
+    "duration": 0,
+    "range": 10,
+    "objectIds": [
+      "SAILING_MERCENARY_SHIPWRECK"
+    ]
+  },
+  {
+    "description": "Mercenary Ship Wreak Fire 1",
+    "offset": [ -70, 400, 70 ],
+    "radius": 375,
     "strength": 12.5,
     "color": [
       252,
@@ -47564,10 +47676,9 @@
     ]
   },
   {
-    "description": "Mercanry Ship Wreak Fire 2",
-    "excludeAreas": [ "FIRE_ALTAR_CULL_FIRE_LIGHTS" ],
-    "offset": [ 100, 550, -30 ],
-    "radius": 250,
+    "description": "Mercenary Ship Wreak Fire 2",
+    "offset": [ 100, 580, -30 ],
+    "radius": 270,
     "strength": 12.5,
     "color": [
       252,
@@ -47582,8 +47693,7 @@
     ]
   },
   {
-    "description": "Mercanry Ship Wreak Fire 3",
-    "excludeAreas": [ "FIRE_ALTAR_CULL_FIRE_LIGHTS" ],
+    "description": "Mercenary Ship Wreak Fire 3",
     "offset": [ -220, 180, 100 ],
     "radius": 150,
     "strength": 17,
@@ -47600,8 +47710,7 @@
     ]
   },
   {
-    "description": "Mercanry Ship Wreak Fire 4",
-    "excludeAreas": [ "FIRE_ALTAR_CULL_FIRE_LIGHTS" ],
+    "description": "Mercenary Ship Wreak Fire 4",
     "offset": [ 65, 250, 190 ],
     "radius": 200,
     "strength": 17,
@@ -47618,8 +47727,7 @@
     ]
   },
   {
-    "description": "Mercanry Ship Wreak Fire 5",
-    "excludeAreas": [ "FIRE_ALTAR_CULL_FIRE_LIGHTS" ],
+    "description": "Mercenary Ship Wreak Fire 5",
     "offset": [ 145, 230, -140 ],
     "radius": 200,
     "strength": 17,
@@ -47636,8 +47744,7 @@
     ]
   },
   {
-    "description": "Mercanry Ship Wreak Fire 6",
-    "excludeAreas": [ "FIRE_ALTAR_CULL_FIRE_LIGHTS" ],
+    "description": "Mercenary Ship Wreak Fire 6",
     "offset": [ 85, 95, -200 ],
     "radius": 100,
     "strength": 25,
@@ -47654,8 +47761,7 @@
     ]
   },
   {
-    "description": "Mercanry Ship Wreak Fire 7",
-    "excludeAreas": [ "FIRE_ALTAR_CULL_FIRE_LIGHTS" ],
+    "description": "Mercenary Ship Wreak Fire 7",
     "offset": [ -60, 295, -80 ],
     "radius": 100,
     "strength": 25,
@@ -48949,7 +49055,8 @@
     "range": 19,
     "objectIds": [
       "MAGIC_TREE_FULLYGROWN_2",
-      "MAGICTREE"
+      "MAGICTREE",
+      "CRAB_MAGICTREE_NOOP"
     ]
   },
   {
@@ -48968,7 +49075,8 @@
     "range": 17,
     "objectIds": [
       "MAGIC_TREE_FULLYGROWN_2",
-      "MAGICTREE"
+      "MAGICTREE",
+      "CRAB_MAGICTREE_NOOP"
     ]
   },
   {
@@ -48987,7 +49095,8 @@
     "range": 15,
     "objectIds": [
       "MAGIC_TREE_FULLYGROWN_2",
-      "MAGICTREE"
+      "MAGICTREE",
+      "CRAB_MAGICTREE_NOOP"
     ]
   },
   {
@@ -49006,7 +49115,8 @@
     "range": 10,
     "objectIds": [
       "MAGIC_TREE_FULLYGROWN_2",
-      "MAGICTREE"
+      "MAGICTREE",
+      "CRAB_MAGICTREE_NOOP"
     ]
   },
   {
@@ -49025,7 +49135,8 @@
     "range": 10,
     "objectIds": [
       "MAGIC_TREE_FULLYGROWN_2",
-      "MAGICTREE"
+      "MAGICTREE",
+      "CRAB_MAGICTREE_NOOP"
     ]
   },
   {
@@ -49044,7 +49155,8 @@
     "range": 25,
     "objectIds": [
       "MAGIC_TREE_FULLYGROWN_2",
-      "MAGICTREE"
+      "MAGICTREE",
+      "CRAB_MAGICTREE_NOOP"
     ]
   },
   {
@@ -49063,7 +49175,8 @@
     "range": 35,
     "objectIds": [
       "MAGIC_TREE_FULLYGROWN_2",
-      "MAGICTREE"
+      "MAGICTREE",
+      "CRAB_MAGICTREE_NOOP"
     ]
   },
   {
@@ -49082,7 +49195,8 @@
     "range": 35,
     "objectIds": [
       "MAGIC_TREE_FULLYGROWN_2",
-      "MAGICTREE"
+      "MAGICTREE",
+      "CRAB_MAGICTREE_NOOP"
     ]
   },
   {
@@ -49101,7 +49215,8 @@
     "range": 25,
     "objectIds": [
       "MAGIC_TREE_FULLYGROWN_2",
-      "MAGICTREE"
+      "MAGICTREE",
+      "CRAB_MAGICTREE_NOOP"
     ]
   },
   {
@@ -49120,7 +49235,8 @@
     "range": 25,
     "objectIds": [
       "MAGIC_TREE_FULLYGROWN_2",
-      "MAGICTREE"
+      "MAGICTREE",
+      "CRAB_MAGICTREE_NOOP"
     ]
   },
   {
@@ -49139,7 +49255,8 @@
     "range": 25,
     "objectIds": [
       "MAGIC_TREE_FULLYGROWN_2",
-      "MAGICTREE"
+      "MAGICTREE",
+      "CRAB_MAGICTREE_NOOP"
     ]
   },
   {
@@ -49158,7 +49275,8 @@
     "range": 30,
     "objectIds": [
       "MAGIC_TREE_FULLYGROWN_2",
-      "MAGICTREE"
+      "MAGICTREE",
+      "CRAB_MAGICTREE_NOOP"
     ]
   },
   {
@@ -49177,7 +49295,8 @@
     "range": 20,
     "objectIds": [
       "MAGIC_TREE_FULLYGROWN_2",
-      "MAGICTREE"
+      "MAGICTREE",
+      "CRAB_MAGICTREE_NOOP"
     ]
   },
   {
@@ -49945,7 +50064,7 @@
   {
     "description": "Wyrmscraig Mad Angel Light Tennis Attack",
     "offset": [ 0, 30, 0 ],
-    "radius": 220,
+    "radius": 600,
     "strength": 7,
     "color": [
       255,
@@ -49957,7 +50076,7 @@
   {
     "description": "Wyrmscraig Mad Angel Light Tennis Volley Attack - Impact",
     "offset": [ 0, 300, 0 ],
-    "radius": 450,
+    "radius": 850,
     "strength": 7,
     "spawnDelay": 50,
     "fadeInDuration": 100,
@@ -49991,7 +50110,7 @@
   {
     "description": "Wyrmscraig Mad Angel Light Tennis Attack - Cast",
     "offset": [ 0, 270, 100 ],
-    "radius": 350,
+    "radius": 750,
     "strength": 9,
     "spawnDelay": 350,
     "fadeInDuration": 100,

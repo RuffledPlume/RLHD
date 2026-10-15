@@ -102,9 +102,7 @@
       "auroraVisibility": 0.019,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#251f1d"
-    },
-    "groundFogHeight": 264.7,
-    "groundFogDensity": 1.2786
+    }
   },
   {
     "area": "WILDERNESS_LOW",
@@ -155,9 +153,7 @@
       "auroraVisibility": 0.144,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#302c2f"
-    },
-    "groundFogHeight": 264.7,
-    "groundFogDensity": 1.2786
+    }
   },
   {
     "area": "HUNTER_GUILD",
@@ -457,9 +453,7 @@
       "starVisibility": 0.229,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#20324b"
-    },
-    "groundFogHeight": 529.4,
-    "groundFogDensity": 2.4847
+    }
   },
   {
     "description": "With blood moon and Night, for the portion of the quest immediately after returning from Vampyrium to the overworld. Must remain above the default Ver Sinhaza environment",
@@ -509,9 +503,7 @@
       "starVisibility": 0.229,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#20324b"
-    },
-    "groundFogHeight": 529.4,
-    "groundFogDensity": 2.4847
+    }
   },
   {
     "description": "Needs to be above the non-legacy version",
@@ -671,9 +663,7 @@
       "nightHorizonStrength": 1,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#2a303b"
-    },
-    "groundFogHeight": 847.1,
-    "groundFogDensity": 2.4847
+    }
   },
   {
     "description": "With blood moon and Night, for the portion of the quest immediately after returning from Vampyrium to the overworld. Must remain above the default Darkmeyer environment",
@@ -721,9 +711,7 @@
       "starVisibility": 0.229,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#20324b"
-    },
-    "groundFogHeight": 529.4,
-    "groundFogDensity": 2.4847
+    }
   },
   {
     "area": "MEIYERDITCH",
@@ -749,9 +737,7 @@
       "auroraVisibility": 0.049,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#2a364d"
-    },
-    "groundFogHeight": 529.4,
-    "groundFogDensity": 2.4847
+    }
   },
   {
     "area": "MEIYERDITCH_MYREQUE_HIDEOUT",
@@ -871,9 +857,7 @@
       "skyVisibility": 1,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#dda47c"
-    },
-    "groundFogHeight": 423.5,
-    "groundFogDensity": 0.7999
+    }
   },
   {
     "description": "With blood moon and Night, for the portion of the quest immediately after returning from Vampyrium to the overworld. Must remain above the default Morytania environment",
@@ -922,9 +906,7 @@
       "auroraVisibility": 0.182,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#21324b"
-    },
-    "groundFogHeight": 529.4,
-    "groundFogDensity": 2.4847
+    }
   },
   {
     "area": "LUMBRIDGE_CASTLE_BASEMENT",
@@ -1295,9 +1277,7 @@
       "auroraVisibility": 0.396,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#b7b7bd"
-    },
-    "groundFogHeight": 2000,
-    "groundFogDensity": 0.5
+    }
   },
   {
     "area": "MOUNTAIN_CAMP",
@@ -1320,9 +1300,7 @@
       "auroraVisibility": 0.396,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#b7b7bd"
-    },
-    "groundFogHeight": 2000,
-    "groundFogDensity": 0.5
+    }
   },
   {
     "area": "FREMENNIK_PROVINCE",
@@ -1347,9 +1325,7 @@
       "auroraVisibility": 0.396,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#a29fa0"
-    },
-    "groundFogHeight": 2000,
-    "groundFogDensity": 0.5
+    }
   },
   {
     "area": "RELLEKKA_COLD_WATER",
@@ -1414,9 +1390,7 @@
       "auroraVisibility": 0.736,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#a09ea2"
-    },
-    "groundFogHeight": 635.3,
-    "groundFogDensity": 1.2786
+    }
   },
   {
     "area": "FREMENNIK_ISLES_FAR_NORTH",
@@ -1631,8 +1605,8 @@
       "skyVisibility": 0.34,
       "moonVisibility": 0.3,
       "skyFogDensity": 2.42,
-      "nightHorizonColor": "#070912",
-      "nightHorizonStrength": 1,
+      "nightHorizonColor": "#32372f",
+      "nightHorizonStrength": 0.075,
       "starVisibility": 0.215,
       "auroraVisibility": 0.215,
       "skyFogHorizonAltitude": 90,
@@ -1787,9 +1761,9 @@
     "windStrength": 30,
     "windSpeed": 10,
     "sky": {
-      "skyVisibility": 0.99,
-      "skyFogDensity": 2.53,
-      "nightHorizonColor": "#0C0F19",
+      "skyVisibility": 0.55,
+      "skyFogDensity": 2.5,
+      "nightHorizonColor": "#080C06",
       "nightHorizonStrength": 1,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#2c2f18"
@@ -1811,7 +1785,7 @@
     "sky": {
       "skyVisibility": 0.99,
       "skyFogDensity": 4.14,
-      "nightHorizonColor": "#0C0F19",
+      "nightHorizonColor": "#0A0000",
       "nightHorizonStrength": 1,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#4f1426"
@@ -1862,9 +1836,7 @@
       "auroraVisibility": 0.203,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#afbce1"
-    },
-    "groundFogHeight": 4235.3,
-    "groundFogDensity": 3.7633
+    }
   },
   {
     "area": "ARCEUUS",
@@ -1899,7 +1871,7 @@
       "sunriseSunsetStrength": 0.2,
       "skyColorTakeoverAngle": 10,
       "skyFogDensity": 2.4,
-      "nightHorizonColor": "#05070F",
+      "nightHorizonColor": "#0A0402",
       "nightHorizonStrength": 1,
       "starVisibility": 0.049,
       "auroraVisibility": 0.049,
@@ -2087,9 +2059,7 @@
       "auroraVisibility": 0.144,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#47484c"
-    },
-    "groundFogHeight": 317.6,
-    "groundFogDensity": 1.2786
+    }
   },
   {
     "area": "THE_STORM_TEMPOR_EDGE",
@@ -2134,9 +2104,7 @@
       "auroraVisibility": 0.144,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#4d515b"
-    },
-    "groundFogHeight": 317.6,
-    "groundFogDensity": 1.0313
+    }
   },
   {
     "area": "TEMPLE_OF_THE_EYE",
@@ -2154,8 +2122,15 @@
     "windAngle": 140,
     "groundFogOpacity": 0.7,
     "waterCausticsStrength": 40,
-    "groundFogHeight": 741.2,
-    "groundFogDensity": 4.3159
+    "sky": {
+      "parent": "NIGHT",
+      "skyVisibility": 0.6,
+      "moonVisibility": 0.7,
+      "skyFogDensity": 0.11,
+      "starVisibility": 0.439,
+      "starHorizonHeight": 0.93,
+      "auroraVisibility": 0.439
+    }
   },
   {
     "area": "DEATHS_OFFICE",
@@ -2301,13 +2276,26 @@
   {
     "area": "COSMIC_ALTAR",
     "allowSkyOverride": false,
-    "ambientStrength": 0.2,
+    "ambientStrength": 1.5,
+    "fogColor": "#000000",
     "directionalStrength": 3,
     "shadowAngles": [
       80,
       190
     ],
-    "fogDepth": 40
+    "fogDepth": 40,
+    "sky":{
+      "parent": "VOID",
+      "horizonWidth": 35,
+      "profile": {
+        "horizon": [
+          {
+            "altitude": 0,
+            "color": "#00030F"
+          }
+        ]
+      }
+    }
   },
   {
     "area": "TRUE_BLOOD_ALTAR",
@@ -2320,7 +2308,20 @@
     "waterCausticsStrength": 0,
     "fogDepth": 20,
     "windSpeed": 10,
-    "windStrength": 27.5
+    "windStrength": 27.5,
+    "sky": {
+      "parent": "BLOOD_MOON",
+      "moonSizeMult": 1.3,
+      "moonDirectionalStrength": 0.003,
+      "moonDiskStrength": 0.75,
+      "skyVisibility": 0.8,
+      "starVisibility": 0.1,
+      "auroraVisibility": 0,
+      "nightHorizonColor": "#110000",
+      "nightHorizonStrength": 2.5,
+      "skyFogHorizonAltitude": 90,
+      "skyFogColor": "#4f1426"
+    }
   },
   {
     "area": "TARNS_LAIR",
@@ -2749,9 +2750,7 @@
       "auroraVisibility": 0.396,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#b4b9d4"
-    },
-    "groundFogHeight": 2117.6,
-    "groundFogDensity": 1.2786
+    }
   },
   {
     "area": "VARLAMORE_SNOWY_MOUNTAINS_UPPER",
@@ -3115,7 +3114,7 @@
     "windStrength": 50,
     "fogColor": "#330D0D",
     "sky": {
-      "skyVisibility": 1,
+      "skyVisibility": 0.85,
       "auroraVisibility": 0,
       "skyFogDensity": 5.6,
       "skyFogColor": "#2D0400",
@@ -3176,9 +3175,7 @@
       "auroraVisibility": 0.396,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#a29fa0"
-    },
-    "groundFogHeight": 635.3,
-    "groundFogDensity": 1.2786
+    }
   },
   {
     "area": "PLAYER_OWNED_HOUSE_MORY",
@@ -3206,9 +3203,7 @@
       "auroraVisibility": 0.182,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#24344c"
-    },
-    "groundFogHeight": 529.4,
-    "groundFogDensity": 2.4847
+    }
   },
   {
     "area": "PLAYER_OWNED_HOUSE_DEATH",
@@ -3274,9 +3269,7 @@
       "auroraVisibility": 0.376,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#9f9eb0"
-    },
-    "groundFogHeight": 847.1,
-    "groundFogDensity": 0.9137
+    }
   },
   {
     "area": "WYRMSCRAIG",
@@ -3292,6 +3285,48 @@
     "windStrength": 60,
     "groundFogHeight": 847.1,
     "groundFogDensity": 0.9137
+  },
+  {
+    "description": "Crab quest sunset cutscene",
+    "area": "CRAB_QUEST_ISLAND",
+    "varbitCondition": "CRAB_PUT_BACK_IN_INSTANCE && CUTSCENE_STATUS && CRAB_BASS >= 184",
+    "varpCondition": "MUSIC_CURRENT_TRACK == 7086",
+    "sky": {
+      "sunAngles": [ 0, 221 ]
+    },
+    "ambientColor": "#97baff",
+    "ambientStrength": 1,
+    "directionalStrength": 4,
+    "shadowAngles": [
+      52,
+      235
+    ],
+    "fogDepth": 6.5,
+    "windAngle": 40,
+    "windSpeed": 15,
+    "windStrength": 50,
+    "instantTransition": true,
+    "hideVanillaSkyboxes": true
+  },
+  {
+    "description": "Crab quest daytime",
+    "area": "CRAB_QUEST_ISLAND",
+    "varbitCondition": "CRAB_PUT_BACK_IN_INSTANCE",
+    "sky": {
+      "sunAngles": [ 30, 240 ]
+    },
+    "ambientColor": "#97baff",
+    "ambientStrength": 1,
+    "directionalStrength": 4,
+    "shadowAngles": [
+      52,
+      235
+    ],
+    "fogDepth": 6.5,
+    "windAngle": 40,
+    "windSpeed": 15,
+    "windStrength": 50,
+    "hideVanillaSkyboxes": true
   },
   {
     "key": "OVERWORLD",

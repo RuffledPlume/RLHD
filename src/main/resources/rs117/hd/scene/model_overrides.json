@@ -12170,7 +12170,8 @@
       "DADDYSHOME_CARPET_SIDE_BROKEN_0OP",
       "DADDYSHOME_CARPET_SIDE_FIXED",
       "DT2_GHORROCK_RUGSIDE",
-      "DOGQ_DEN_BED"
+      "DOGQ_DEN_BED",
+      "DOGQ_DEN_BED_NOOP"
     ]
   },
   {
@@ -15437,7 +15438,8 @@
       "FIGHTARENA_DOOR2_ESCAPE",
       "DOTI_INTERROGATION_DOOR",
       "LUC2_MOV_DOOR_CLOSED",
-      "LUC2_MOV_DOOR_OPEN"
+      "LUC2_MOV_DOOR_OPEN",
+      "BRASSKEYDOOR"
     ],
     "uvType": "BOX",
     "flatNormals": true,
@@ -18125,7 +18127,8 @@
       "CRATE_WOODEN01_REINFORCED01_OPEN01_IMCANDO01",
       "SLUG2_LIGHTHOUSE_CRATE_STACK",
       "BANANACRATE",
-      "DOGQ_DEN_BOX"
+      "DOGQ_DEN_BOX",
+      "DOGQ_DEN_BOX_NOOP"
     ],
     "uvType": "BOX",
     "flatNormals": true,
@@ -24948,7 +24951,9 @@
       "AVIUM_TREE_2",
       "AVIUM_TREE_DARK",
       "KHARAZI_JUNGLE_TREE1",
-      "XBOWS_BEACH_TO_ISLAND_TREE_BASIC"
+      "XBOWS_BEACH_TO_ISLAND_TREE_BASIC",
+      "CRAB_AVIUM_TREE_1",
+      "CRAB_AVIUM_TREE_2"
     ],
     "uvType": "MODEL_XZ",
     "uvScale": 0.25,
@@ -36469,7 +36474,8 @@
       "FAI_LEAFLESS_BUSH_SMALL_02",
       "DOV_HUNTING_PLANT2",
       "DOV_HUNTING_PLANT2_OP",
-      "HW17_JARVIS_BUSH"
+      "HW17_JARVIS_BUSH",
+      "CRAB_ENAKH_LEAFLESSBUSH"
     ],
     "uvType": "BOX",
     "uvOrientation": 600
@@ -39226,7 +39232,8 @@
       "MAGIC_TREE_11",
       "MAGIC_TREE_FULLYGROWN_1",
       "MAGIC_TREE_FULLYGROWN_2",
-      "MAGICTREE"
+      "MAGICTREE",
+      "CRAB_MAGICTREE"
     ],
     "uvType": "BOX",
     "uvOrientation": 150,
@@ -48212,6 +48219,7 @@
       "GROUNDCOVER_PLANT3_WITHERED",
       "GROUNDCOVER_PLANT4_WITHERED",
       "GROUNDCOVER_PLANT5_WITHERED",
+      "CRAB_GROUNDCOVER_PLANT4_WITHERED",
       "TT_HUNTING_PLANT_04_OP",
       "TT_HUNTING_PLANT_04_NOOP",
       "TT_HUNTING_PLANT_05_OP",
@@ -82034,6 +82042,31 @@
     ]
   },
   {
+    "description": "Sailing - NPC Ship",
+    "baseMaterial": "METALLIC_1_VERY_LIGHT_SMOOTH",
+    "objectIds": [
+      "SAILING_BOAT_NPC_KANDARIN_LARGE01A",
+      "SAILING_BOAT_NPC_KANDARIN_LARGE01B1",
+      "SAILING_BOAT_NPC_KANDARIN_LARGE01B2",
+      "SAILING_BOAT_NPC_KANDARIN_LARGE01C1",
+      "SAILING_BOAT_NPC_KANDARIN_LARGE01C2",
+      "SAILING_BOAT_NPC_KANDARIN_LARGE01D",
+      "SAILING_BOAT_NPC_KANDARIN_LARGE01E",
+      "SAILING_BOAT_NPC_KANDARIN_LARGE01F",
+      "SAILING_BOAT_NPC_KANDARIN_LARGE01G"
+    ],
+    "colorOverrides": [
+      {
+        "description": "Hull",
+        "colors": "h == 5",
+        "baseMaterial": "WOOD_GRAIN_3",
+        "uvType": "BOX",
+        "uvScale": 0.65,
+        "uvOrientation": 512
+      }
+    ]
+  },
+  {
     "description": "Ship - Wood with Sails or Metal",
     "baseMaterial": "METALLIC_1_VERY_LIGHT_SMOOTH",
     "objectIds": [
@@ -82061,7 +82094,7 @@
       {
         "description": "Sail",
         "colors": "h == 8",
-        "baseMaterial": "CARPET_LIGHT_SMOOTH",
+        "baseMaterial": "SAIL_CLOTH_LIGHT_SMOOTH",
         "shadowNormalBias": true
       }
     ]
@@ -82072,7 +82105,8 @@
     "objectIds": [
       "BOATKIT_MAST_MIDDLEMAST_HOISTED",
       "BOATKIT_MAST_REARMAST_HOISTED",
-      "BOATKIT_MAST_MIDDLEMAST_UNFURLED"
+      "BOATKIT_MAST_MIDDLEMAST_UNFURLED",
+      "BOATKIT_MAST_MIDDLEMAST_FULL"
     ],
     "disableDetailCulling": true,
     "colorOverrides": [
@@ -82087,7 +82121,7 @@
       {
         "description": "Sail",
         "colors": "h == 8",
-        "baseMaterial": "CARPET_LIGHT_SMOOTH",
+        "baseMaterial": "SAIL_CLOTH_LIGHT_SMOOTH",
         "shadowNormalBias": true
       }
     ]
@@ -84297,7 +84331,7 @@
     "colorOverrides": [
       {
         "description": "Canvas Roof",
-        "baseMaterial": "CARPET_LIGHT_SMOOTH",
+        "baseMaterial": "SAIL_CLOTH_LIGHT_SMOOTH",
         "colors": "h > 6 && h < 11"
       },
       {
@@ -84388,7 +84422,10 @@
       "PALM_UPDATE03",
       "TT_PALM_1",
       "TT_PALM_2",
-      "TT_PALM_3"
+      "TT_PALM_3",
+      "CRAB_PALM_UPDATE01",
+      "CRAB_PALM_UPDATE02",
+      "CRAB_PALM_UPDATE03"
     ],
     "colorOverrides": [
       {
@@ -87605,7 +87642,9 @@
     "objectIds": [
       "TARNISHED_PIRATE_THIEVING_CHEST_CROWN_JEWEL",
       "TARNISHED_PIRATE_THIEVING_CHEST_SHIMMERING_ATOLL",
-      "TARNISHED_PIRATE_THIEVING_CHEST_OPEN"
+      "TARNISHED_PIRATE_THIEVING_CHEST_OPEN",
+      "RUSTY_PIRATE_THIEVING_CHEST_DOGNOSE",
+      "RUSTY_PIRATE_THIEVING_CHEST_OPEN"
     ],
     "colorOverrides": [
       {
@@ -105036,15 +105075,16 @@
     ]
   },
   {
-    "description": "Wyrmscraig - Mad Angel - Darken Light Tennis Shadow Slightly",
+    "description": "Wyrmscraig - Mad Angel - Light Tennis landing shadow - Black and more opaque so it stays visible inside HD shadows",
     "areas": [ "WYRMSCRAIG" ],
-    "baseMaterial": "GRAY_125",
+    "baseMaterial": "BLACK",
+    "shiftAlpha": 60,
     "graphicsObjectIds": [
       "GARGBOSS_DEBRIS_SHADOW_150"
     ]
   },
   {
-    "description": "Wyrmscraig - Mad Angel - Darken Light Tennis Shadow Slightly",
+    "description": "Wyrmscraig - Mad Angel - Brighten Cathedral Light Rays Slightly",
     "areas": [ "WYRMSCRAIG" ],
     "shiftLightness": 3,
     "objectIds": [ "WYRMSCRAIG_CATHEDRAL_LIGHTRAY01" ]
@@ -105683,7 +105723,8 @@
     "shiftLightness": 2,
     "uvType": "BOX",
     "objectIds": [
-      "DOGQ_DEN_SCRAPS"
+      "DOGQ_DEN_SCRAPS",
+      "DOGQ_DEN_SCRAPS_NOOP"
     ]
   },
   {
@@ -105735,6 +105776,132 @@
     ],
     "objectIds": [
       "PRISON_BUCKET_SPILT"
+    ]
+  },
+  {
+    "description": "Ruff Situation - Varrock Dog Bed",
+    "baseMaterial": "WOOD_GRAIN_3",
+    "uvType": "BOX",
+    "uvScale": 0.5,
+    "uvOrientationX": 512,
+    "uvOrientationZ": 512,
+    "colorOverrides": [
+      {
+        "colors": "h == 0",
+        "baseMaterial": "CARPET_LIGHT",
+        "uvType": "MODEL_XZ"
+      }
+    ],
+    "objectIds": [
+      "DOGQ_DOG_GUARD_HOUSE"
+    ]
+  },
+  {
+    "description": "Crab Quest - Quest Start Sand",
+    "uvType": "BOX",
+    "baseMaterial": "SAND_4",
+    "objectIds": [
+      "ENAKH_TEMPLE_SAND_PILE1"
+    ]
+  },
+  {
+    "description": "Crab Quest - Floatsam",
+    "uvType": "BOX",
+    "baseMaterial": "SAND_4",
+    "npcIds": [
+      "CRAB_FLOATSAM_1",
+      "CRAB_FLOATSAM_2",
+      "CRAB_FLOATSAM_3"
+    ],
+    "colorOverrides": [
+      {
+        "colors": "h == 5 && s == 0 || h == 5 && s == 1",
+        "baseMaterial": "METALLIC_1_SMOOTH"
+      },
+      {
+        "colors": "h == 5",
+        "baseMaterial": "WOOD_GRAIN_3",
+        "uvType": "BOX",
+        "uvScale": 0.5
+      },
+      {
+        "colors": "h == 0 && s == 2",
+        "baseMaterial": "WOOD_GRAIN_3",
+        "uvType": "BOX",
+        "uvScale": 0.35,
+        "uvOrientationY": 256
+      },
+      {
+        "colors": "h == 7",
+        "baseMaterial": "GRUNGE_3"
+      },
+      {
+        "colors": "h == 12",
+        "baseMaterial": "LEAF_VEINS",
+        "uvType": "BOX",
+        "uvScale": 0.1
+      },
+      {
+        "colors": "h == 37 && a < 255",
+        "baseMaterial": "NONE",
+        "hideAsWaterEffect": true
+      }
+    ]
+  },
+  {
+    "description": "Crab Quest - Coconut",
+    "uvType": "BOX",
+    "uvScale": 0.7,
+    "baseMaterial": "FUR",
+    "objectIds": [
+      "CRAB_DRUMS"
+    ]
+  },
+  {
+    "description": "Crab Quest - Bass Guitar",
+    "uvType": "BOX",
+    "uvScale": 0.7,
+    "baseMaterial": "FUR",
+    "objectIds": [
+      "CRAB_BASS"
+    ],
+    "colorOverrides": [
+      {
+        "colors": "h == 5 && s == 0 || h == 5 && s == 1",
+        "baseMaterial": "METALLIC_1_SMOOTH"
+      },
+      {
+        "colors": "h == 5",
+        "baseMaterial": "WOOD_GRAIN_3",
+        "uvType": "BOX",
+        "uvScale": 0.4
+      },
+      {
+        "colors": "h == 0 && s == 2",
+        "baseMaterial": "WOOD_GRAIN_3",
+        "uvType": "BOX",
+        "uvScale": 0.35,
+        "uvOrientation": -256
+      },
+      {
+        "colors": "h == 7",
+        "baseMaterial": "GRUNGE_3"
+      }
+    ]
+  },
+  {
+    "description": "Crab Quest - Note Shells",
+    "uvType": "BOX",
+    "uvScale": 0.2,
+    "baseMaterial": "GRUNGE_3_SMOOTH",
+    "objectIds": [
+      "CRAB_SHELL_1",
+      "CRAB_SHELL_2",
+      "CRAB_SHELL_3",
+      "CRAB_SHELL_4",
+      "CRAB_SHELL_5",
+      "CRAB_SHELL_6",
+      "CRAB_SHELL_7"
     ]
   }
 ]
