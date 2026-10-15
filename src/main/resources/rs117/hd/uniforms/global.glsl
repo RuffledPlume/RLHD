@@ -47,6 +47,10 @@ layout(std140) uniform UBOGlobal {
     float groundFogHeightOffset;
     float groundFogDensity;
 
+    float fogVariant;
+    float windAngle;
+    float windSpeed;
+
     vec3 waterColorLight;
     vec3 waterColorMid;
     vec3 waterColorDark;

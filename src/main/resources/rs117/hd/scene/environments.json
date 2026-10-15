@@ -102,7 +102,9 @@
       "auroraVisibility": 0.019,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#251f1d"
-    }
+    },
+    "groundFogHeight": 264.7,
+    "groundFogDensity": 1.2786
   },
   {
     "area": "WILDERNESS_LOW",
@@ -153,7 +155,9 @@
       "auroraVisibility": 0.144,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#302c2f"
-    }
+    },
+    "groundFogHeight": 264.7,
+    "groundFogDensity": 1.2786
   },
   {
     "area": "HUNTER_GUILD",
@@ -453,7 +457,9 @@
       "starVisibility": 0.229,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#20324b"
-    }
+    },
+    "groundFogHeight": 529.4,
+    "groundFogDensity": 2.4847
   },
   {
     "description": "With blood moon and Night, for the portion of the quest immediately after returning from Vampyrium to the overworld. Must remain above the default Ver Sinhaza environment",
@@ -503,7 +509,9 @@
       "starVisibility": 0.229,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#20324b"
-    }
+    },
+    "groundFogHeight": 529.4,
+    "groundFogDensity": 2.4847
   },
   {
     "description": "Needs to be above the non-legacy version",
@@ -663,7 +671,9 @@
       "nightHorizonStrength": 1,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#2a303b"
-    }
+    },
+    "groundFogHeight": 847.1,
+    "groundFogDensity": 2.4847
   },
   {
     "description": "With blood moon and Night, for the portion of the quest immediately after returning from Vampyrium to the overworld. Must remain above the default Darkmeyer environment",
@@ -711,7 +721,9 @@
       "starVisibility": 0.229,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#20324b"
-    }
+    },
+    "groundFogHeight": 529.4,
+    "groundFogDensity": 2.4847
   },
   {
     "area": "MEIYERDITCH",
@@ -737,7 +749,9 @@
       "auroraVisibility": 0.049,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#2a364d"
-    }
+    },
+    "groundFogHeight": 529.4,
+    "groundFogDensity": 2.4847
   },
   {
     "area": "MEIYERDITCH_MYREQUE_HIDEOUT",
@@ -857,7 +871,9 @@
       "skyVisibility": 1,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#dda47c"
-    }
+    },
+    "groundFogHeight": 423.5,
+    "groundFogDensity": 0.7999
   },
   {
     "description": "With blood moon and Night, for the portion of the quest immediately after returning from Vampyrium to the overworld. Must remain above the default Morytania environment",
@@ -906,7 +922,9 @@
       "auroraVisibility": 0.182,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#21324b"
-    }
+    },
+    "groundFogHeight": 529.4,
+    "groundFogDensity": 2.4847
   },
   {
     "area": "LUMBRIDGE_CASTLE_BASEMENT",
@@ -1277,7 +1295,9 @@
       "auroraVisibility": 0.396,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#b7b7bd"
-    }
+    },
+    "groundFogHeight": 2000,
+    "groundFogDensity": 0.5
   },
   {
     "area": "MOUNTAIN_CAMP",
@@ -1300,7 +1320,9 @@
       "auroraVisibility": 0.396,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#b7b7bd"
-    }
+    },
+    "groundFogHeight": 2000,
+    "groundFogDensity": 0.5
   },
   {
     "area": "FREMENNIK_PROVINCE",
@@ -1325,7 +1347,9 @@
       "auroraVisibility": 0.396,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#a29fa0"
-    }
+    },
+    "groundFogHeight": 2000,
+    "groundFogDensity": 0.5
   },
   {
     "area": "RELLEKKA_COLD_WATER",
@@ -1390,7 +1414,9 @@
       "auroraVisibility": 0.736,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#a09ea2"
-    }
+    },
+    "groundFogHeight": 635.3,
+    "groundFogDensity": 1.2786
   },
   {
     "area": "FREMENNIK_ISLES_FAR_NORTH",
@@ -2059,7 +2085,9 @@
       "auroraVisibility": 0.144,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#47484c"
-    }
+    },
+    "groundFogHeight": 317.6,
+    "groundFogDensity": 1.2786
   },
   {
     "area": "THE_STORM_TEMPOR_EDGE",
@@ -2104,7 +2132,9 @@
       "auroraVisibility": 0.144,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#4d515b"
-    }
+    },
+    "groundFogHeight": 317.6,
+    "groundFogDensity": 1.0313
   },
   {
     "area": "TEMPLE_OF_THE_EYE",
@@ -2130,7 +2160,9 @@
       "starVisibility": 0.439,
       "starHorizonHeight": 0.93,
       "auroraVisibility": 0.439
-    }
+    },
+    "groundFogHeight": 741.2,
+    "groundFogDensity": 4.3159
   },
   {
     "area": "DEATHS_OFFICE",
@@ -2750,7 +2782,9 @@
       "auroraVisibility": 0.396,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#b4b9d4"
-    }
+    },
+    "groundFogHeight": 2117.6,
+    "groundFogDensity": 1.2786
   },
   {
     "area": "VARLAMORE_SNOWY_MOUNTAINS_UPPER",
@@ -3175,7 +3209,9 @@
       "auroraVisibility": 0.396,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#a29fa0"
-    }
+    },
+    "groundFogHeight": 635.3,
+    "groundFogDensity": 1.2786
   },
   {
     "area": "PLAYER_OWNED_HOUSE_MORY",
@@ -3203,7 +3239,9 @@
       "auroraVisibility": 0.182,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#24344c"
-    }
+    },
+    "groundFogHeight": 529.4,
+    "groundFogDensity": 2.4847
   },
   {
     "area": "PLAYER_OWNED_HOUSE_DEATH",
@@ -3269,7 +3307,9 @@
       "auroraVisibility": 0.376,
       "skyFogHorizonAltitude": 90,
       "skyFogColor": "#9f9eb0"
-    }
+    },
+    "groundFogHeight": 847.1,
+    "groundFogDensity": 0.9137
   },
   {
     "area": "WYRMSCRAIG",

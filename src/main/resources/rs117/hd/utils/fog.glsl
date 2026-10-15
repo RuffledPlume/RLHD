@@ -29,6 +29,7 @@
 #include <uniforms/sky.glsl>
 
 #include <utils/constants.glsl>
+#include <utils/misc.glsl>
 
 #define FOG_SCENE_EDGE_MIN ((    - uboGlobal.expandedMapLoadingChunks * 8 + 1) * TILE_SIZE)
 #define FOG_SCENE_EDGE_MAX ((104 + uboGlobal.expandedMapLoadingChunks * 8 - 1) * TILE_SIZE)
@@ -37,6 +38,27 @@
 
 float fogFactorLinear(const float dist, const float start, const float end) {
     return 1.0 - clamp((dist - start) / (end - start), 0.0, 1.0);
+}
+
+void groundFogAnimation(vec3 position, float thickness, out float heightOffset, out float densityScale) {
+    const float noiseScale = 1.0 / 1000.0;
+
+    vec2  windDir   = vec2(cos(uboGlobal.windAngle), sin(uboGlobal.windAngle));
+    float windSpeed = 200.0 * (uboGlobal.windSpeed / 15.0);
+
+    float t = uboGlobal.elapsedTime;
+    vec2 pA = (position.xz + windDir * t * windSpeed) * noiseScale;
+
+    // second layer, drifts across the main one at a different angle and speed
+    vec2  windDirB   = vec2(-windDir.y, windDir.x);
+    float windSpeedB = windSpeed * 0.7;
+    vec2 pB = (position.xz + windDirB * t * windSpeedB) * noiseScale * 1.8 + vec2(31.7, 11.3);
+
+    float n = smoothstep(0.25, 0.75,  mix(noise(pA), noise(pB), 0.45)) - 0.5;
+    float variation = 0.3 * uboGlobal.fogVariant;
+
+    heightOffset = n * variation * 2.0 * thickness;
+    densityScale = 1.0 + n * variation;
 }
 
 // Integral of 1 - smoothstep(0, 1, height): uniform below the layer,
@@ -50,9 +72,14 @@ float calculateGroundFogOpticalDepth(vec3 position) {
     if (uboGlobal.groundFogDensity <= 0.0)
         return 0.0;
 
-    float heightRange = -max(uboGlobal.groundFogHeight, 1.0);
-    float fromHeight = (uboGlobal.cameraPos.y + uboGlobal.groundFogHeightOffset) / heightRange;
-    float toHeight = (position.y + uboGlobal.groundFogHeightOffset) / heightRange;
+    float layerHeight = max(uboGlobal.groundFogHeight, 1.0);
+    float animHeightOffset, animDensityScale;
+    groundFogAnimation(position, layerHeight, animHeightOffset, animDensityScale);
+
+    float heightRange = -layerHeight;
+    float layerOffset = uboGlobal.groundFogHeightOffset + animHeightOffset;
+    float fromHeight = (uboGlobal.cameraPos.y + layerOffset) / heightRange;
+    float toHeight = (position.y + layerOffset) / heightRange;
     float heightDifference = toHeight - fromHeight;
     float density;
     if (abs(heightDifference) < 0.001) {
@@ -63,7 +90,7 @@ float calculateGroundFogOpticalDepth(vec3 position) {
     }
 
     // Density specifies optical depth over 1500 world units at full layer density.
-    float extinction = uboGlobal.groundFogDensity / 1500.0;
+    float extinction = uboGlobal.groundFogDensity / 1500.0 * animDensityScale;
     return extinction * distance(position, uboGlobal.cameraPos) * clamp(density, 0.0, 1.0);
 }
 

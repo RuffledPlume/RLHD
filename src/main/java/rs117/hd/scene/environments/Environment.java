@@ -90,6 +90,7 @@ public class Environment {
 	public float groundFogHeight = 500;
 	public float groundFogHeightOffset;
 	public float groundFogDensity = 0;
+	public float fogVariant = 0.7f;
 	@JsonAdapter(DegreesToRadians.class)
 	public float windAngle = 0.0f;
 	public float windSpeed = 15.0f;
@@ -167,6 +168,7 @@ public class Environment {
 		fogDepth = max(0, fogDepth);
 		groundFogHeight = max(1, groundFogHeight);
 		groundFogDensity = max(0, groundFogDensity);
+		fogVariant = clamp(fogVariant, 0, 1);
 
 		if (sky != null)
 			sky.normalize();
@@ -253,6 +255,7 @@ public class Environment {
 		groundFogHeight = mix(from.groundFogHeight, to.groundFogHeight, t);
 		groundFogHeightOffset = mix(from.groundFogHeightOffset, to.groundFogHeightOffset, t);
 		groundFogDensity = mix(from.groundFogDensity, to.groundFogDensity, t);
+		fogVariant = mix(from.fogVariant, to.fogVariant, t);
 		waterCausticsStrength = mix(from.waterCausticsStrength, to.waterCausticsStrength, t);
 		windAngle = mix(from.windAngle, to.windAngle, t);
 		windSpeed = mix(from.windSpeed, to.windSpeed, t);
