@@ -22,6 +22,7 @@ import rs117.hd.config.VanillaShadowMode;
 import rs117.hd.scene.GamevalManager;
 import rs117.hd.scene.areas.AABB;
 import rs117.hd.scene.materials.Material;
+import rs117.hd.utils.GsonUtils;
 import rs117.hd.utils.Props;
 
 import static net.runelite.api.Perspective.*;
@@ -34,6 +35,7 @@ import static rs117.hd.utils.MathUtils.*;
 @Accessors(fluent = true)
 @NoArgsConstructor
 @AllArgsConstructor
+@GsonUtils.ExcludeDefaults
 public class ModelOverride
 {
 	public static final ModelOverride NONE = new ModelOverride(true);
@@ -127,8 +129,8 @@ public class ModelOverride
 
 	public transient boolean isDummy;
 	public transient boolean isGenerated;
+	public transient Map<AABB, ModelOverride> areaOverrides;
 	public transient ModelOverride[] faceOverrides;
-	public transient ModelOverride[] areaOverrides;
 	public transient AABB[] areaOverrideBounds;
 	public transient AhslPredicate ahslCondition;
 	public transient boolean mightHaveTransparency;
@@ -409,8 +411,8 @@ public class ModelOverride
 			colors,
 			isDummy,
 			isGenerated,
-			faceOverrides,
 			areaOverrides,
+			faceOverrides,
 			areaOverrideBounds,
 			ahslCondition,
 			mightHaveTransparency,
@@ -520,6 +522,18 @@ public class ModelOverride
 			return ahsl -> false;
 
 		return combinedPredicate;
+	}
+
+	public void updateColors(JsonElement value) {
+		AhslPredicate condition = parseAhslConditions(value);
+		colors = value;
+		ahslCondition = condition;
+		cachedColorOverrideAhsl = -1;
+	}
+
+	public void replaceColorOverrides(ModelOverride[] overrides) {
+		colorOverrides = overrides;
+		cachedColorOverrideAhsl = -1;
 	}
 
 	public void computeModelUvw(float[] out, int i, float x, float y, float z, int orientation) {
