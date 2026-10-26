@@ -2279,9 +2279,7 @@ public class SceneUploader implements AutoCloseable {
 			final Material material = faceMaterials.get(face);
 			final ModelOverride faceOverride = faceOverrides.get(face);
 
-			boolean customVanillaTexture =
-				material.vanillaTextureIndex != -1 &&
-				modelOverride.getCustomOverride(model, face) != null;
+			final boolean customVanillaTexture = material.vanillaTextureIndex != -1 && faceOverride.hasCustomUvs;
 			if (textureId != -1 || customVanillaTexture)
 				color1 = color2 = color3 = 90;
 
@@ -2301,7 +2299,7 @@ public class SceneUploader implements AutoCloseable {
 			final int vertexOffsetC = triangleC * 3;
 
 			float[] faceUVs = modelUvs;
-			boolean customUvs = modelOverride.fillUvOverride(faceUVs, model, face);
+			final boolean customUvs = customVanillaTexture && faceOverride.fillUvOverride(faceUVs, model, face);
 			if (customUvs) {
 				uvType = UvType.GEOMETRY;
 			} else if (uvType == UvType.VANILLA) {

@@ -133,6 +133,7 @@ public class ModelOverride
 	public transient boolean modifiesVanillaTexture;
 	public transient boolean modifiesColor;
 	public transient boolean modifiesAlpha;
+	public transient boolean hasCustomUvs;
 
 	// Transient not volatile, since access order can be random as it'll mean we'll just fall back to the full lookup
 	private transient long cachedColorOverrideAhsl = -1;
@@ -216,6 +217,7 @@ public class ModelOverride
 			shiftLightness != 0 || minLightness != 0 || maxLightness != 0x7F ||
 			shiftAlpha != 0 || minAlpha != 0 || maxAlpha != 0xFF;
 		modifiesAlpha = shiftAlpha != 0 || minAlpha != 0 || maxAlpha != 0xFF;
+		hasCustomUvs = uvs != null || (custom != null && custom.uvs != null);
 
 		if (areas == null)
 			areas = new AABB[0];
@@ -405,6 +407,7 @@ public class ModelOverride
 			modifiesVanillaTexture,
 			modifiesColor,
 			modifiesAlpha,
+			hasCustomUvs,
 			// Runtime caching fields
 			-1
 		);
