@@ -6,7 +6,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicBoolean;
 import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.inject.Inject;
@@ -57,76 +56,68 @@ public class ModelOverrideManager {
 	@Getter
 	private final List<ModelOverride> modelOverrideDefinitions = new ArrayList<>();
 	private final IntHashSet detailCullingBlacklist = new IntHashSet();
-	private final AtomicBoolean suppressNextFileWatchReload = new AtomicBoolean();
 
 	private FileWatcher.UnregisterCallback fileWatcher;
 
 	public void startUp() {
-		fileWatcher = MODEL_OVERRIDES_PATH.watch((path, first) -> {
-			if (!first && suppressNextFileWatchReload.compareAndSet(true, false))
-				return;
-			clientThread.invoke(() -> {
-				try (var gamevals = gamevalManager.obtainHandle()) {
-					sceneManager.getLoadingLock().lock();
-					sceneManager.completeAllStreaming();
+		fileWatcher = MODEL_OVERRIDES_PATH.watch((path, first) -> clientThread.invoke(() -> {
+			try (var gamevals = gamevalManager.obtainHandle()) {
+				sceneManager.getLoadingLock().lock();
+				sceneManager.completeAllStreaming();
 
-					ModelOverride[] parsedOverrides = path.loadJson(plugin.getGson(), ModelOverride[].class);
-					if (parsedOverrides == null)
-						throw new IOException("Empty or invalid: " + path);
+				ModelOverride[] parsedOverrides = path.loadJson(plugin.getGson(), ModelOverride[].class);
+				if (parsedOverrides == null)
+					throw new IOException("Empty or invalid: " + path);
 
-					synchronized (modelOverrideDefinitions) {
-						modelOverrideDefinitions.clear();
-						modelOverrideDefinitions.addAll(Arrays.asList(parsedOverrides));
-					}
-					modelOverrides.clear();
-					for (ModelOverride override : parsedOverrides) {
+				modelOverrides.clear();
+				modelOverrideDefinitions.clear();
+				for (ModelOverride override : parsedOverrides) {
 					// Ignore trailing commas in the JSON
 					if (override == null)
 						continue;
-						try {
-							override.normalize(plugin);
+					modelOverrideDefinitions.add(override);
+					try {
+						override.normalize(plugin);
 					} catch (Exception ex) {
 						log.error("Invalid model override '{}':", override.description, ex);
-							continue;
-						}
-
-						addOverride(override, gamevals);
-
-						if (override.hideInAreas.length > 0) {
-							var hider = override.copy();
-							hider.hide = true;
-							hider.areas = override.hideInAreas;
-							addOverride(hider, gamevals);
-						}
+						continue;
 					}
 
-					addOverride(fishingSpotReplacer.getModelOverride(), gamevals);
-					addSailingCullingOverrides(gamevals);
+					addOverride(override, gamevals);
 
-					detailCullingBlacklist.clear();
-					for (var entry : modelOverrides) {
-						final ModelOverride override = entry.getValue();
-						if (entry.getValue().disableDetailCulling)
-							detailCullingBlacklist.add(entry.getKey());
-						if (!Props.DEVELOPMENT)
-							override.clearIds();
+					if (override.hideInAreas.length > 0) {
+						var hider = override.copy();
+						hider.hide = true;
+						hider.areas = override.hideInAreas;
+						addOverride(hider, gamevals);
 					}
-
-					log.debug("Loaded {} model overrides", modelOverrides.size());
-
-					if (first)
-						return;
-
-					plugin.renderer.clearCaches();
-					plugin.renderer.reloadScene();
-				} catch (Exception ex) {
-					log.error("Failed to load model overrides:", ex);
-				} finally {
-					sceneManager.getLoadingLock().unlock();
-					log.trace("loadingLock unlocked - holdCount: {}", sceneManager.getLoadingLock().getHoldCount());
 				}
-			});
-		});
+
+				addOverride(fishingSpotReplacer.getModelOverride(), gamevals);
+				addSailingCullingOverrides(gamevals);
+
+				detailCullingBlacklist.clear();
+				for (var entry : modelOverrides) {
+					final ModelOverride override = entry.getValue();
+					if (entry.getValue().disableDetailCulling)
+						detailCullingBlacklist.add(entry.getKey());
+					override.clearIds();
+				}
+
+				log.debug("Loaded {} model overrides", modelOverrides.size());
+
+				if (first)
+					return;
+
+				plugin.renderer.clearCaches();
+				plugin.renderer.reloadScene();
+			} catch (Exception ex) {
+				log.error("Failed to load model overrides:", ex);
+			} finally {
+				sceneManager.getLoadingLock().unlock();
+				log.trace("loadingLock unlocked - holdCount: {}", sceneManager.getLoadingLock().getHoldCount());
+			}
+		}));
 	}
 
 	public void shutDown() {
@@ -134,6 +125,7 @@ public class ModelOverrideManager {
 			fileWatcher.unregister();
 		fileWatcher = null;
 
+		modelOverrideDefinitions.clear();
 		modelOverrides.clear();
 		modelOverrides.trimToSize();
 		synchronized (modelOverrideDefinitions) {
@@ -275,14 +267,6 @@ public class ModelOverrideManager {
 	public ModelOverride getOverride(int uuid) {
 		var override = modelOverrides.get(ModelHash.getUuidWithoutSubType(uuid));
 		return override == null ? ModelOverride.NONE : override;
-	}
-
-	public ResourcePath getModelOverridesPath() {
-		return MODEL_OVERRIDES_PATH;
-	}
-
-	public void setSuppressNextFileWatchReload(boolean suppress) {
-		suppressNextFileWatchReload.set(suppress);
 	}
 
 	@Nonnull
