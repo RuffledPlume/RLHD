@@ -128,9 +128,6 @@ public class ModelOverrideManager {
 		modelOverrideDefinitions.clear();
 		modelOverrides.clear();
 		modelOverrides.trimToSize();
-		synchronized (modelOverrideDefinitions) {
-			modelOverrideDefinitions.clear();
-		}
 
 		detailCullingBlacklist.clear();
 		detailCullingBlacklist.trimToSize();

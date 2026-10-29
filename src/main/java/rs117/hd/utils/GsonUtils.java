@@ -28,6 +28,8 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.BiConsumer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import javax.annotation.Nullable;
 import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
@@ -37,6 +39,8 @@ import static rs117.hd.utils.MathUtils.*;
 
 @Slf4j
 public class GsonUtils {
+	private static final Pattern NUMBER_ARRAY = Pattern.compile("\\[\\s*(-?\\d+(?:\\s*,\\s*-?\\d+)+)\\s*]");
+
 	public static String location(JsonReader in) {
 		var str = in.toString();
 		int i = str.indexOf(" at ");
@@ -70,6 +74,17 @@ public class GsonUtils {
 		for (var entry : base.entrySet())
 			if (!overrides.has(entry.getKey()))
 				overrides.add(entry.getKey(), entry.getValue());
+	}
+
+	public static String compactNumberArrays(String json) {
+		Matcher m = NUMBER_ARRAY.matcher(json);
+		StringBuilder sb = new StringBuilder();
+		while (m.find()) {
+			String inner = m.group(1).replaceAll("\\s*,\\s*", ", ");
+			m.appendReplacement(sb, Matcher.quoteReplacement("[ " + inner + " ]"));
+		}
+		m.appendTail(sb);
+		return sb.toString();
 	}
 
 	public static Map<String, JsonObject> resolveParentDefinitions(
