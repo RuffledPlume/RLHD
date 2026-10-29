@@ -129,8 +129,8 @@ public class ModelOverride
 
 	public transient boolean isDummy;
 	public transient boolean isGenerated;
-	public transient Map<AABB, ModelOverride> areaOverrides;
 	public transient ModelOverride[] faceOverrides;
+	public transient ModelOverride[] areaOverrides;
 	public transient AABB[] areaOverrideBounds;
 	public transient AhslPredicate ahslCondition;
 	public transient boolean mightHaveTransparency;
@@ -411,8 +411,8 @@ public class ModelOverride
 			colors,
 			isDummy,
 			isGenerated,
-			areaOverrides,
 			faceOverrides,
+			areaOverrides,
 			areaOverrideBounds,
 			ahslCondition,
 			mightHaveTransparency,

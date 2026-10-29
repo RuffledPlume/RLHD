@@ -3,11 +3,7 @@ package rs117.hd.scene;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.IdentityHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -15,13 +11,13 @@ import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 import javax.inject.Inject;
 import javax.inject.Singleton;
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.api.gameval.*;
 import net.runelite.client.callback.ClientThread;
 import rs117.hd.HdPlugin;
 import rs117.hd.renderer.zone.SceneManager;
-import rs117.hd.scene.areas.AABB;
 import rs117.hd.scene.model_overrides.ModelOverride;
 import rs117.hd.utils.FileWatcher;
 import rs117.hd.utils.ModelHash;
@@ -56,7 +52,9 @@ public class ModelOverrideManager {
 	@Inject
 	private FishingSpotReplacer fishingSpotReplacer;
 
+	@Getter
 	private final Int2ObjectHashMap<ModelOverride> modelOverrides = new Int2ObjectHashMap<>();
+	@Getter
 	private final List<ModelOverride> modelOverrideDefinitions = new ArrayList<>();
 	private final IntHashSet detailCullingBlacklist = new IntHashSet();
 	private final AtomicBoolean suppressNextFileWatchReload = new AtomicBoolean();
@@ -214,10 +212,11 @@ public class ModelOverrideManager {
 				}
 			}
 
-			if (current != null && current.areaOverrides != null && !current.areaOverrides.isEmpty()) {
-				var areaOverrides = current.areaOverrides;
-				current = entry.copy();
-				current.areaOverrides = areaOverrides;
+			if (current != null && current.areaOverrides != null) {
+				var replacement = entry.copy();
+				replacement.areaOverrideBounds = current.areaOverrideBounds;
+				replacement.areaOverrides = current.areaOverrides;
+				current = replacement;
 			} else {
 				current = entry;
 			}
@@ -228,14 +227,24 @@ public class ModelOverrideManager {
 				current = ModelOverride.NONE;
 
 			if (current.areaOverrides == null) {
-				// We need to replace the override with a copy that has a separate list of area overrides to avoid conflicts
+				// Create a copy to avoid aliasing area overrides with other UUIDs
 				current = current.copy();
-				current.areaOverrides = new HashMap<>();
 				modelOverrides.put(uuid, current);
 			}
 
-			for (var area : entry.areas)
-				current.areaOverrides.put(area, entry);
+			int size = entry.areas.length;
+			if (current.areaOverrides == null) {
+				current.areaOverrides = new ModelOverride[size];
+				Arrays.fill(current.areaOverrides, 0, size, entry);
+				current.areaOverrideBounds = entry.areas;
+			} else {
+				int offset = current.areaOverrides.length;
+				size += offset;
+				current.areaOverrides = Arrays.copyOf(current.areaOverrides, size);
+				Arrays.fill(current.areaOverrides, offset, size, entry);
+				current.areaOverrideBounds = Arrays.copyOf(current.areaOverrideBounds, size);
+				System.arraycopy(entry.areas, 0, current.areaOverrideBounds, offset, entry.areas.length);
+			}
 		}
 	}
 
@@ -268,150 +277,12 @@ public class ModelOverrideManager {
 		return override == null ? ModelOverride.NONE : override;
 	}
 
-	public boolean isSharedOverride(int uuid) {
-		int baseUuid = ModelHash.getUuidWithoutSubType(uuid);
-		ModelOverride override = modelOverrides.get(baseUuid);
-		if (override == null || override == ModelOverride.NONE || override.isDummy || override.isGenerated)
-			return false;
-
-		int matches = 0;
-		for (var entry : modelOverrides) {
-			if (entry.getValue() == override && ++matches > 1)
-				return true;
-		}
-		return false;
+	public ResourcePath getModelOverridesPath() {
+		return MODEL_OVERRIDES_PATH;
 	}
 
-	public void replaceOverride(int uuid, ModelOverride override) {
-		modelOverrides.put(ModelHash.getUuidWithoutSubType(uuid), override);
-	}
-
-	public Map<Integer, ModelOverride> getObjectOverrideMappings(Set<Integer> objectIds) {
-		Map<Integer, ModelOverride> mappings = new HashMap<>();
-		for (int id : objectIds) {
-			int uuid = ModelHash.packUuid(ModelHash.TYPE_OBJECT, id);
-			mappings.put(id, modelOverrides.get(uuid));
-		}
-		return mappings;
-	}
-
-	public void setObjectOverrideMappings(Map<Integer, ModelOverride> mappings) {
-		for (var entry : mappings.entrySet()) {
-			int uuid = ModelHash.packUuid(ModelHash.TYPE_OBJECT, entry.getKey());
-			if (entry.getValue() == null)
-				modelOverrides.remove(uuid);
-			else
-				modelOverrides.put(uuid, entry.getValue());
-		}
-	}
-
-	public List<ModelOverride> getAreaOverrideOwners(ModelOverride areaOverride) {
-		List<ModelOverride> owners = new ArrayList<>();
-		var seen = java.util.Collections.newSetFromMap(new IdentityHashMap<ModelOverride, Boolean>());
-		for (var entry : modelOverrides) {
-			ModelOverride root = entry.getValue();
-			if (root.areaOverrides != null && root.areaOverrides.containsValue(areaOverride) && seen.add(root))
-				owners.add(root);
-		}
-		return owners;
-	}
-
-	public void updateAreaOverrideMappings(List<ModelOverride> owners, ModelOverride areaOverride) {
-		for (ModelOverride root : owners) {
-			if (root.areaOverrides == null) {
-				if (areaOverride.areas == null || areaOverride.areas.length == 0) continue;
-				root.areaOverrides = new HashMap<>();
-			}
-
-			root.areaOverrides.entrySet().removeIf(entry -> entry.getValue() == areaOverride);
-			if (areaOverride.areas != null)
-				for (var area : areaOverride.areas)
-					root.areaOverrides.put(area, areaOverride);
-
-			if (root.areaOverrides.isEmpty()) root.areaOverrides = null;
-		}
-	}
-
-	public void addDefinition(ModelOverride override) {
-		synchronized (modelOverrideDefinitions) {
-			if (!modelOverrideDefinitions.contains(override))
-				modelOverrideDefinitions.add(override);
-		}
-	}
-
-	public void removeDefinition(ModelOverride override) {
-		synchronized (modelOverrideDefinitions) {
-			modelOverrideDefinitions.remove(override);
-		}
-	}
-
-	public void save() throws IOException {
-		if (!MODEL_OVERRIDES_PATH.isFileSystemResource())
-			throw new IOException("Model overrides are loaded from a classpath resource; set rlhd.model-overrides-path to a writable file to save.");
-
-		List<ModelOverride> sourceDefinitions;
-		synchronized (modelOverrideDefinitions) {
-			sourceDefinitions = new ArrayList<>(modelOverrideDefinitions);
-		}
-		String json = plugin.getGson().toJson(getSaveDefinitions(sourceDefinitions));
-		MODEL_OVERRIDES_PATH.mkdirs();
-		suppressNextFileWatchReload.set(true);
-		try (var writer = MODEL_OVERRIDES_PATH.toWriter()) {
-			writer.write(json);
-		} catch (IOException | RuntimeException ex) {
-			suppressNextFileWatchReload.set(false);
-			throw ex;
-		}
-	}
-
-	private ModelOverride[] getSaveDefinitions(List<ModelOverride> sourceDefinitions) {
-		List<ModelOverride> definitions = new ArrayList<>();
-		for (ModelOverride definition : sourceDefinitions) {
-			if (definition.areas == null || definition.areas.length == 0) {
-				definitions.add(definition);
-				continue;
-			}
-
-			for (var area : definition.areas) {
-				Set<Integer> npcIds = new HashSet<>();
-				Set<Integer> objectIds = new HashSet<>();
-				Set<Integer> projectileIds = new HashSet<>();
-				Set<Integer> graphicsObjectIds = new HashSet<>();
-				for (var entry : modelOverrides) {
-					var root = entry.getValue();
-					if (root.areaOverrides == null || root.areaOverrides.get(area) != definition)
-						continue;
-
-					int id = ModelHash.getUuidId(entry.getKey());
-					switch (ModelHash.getUuidType(entry.getKey())) {
-						case ModelHash.TYPE_NPC:
-							npcIds.add(id);
-							break;
-						case ModelHash.TYPE_OBJECT:
-							objectIds.add(id);
-							break;
-						case ModelHash.TYPE_PROJECTILE:
-							projectileIds.add(id);
-							break;
-						case ModelHash.TYPE_GRAPHICS_OBJECT:
-							graphicsObjectIds.add(id);
-							break;
-					}
-				}
-
-				if (npcIds.isEmpty() && objectIds.isEmpty() && projectileIds.isEmpty() && graphicsObjectIds.isEmpty())
-					continue;
-
-				ModelOverride savedDefinition = definition.copy();
-				savedDefinition.areas = new AABB[]{area};
-				savedDefinition.npcIds = npcIds;
-				savedDefinition.objectIds = objectIds;
-				savedDefinition.projectileIds = projectileIds;
-				savedDefinition.graphicsObjectIds = graphicsObjectIds;
-				definitions.add(savedDefinition);
-			}
-		}
-		return definitions.toArray(ModelOverride[]::new);
+	public void setSuppressNextFileWatchReload(boolean suppress) {
+		suppressNextFileWatchReload.set(suppress);
 	}
 
 	@Nonnull
@@ -419,9 +290,9 @@ public class ModelOverrideManager {
 		var override = getOverride(uuid);
 
 		if (worldPos != null && override.areaOverrides != null)
-			for (var entry : override.areaOverrides.entrySet())
-				if (entry.getKey().contains(worldPos))
-					return entry.getValue();
+			for (int i = 0; i < override.areaOverrides.length; i++)
+				if (override.areaOverrideBounds[i].contains(worldPos))
+					return override.areaOverrides[i];
 
 		return override;
 	}
