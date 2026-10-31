@@ -3,7 +3,9 @@ package rs117.hd.scene;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import javax.annotation.Nonnull;
@@ -57,25 +59,52 @@ public class ModelOverrideManager {
 	private final List<ModelOverride> modelOverrideDefinitions = new ArrayList<>();
 	private final IntHashSet detailCullingBlacklist = new IntHashSet();
 
+	private final Map<ModelOverride, ModelOverride> definitionByOverride = new IdentityHashMap<>();
+
 	private FileWatcher.UnregisterCallback fileWatcher;
 
 	public void startUp() {
 		fileWatcher = MODEL_OVERRIDES_PATH.watch((path, first) -> clientThread.invoke(() -> {
-			try (var gamevals = gamevalManager.obtainHandle()) {
+			try {
+				ModelOverride[] definitions = path.loadJson(plugin.getGson(), ModelOverride[].class);
+				if (definitions == null)
+					throw new IOException("Empty or invalid: " + path);
+				loadModelOverrides(definitions, true);
+			} catch (Exception ex) {
+				log.error("Failed to load model overrides:", ex);
+			}
+		}));
+	}
+
+	public void loadModelOverrides(ModelOverride[] definitions) {
+		loadModelOverrides(definitions, false);
+	}
+
+	public void loadModelOverrides(ModelOverride[] definitions, boolean skipSceneReload) {
+		assert client.isClientThread();
+		try (var gamevals = gamevalManager.obtainHandle()) {
+			try {
 				sceneManager.getLoadingLock().lock();
 				sceneManager.completeAllStreaming();
 
-				ModelOverride[] parsedOverrides = path.loadJson(plugin.getGson(), ModelOverride[].class);
-				if (parsedOverrides == null)
-					throw new IOException("Empty or invalid: " + path);
-
 				modelOverrides.clear();
-				modelOverrideDefinitions.clear();
-				for (ModelOverride override : parsedOverrides) {
+				definitionByOverride.clear();
+
+				List<ModelOverride> sourceDefinitions = new ArrayList<>(definitions.length);
+				for (ModelOverride definition : definitions) {
 					// Ignore trailing commas in the JSON
-					if (override == null)
-						continue;
-					modelOverrideDefinitions.add(override);
+					if (definition != null)
+						sourceDefinitions.add(definition);
+				}
+
+				modelOverrideDefinitions.clear();
+				modelOverrideDefinitions.addAll(sourceDefinitions);
+
+				for (ModelOverride definition : sourceDefinitions) {
+
+					// Normalize a copy so that the saved definitions stay exactly as they were authored
+					ModelOverride override = copyDefinition(definition);
+					definitionByOverride.put(override, definition);
 					try {
 						override.normalize(plugin);
 					} catch (Exception ex) {
@@ -86,7 +115,8 @@ public class ModelOverrideManager {
 					addOverride(override, gamevals);
 
 					if (override.hideInAreas.length > 0) {
-						var hider = override.copy();
+						var hider = override.copy(false);
+						definitionByOverride.put(hider, definition);
 						hider.hide = true;
 						hider.areas = override.hideInAreas;
 						addOverride(hider, gamevals);
@@ -105,19 +135,22 @@ public class ModelOverrideManager {
 				}
 
 				log.debug("Loaded {} model overrides", modelOverrides.size());
-
-				if (first)
-					return;
-
-				plugin.renderer.clearCaches();
-				plugin.renderer.reloadScene();
 			} catch (Exception ex) {
 				log.error("Failed to load model overrides:", ex);
 			} finally {
 				sceneManager.getLoadingLock().unlock();
 				log.trace("loadingLock unlocked - holdCount: {}", sceneManager.getLoadingLock().getHoldCount());
 			}
-		}));
+		}
+
+		if (!skipSceneReload) {
+			plugin.renderer.clearCaches();
+			plugin.renderer.reloadScene();
+		}
+	}
+
+	private ModelOverride copyDefinition(ModelOverride definition) {
+		return definition.copy(true);
 	}
 
 	public void shutDown() {
@@ -126,6 +159,7 @@ public class ModelOverrideManager {
 		fileWatcher = null;
 
 		modelOverrideDefinitions.clear();
+		definitionByOverride.clear();
 		modelOverrides.clear();
 		modelOverrides.trimToSize();
 
@@ -202,7 +236,8 @@ public class ModelOverrideManager {
 			}
 
 			if (current != null && current.areaOverrides != null) {
-				var replacement = entry.copy();
+				var replacement = entry.copy(false);
+				definitionByOverride.put(replacement, definitionByOverride.get(entry));
 				replacement.areaOverrideBounds = current.areaOverrideBounds;
 				replacement.areaOverrides = current.areaOverrides;
 				current = replacement;
@@ -217,7 +252,11 @@ public class ModelOverrideManager {
 
 			if (current.areaOverrides == null) {
 				// Create a copy to avoid aliasing area overrides with other UUIDs
-				current = current.copy();
+				var previous = current;
+				current = current.copy(false);
+				ModelOverride definition = definitionByOverride.get(previous);
+				if (definition != null)
+					definitionByOverride.put(current, definition);
 				modelOverrides.put(uuid, current);
 			}
 
@@ -281,5 +320,10 @@ public class ModelOverrideManager {
 	@Nonnull
 	public ModelOverride getOverride(TileObject tileObject, int[] worldPos) {
 		return getOverride(ModelHash.packUuid(ModelHash.TYPE_OBJECT, tileObject.getId()), worldPos);
+	}
+
+	@Nullable
+	public ModelOverride getDefinition(int uuid, int[] worldPos) {
+		return definitionByOverride.get(getOverride(uuid, worldPos));
 	}
 }

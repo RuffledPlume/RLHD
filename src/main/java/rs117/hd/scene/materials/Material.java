@@ -277,15 +277,36 @@ public class Material {
 				return null;
 
 			if (in.peek() == JsonToken.STRING) {
-				String name = in.nextString();
-				var match = MaterialManager.MATERIAL_MAP.get(name);
-				if (match != null)
-					return match;
-				log.error("Missing material '{}' at {}", name, GsonUtils.location(in), new Throwable());
-				return null;
+				return findMaterial(in.nextString(), in);
+			}
+
+			if (in.peek() == JsonToken.BEGIN_OBJECT) {
+				String name = null;
+				in.beginObject();
+				while (in.hasNext()) {
+					String property = in.nextName();
+					if (property.equals("name") && in.peek() == JsonToken.STRING)
+						name = in.nextString();
+					else
+						in.skipValue();
+				}
+				in.endObject();
+				if (name != null) {
+					log.debug("Resolving inline material '{}' as a material reference at {}", name, GsonUtils.location(in));
+					return findMaterial(name, in);
+				}
 			}
 
 			log.error("Unexpected type {} at {}", in.peek(), GsonUtils.location(in), new Throwable());
+			return null;
+		}
+
+		@Nullable
+		private Material findMaterial(String name, JsonReader in) {
+			var match = MaterialManager.MATERIAL_MAP.get(name);
+			if (match != null)
+				return match;
+			log.error("Missing material '{}' at {}", name, GsonUtils.location(in), new Throwable());
 			return null;
 		}
 

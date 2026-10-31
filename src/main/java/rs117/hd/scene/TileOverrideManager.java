@@ -5,12 +5,15 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import javax.annotation.Nonnull;
 import javax.inject.Inject;
 import javax.inject.Singleton;
+
+import lombok.Getter;
 import lombok.extern.slf4j.Slf4j;
 import net.runelite.api.*;
 import net.runelite.api.coords.*;
@@ -56,6 +59,10 @@ public class TileOverrideManager {
 	private List<TileOverride> anyMatchOverrides;
 	private Int2ObjectHashMap<List<TileOverride>> idMatchOverrides;
 
+	@Getter
+	private final List<TileOverride> tileOverrideDefinitions = new ArrayList<>();
+	private final Map<TileOverride, TileOverride> definitionByOverride = new IdentityHashMap<>();
+
 	public void startUp() {
 		fileWatcher = TILE_OVERRIDES_PATH.watch((path, first) -> clientThread.invoke(() -> reload(first)));
 	}
@@ -67,18 +74,52 @@ public class TileOverrideManager {
 		fileWatcher = null;
 		anyMatchOverrides = null;
 		idMatchOverrides = null;
+		tileOverrideDefinitions.clear();
+		definitionByOverride.clear();
 	}
 
 	public void reload(boolean skipSceneReload) {
+		assert client.isClientThread();
+
+		TileOverride[] definitions;
+		try {
+			definitions = TILE_OVERRIDES_PATH.loadJson(plugin.getGson(), TileOverride[].class);
+			if (definitions == null)
+				throw new IOException("Empty or invalid: " + TILE_OVERRIDES_PATH);
+		} catch (IOException ex) {
+			log.error("Failed to load tile overrides:", ex);
+			return;
+		}
+
+		loadTileOverrides(definitions, skipSceneReload);
+	}
+
+	public void loadTileOverrides(TileOverride[] definitions) {
+		loadTileOverrides(definitions, false);
+	}
+
+	public void loadTileOverrides(TileOverride[] definitions, boolean skipSceneReload) {
 		assert client.isClientThread();
 
 		try {
 			sceneManager.getLoadingLock().lock();
 			sceneManager.completeAllStreaming();
 
-			TileOverride[] allOverrides = TILE_OVERRIDES_PATH.loadJson(plugin.getGson(), TileOverride[].class);
-			if (allOverrides == null)
-				throw new IOException("Empty or invalid: " + TILE_OVERRIDES_PATH);
+			List<TileOverride> runtimeDefinitions = new ArrayList<>(definitions.length);
+			definitionByOverride.clear();
+			for (TileOverride definition : definitions) {
+				if (definition == null)
+					continue;
+				TileOverride override = copyDefinition(definition);
+				runtimeDefinitions.add(override);
+				definitionByOverride.put(override, definition);
+			}
+			TileOverride[] allOverrides = runtimeDefinitions.toArray(TileOverride[]::new);
+
+			tileOverrideDefinitions.clear();
+			for (TileOverride definition : definitions)
+				if (definition != null)
+					tileOverrideDefinitions.add(definition);
 
 			HashSet<String> names = new HashSet<>();
 			for (var override : allOverrides) {
@@ -130,7 +171,7 @@ public class TileOverrideManager {
 			OVERRIDES = allOverrides;
 
 			log.debug("Loaded {} tile overrides", allOverrides.length);
-		} catch (IOException ex) {
+		} catch (Exception ex) {
 			log.error("Failed to load tile overrides:", ex);
 		} finally {
 			sceneManager.getLoadingLock().unlock();
@@ -144,6 +185,14 @@ public class TileOverrideManager {
 			plugin.renderer.clearCaches();
 			plugin.renderer.reloadScene();
 		}
+	}
+
+	private TileOverride copyDefinition(TileOverride definition) {
+		return plugin.getGson().fromJson(plugin.getGson().toJson(definition), TileOverride.class);
+	}
+
+	public TileOverride getTileOverrideDefinition(TileOverride override) {
+		return override == null ? null : definitionByOverride.get(override);
 	}
 
 	private void checkForReplacementLoops(TileOverride[] allOverrides) {
@@ -214,8 +263,14 @@ public class TileOverrideManager {
 	public void setTrackReplacements(boolean shouldTrackReplacements) {
 		clientThread.invoke(() -> {
 			trackReplacements = shouldTrackReplacements;
-			if (plugin.isActive())
-				reload(false);
+			if (plugin.isActive()) {
+				TileOverride[] definitions = tileOverrideDefinitions.toArray(TileOverride[]::new);
+				if (definitions.length == 0) {
+					reload(false);
+				} else {
+					loadTileOverrides(definitions, false);
+				}
+			}
 		});
 	}
 
