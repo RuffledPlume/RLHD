@@ -10,6 +10,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 import javax.inject.Inject;
 import javax.inject.Singleton;
@@ -118,7 +119,7 @@ public class GamevalManager {
 
 	@Slf4j
 	@RequiredArgsConstructor
-	private abstract static class GamevalAdapter extends TypeAdapter<HashSet<Integer>> {
+	private abstract static class GamevalAdapter extends TypeAdapter<Set<Integer>> {
 		private final String key;
 
 		@Override
@@ -164,7 +165,7 @@ public class GamevalManager {
 		}
 
 		@Override
-		public void write(JsonWriter out, HashSet<Integer> ids) throws IOException {
+		public void write(JsonWriter out, Set<Integer> ids) throws IOException {
 			var remainingIds = new ArrayList<>(ids);
 			var map = GAMEVALS.get(key);
 			var names = map.entrySet().stream()

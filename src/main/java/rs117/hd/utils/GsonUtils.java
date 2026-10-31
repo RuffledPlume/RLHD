@@ -9,8 +9,10 @@
 package rs117.hd.utils;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import com.google.gson.TypeAdapter;
 import com.google.gson.TypeAdapterFactory;
 import com.google.gson.reflect.TypeToken;
@@ -22,14 +24,17 @@ import java.lang.annotation.ElementType;
 import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Deque;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.BiConsumer;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import javax.annotation.Nullable;
 import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
@@ -39,8 +44,6 @@ import static rs117.hd.utils.MathUtils.*;
 
 @Slf4j
 public class GsonUtils {
-	private static final Pattern NUMBER_ARRAY = Pattern.compile("\\[\\s*(-?\\d+(?:\\s*,\\s*-?\\d+)+)\\s*]");
-
 	public static String location(JsonReader in) {
 		var str = in.toString();
 		int i = str.indexOf(" at ");
@@ -77,14 +80,128 @@ public class GsonUtils {
 	}
 
 	public static String compactNumberArrays(String json) {
-		Matcher m = NUMBER_ARRAY.matcher(json);
-		StringBuilder sb = new StringBuilder();
-		while (m.find()) {
-			String inner = m.group(1).replaceAll("\\s*,\\s*", ", ");
-			m.appendReplacement(sb, Matcher.quoteReplacement("[ " + inner + " ]"));
+		StringBuilder compacted = new StringBuilder(json.length());
+		int copiedThrough = 0;
+		boolean inString = false;
+		boolean escaped = false;
+
+		for (int i = 0; i < json.length(); i++) {
+			char c = json.charAt(i);
+			if (inString) {
+				if (escaped)
+					escaped = false;
+				else if (c == '\\')
+					escaped = true;
+				else if (c == '"')
+					inString = false;
+				continue;
+			}
+			if (c == '"') {
+				inString = true;
+				continue;
+			}
+			if (c != '[')
+				continue;
+
+			NumberArray array = parseNumberArray(json, i);
+			if (array == null)
+				continue;
+			compacted.append(json, copiedThrough, i).append(array.compactText);
+			i = array.endIndex;
+			copiedThrough = i + 1;
 		}
-		m.appendTail(sb);
-		return sb.toString();
+		return copiedThrough == 0 ? json : compacted.append(json, copiedThrough, json.length()).toString();
+	}
+
+	@Nullable
+	private static NumberArray parseNumberArray(String json, int start) {
+		int cursor = skipWhitespace(json, start + 1);
+		StringBuilder compact = new StringBuilder("[ ");
+		int count = 0;
+		while (cursor < json.length()) {
+			int numberStart = cursor;
+			int numberEnd = parseJsonNumber(json, cursor);
+			if (numberEnd < 0)
+				return null;
+			cursor = numberEnd;
+			if (count++ > 0)
+				compact.append(", ");
+			compact.append(json, numberStart, cursor);
+			cursor = skipWhitespace(json, cursor);
+			if (cursor >= json.length())
+				return null;
+			char separator = json.charAt(cursor++);
+			if (separator == ']')
+				return count >= 2 ? new NumberArray(cursor - 1, compact.append(" ]").toString()) : null;
+			if (separator != ',')
+				return null;
+			cursor = skipWhitespace(json, cursor);
+		}
+		return null;
+	}
+
+	private static int parseJsonNumber(String json, int cursor) {
+		int length = json.length();
+		if (cursor < length && json.charAt(cursor) == '-')
+			cursor++;
+		if (cursor >= length)
+			return -1;
+
+		char firstDigit = json.charAt(cursor);
+		if (firstDigit == '0') {
+			cursor++;
+		} else if (firstDigit >= '1' && firstDigit <= '9') {
+			cursor++;
+			while (cursor < length && isDigit(json.charAt(cursor)))
+				cursor++;
+		} else {
+			return -1;
+		}
+
+		if (cursor < length && json.charAt(cursor) == '.') {
+			cursor++;
+			int fractionStart = cursor;
+			while (cursor < length && isDigit(json.charAt(cursor)))
+				cursor++;
+			if (cursor == fractionStart)
+				return -1;
+		}
+
+		if (cursor < length && (json.charAt(cursor) == 'e' || json.charAt(cursor) == 'E')) {
+			cursor++;
+			if (cursor < length && (json.charAt(cursor) == '+' || json.charAt(cursor) == '-'))
+				cursor++;
+			int exponentStart = cursor;
+			while (cursor < length && isDigit(json.charAt(cursor)))
+				cursor++;
+			if (cursor == exponentStart)
+				return -1;
+		}
+		return cursor;
+	}
+
+	private static int skipWhitespace(String text, int cursor) {
+		while (cursor < text.length()) {
+			char c = text.charAt(cursor);
+			if (c != ' ' && c != '\t' && c != '\n' && c != '\r')
+				break;
+			cursor++;
+		}
+		return cursor;
+	}
+
+	private static boolean isDigit(char c) {
+		return c >= '0' && c <= '9';
+	}
+
+	private static final class NumberArray {
+		private final int endIndex;
+		private final String compactText;
+
+		private NumberArray(int endIndex, String compactText) {
+			this.endIndex = endIndex;
+			this.compactText = compactText;
+		}
 	}
 
 	public static Map<String, JsonObject> resolveParentDefinitions(
@@ -184,6 +301,99 @@ public class GsonUtils {
 				iter.remove();
 			}
 		}
+	}
+
+	/**
+	 * Saves an array of definitions to a JSON file while preserving the original JSON for every
+	 * definition that wasn't changed. Unchanged definitions keep their exact on-disk representation,
+	 * changed definitions are replaced in place, and new definitions are appended.
+	 *
+	 * @param path        the file to save to
+	 * @param gson        the Gson instance used to serialize and compare definitions
+	 * @param definitions the definitions to save
+	 * @param type        the definition type
+	 */
+	public static <T> void saveJson(ResourcePath path, Gson gson, T[] definitions, Class<T> type, boolean compact) throws IOException {
+		JsonArray existing = null;
+		try {
+			JsonElement parsed = new JsonParser().parse(path.loadString());
+			if (parsed != null && parsed.isJsonArray())
+				existing = parsed.getAsJsonArray();
+		} catch (IOException | RuntimeException ignored) {
+			// Write every definition if the file is missing or isn't valid JSON
+		}
+
+		JsonArray result = new JsonArray();
+		if (existing == null) {
+			for (T definition : definitions)
+				if (definition != null)
+					result.add(gson.toJsonTree(definition));
+		} else {
+			int existingCount = existing.size();
+			JsonElement[] original = new JsonElement[existingCount];
+			String[] normalized = new String[existingCount];
+			Map<String, Deque<Integer>> indicesByJson = new HashMap<>();
+			for (int i = 0; i < existingCount; i++) {
+				JsonElement element = existing.get(i);
+				original[i] = element;
+				try {
+					T parsed = gson.fromJson(element, type);
+					if (parsed != null) {
+						normalized[i] = gson.toJsonTree(parsed).toString();
+						indicesByJson.computeIfAbsent(normalized[i], ignored -> new ArrayDeque<>()).add(i);
+					}
+				} catch (RuntimeException ignored) {
+					// Leave this entry unmatched, so a changed definition can replace it
+				}
+			}
+
+			List<JsonElement> serialized = new ArrayList<>(definitions.length);
+			for (T definition : definitions)
+				if (definition != null)
+					serialized.add(gson.toJsonTree(definition));
+
+			// Match unchanged definitions to their original entries first
+			int[] matches = new int[serialized.size()];
+			Arrays.fill(matches, -1);
+			boolean[] used = new boolean[existingCount];
+			for (int i = 0; i < serialized.size(); i++) {
+				Deque<Integer> indices = indicesByJson.get(serialized.get(i).toString());
+				if (indices != null && !indices.isEmpty()) {
+					int index = indices.removeFirst();
+					matches[i] = index;
+					used[index] = true;
+				}
+			}
+
+			// Align changed definitions with the remaining original entries in order
+			int nextExisting = 0;
+			for (int i = 0; i < serialized.size(); i++) {
+				if (matches[i] != -1)
+					continue;
+				while (nextExisting < existingCount && used[nextExisting])
+					nextExisting++;
+				if (nextExisting >= existingCount)
+					break;
+				matches[i] = nextExisting;
+				used[nextExisting] = true;
+			}
+
+			for (int i = 0; i < serialized.size(); i++) {
+				JsonElement current = serialized.get(i);
+				int match = matches[i];
+				if (match != -1 && current.toString().equals(normalized[match]))
+					result.add(original[match]);
+				else
+					result.add(current);
+			}
+		}
+
+		String jsonStr = gson.toJson(result);
+		if(compact)
+			jsonStr = compactNumberArrays(jsonStr);
+
+		path.mkdirs();
+		path.writeString(jsonStr);
 	}
 
 	public static class RoundingAdapter extends TypeAdapter<Float> {
@@ -347,7 +557,9 @@ public class GsonUtils {
 						if (defaultObj == null)
 							return null; // No defaults available
 
-						var defaults = defaultDelegate.toJsonTree(defaultObj).getAsJsonObject();
+						// TypeAdapter.toJsonTree serializes nulls. That can recurse into an unfinished
+						// FutureTypeAdapter for self-referential fields (for example ModelOverride[]).
+						var defaults = new JsonParser().parse(defaultDelegate.toJson(defaultObj)).getAsJsonObject();
 						return new ExcludeDefaultsAdapter<>(gson, gson.getDelegateAdapter(this, type), defaults);
 					} catch (Exception ex) {
 						log.error("Unable to exclude defaults for {}", type, ex);

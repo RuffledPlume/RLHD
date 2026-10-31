@@ -341,7 +341,7 @@ public class ModelOverride
 				override.clearIds();
 	}
 
-	public ModelOverride copy() {
+	public ModelOverride copy(boolean forNormalization) {
 		var copy = new ModelOverride(
 			description,
 			seasonalTheme,
@@ -430,7 +430,48 @@ public class ModelOverride
 				if (faceOverrides[face] == this)
 					copy.faceOverrides[face] = copy;
 		}
+		if (forNormalization) {
+			copy.areas = areas == null ? null : areas.clone();
+			copy.hideInAreas = hideInAreas == null ? null : hideInAreas.clone();
+			copy.npcIds = npcIds == null ? null : new HashSet<>(npcIds);
+			copy.objectIds = objectIds == null ? null : new HashSet<>(objectIds);
+			copy.projectileIds = projectileIds == null ? null : new HashSet<>(projectileIds);
+			copy.graphicsObjectIds = graphicsObjectIds == null ? null : new HashSet<>(graphicsObjectIds);
+			copy.uvs = uvs == null ? null : uvs.clone();
+			copy.faces = faces == null ? null : faces.deepCopy().getAsJsonArray();
+			copy.colors = colors == null ? null : colors.deepCopy();
+			copy.materials = copyOverrides(materials, true);
+			copy.colorOverrides = copyOverrides(colorOverrides, true);
+
+			if (materialOverrides != null) {
+				copy.materialOverrides = new HashMap<>();
+				for (var entry : materialOverrides.entrySet())
+					copy.materialOverrides.put(entry.getKey(), entry.getValue() == null
+						? null : entry.getValue().copy(true));
+			}
+
+			copy.faceOverrides = null;
+			copy.areaOverrides = null;
+			copy.areaOverrideBounds = null;
+			copy.ahslCondition = null;
+			copy.mightHaveTransparency = false;
+			copy.mightBeDoubleSided = false;
+			copy.modifiesVanillaTexture = false;
+			copy.modifiesColor = false;
+			copy.modifiesAlpha = false;
+			copy.cachedColorOverrideAhsl = -1;
+		}
 		return copy;
+	}
+
+	@Nullable
+	private static ModelOverride[] copyOverrides(@Nullable ModelOverride[] overrides, boolean forNormalization) {
+		if (overrides == null)
+			return null;
+		var copies = new ModelOverride[overrides.length];
+		for (int i = 0; i < overrides.length; i++)
+			copies[i] = overrides[i] == null ? null : overrides[i].copy(forNormalization);
+		return copies;
 	}
 
 	private ModelOverride(boolean isDummy) {
