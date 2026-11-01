@@ -44,6 +44,8 @@ public class ModelOverride
 		.undoVanillaShading(false);
 
 	private static final Set<Integer> EMPTY = new HashSet<>();
+	/** Marker for triangle corners omitted from an exported model. */
+	public static final int NO_VERTEX_COLOR = 0x00FFFFFF;
 
 	public String description = "UNKNOWN";
 
@@ -98,6 +100,8 @@ public class ModelOverride
 	public int heightOffset = 0;
 
 	public String model;
+	/** Packed HSL and transparency values, one per original triangle corner. */
+	public int[] vertexColors;
 	public float[] uvs;
 	private ModelOverride[] materials;
 	private JsonArray faces;
@@ -288,6 +292,8 @@ public class ModelOverride
 
 		if (uvs != null && (uvs.length == 0 || uvs.length % 6 != 0))
 			throw new IllegalArgumentException("uvs must contain six coordinates per triangle");
+		if (vertexColors != null && (vertexColors.length == 0 || vertexColors.length % 3 != 0))
+			throw new IllegalArgumentException("vertexColors must contain three colors per triangle");
 
 		if (materials != null) {
 			if (faceOverrides == null) {
@@ -388,6 +394,7 @@ public class ModelOverride
 			disablePrioritySorting,
 			heightOffset,
 			model,
+			vertexColors,
 			uvs,
 			materials,
 			faces,
@@ -440,6 +447,7 @@ public class ModelOverride
 			copy.projectileIds = projectileIds == null ? null : new HashSet<>(projectileIds);
 			copy.graphicsObjectIds = graphicsObjectIds == null ? null : new HashSet<>(graphicsObjectIds);
 			copy.uvs = uvs == null ? null : uvs.clone();
+			copy.vertexColors = vertexColors == null ? null : vertexColors.clone();
 			copy.faces = faces == null ? null : faces.deepCopy().getAsJsonArray();
 			copy.colors = colors == null ? null : colors.deepCopy();
 			copy.materials = copyOverrides(materials, true);
@@ -627,6 +635,18 @@ public class ModelOverride
 			return false;
 		}
 
+		return true;
+	}
+
+	public boolean hasCustomVertexColors(Model model) {
+		if (vertexColors == null)
+			return false;
+		if (vertexColors.length != model.getFaceCount() * 3) {
+			if (Props.DEVELOPMENT)
+				log.warn("Mismatch between face count ({}) and vertex color count ({}) in model override: {}",
+					model.getFaceCount() * 3, vertexColors.length, this);
+			return false;
+		}
 		return true;
 	}
 

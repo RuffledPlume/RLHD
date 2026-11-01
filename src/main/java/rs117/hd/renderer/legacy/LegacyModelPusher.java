@@ -174,6 +174,7 @@ public class LegacyModelPusher {
 			useCache = false;
 
 		final int faceCount = min(model.getFaceCount(), MAX_FACE_COUNT);
+		final boolean customVertexColors = modelOverride.hasCustomVertexColors(model);
 		final int bufferSize = faceCount * DATUM_PER_FACE;
 		int texturedFaceCount = 0;
 
@@ -284,7 +285,7 @@ public class LegacyModelPusher {
 
 			modelOverride.applyRotation(model);
 			for (int face = 0; face < faceCount; face++) {
-				int[] data = getFaceVertices(sceneContext, tile, uuid, model, modelOverride, face);
+				int[] data = getFaceVertices(sceneContext, tile, uuid, model, modelOverride, face, customVertexColors);
 				sceneContext.stagingBufferVertices.put(data);
 				if (cacheVertexData)
 					fullVertexData.put(data);
@@ -367,6 +368,8 @@ public class LegacyModelPusher {
 					uvType = UvType.GEOMETRY;
 				}
 				int materialData = faceOverride.hide ? 0 : material.packMaterialData(faceOverride, uvType, false);
+				if (customVertexColors && materialData != 0 && faceHasCustomVertexColor(modelOverride.vertexColors, face))
+					materialData |= 1;
 
 				if (materialData == 0) {
 					Arrays.fill(uvData, 0);
@@ -443,8 +446,10 @@ public class LegacyModelPusher {
 		int uuid,
 		Model model,
 		@Nonnull ModelOverride modelOverride,
-		int face
+		int face,
+		boolean customVertexColors
 	) {
+		ModelOverride rootOverride = modelOverride;
 		if (modelOverride.faceOverrides != null && face < modelOverride.faceOverrides.length)
 			modelOverride = modelOverride.faceOverrides[face];
 
@@ -623,6 +628,12 @@ public class LegacyModelPusher {
 		color1 |= packedAlphaPriorityFlags;
 		color2 |= packedAlphaPriorityFlags;
 		color3 |= packedAlphaPriorityFlags;
+		if (customVertexColors) {
+			int colorOffset = face * 3;
+			color1 = applyCustomVertexColor(color1, rootOverride.vertexColors[colorOffset]);
+			color2 = applyCustomVertexColor(color2, rootOverride.vertexColors[colorOffset + 1]);
+			color3 = applyCustomVertexColor(color3, rootOverride.vertexColors[colorOffset + 2]);
+		}
 
 		int[] data = sceneContext.modelFaceVertices;
 		data[0] = Float.floatToIntBits(xVertices[triA]);
@@ -638,5 +649,18 @@ public class LegacyModelPusher {
 		data[10] = Float.floatToIntBits(zVertices[triC]);
 		data[11] = color3;
 		return data;
+	}
+
+	private static int applyCustomVertexColor(int original, int custom) {
+		if (custom == ModelOverride.NO_VERTEX_COLOR)
+			return original;
+		return original & 0x00FF0000 | custom & 0xFF00FFFF;
+	}
+
+	private static boolean faceHasCustomVertexColor(int[] colors, int face) {
+		int offset = face * 3;
+		return colors[offset] != ModelOverride.NO_VERTEX_COLOR ||
+			colors[offset + 1] != ModelOverride.NO_VERTEX_COLOR ||
+			colors[offset + 2] != ModelOverride.NO_VERTEX_COLOR;
 	}
 }

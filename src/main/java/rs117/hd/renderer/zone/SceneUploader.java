@@ -1530,6 +1530,29 @@ public class SceneUploader implements AutoCloseable {
 	}
 
 	// scene upload
+	private static int applyCustomVertexColor(int original, int custom) {
+		if (custom == ModelOverride.NO_VERTEX_COLOR)
+			return original;
+		return original & 0x00FF0000 | custom & 0xFF00FFFF;
+	}
+
+	private static boolean faceHasCustomVertexAlpha(int[] colors, int face) {
+		int offset = face * 3;
+		for (int corner = 0; corner < 3; corner++) {
+			int color = colors[offset + corner];
+			if (color != ModelOverride.NO_VERTEX_COLOR && (color >>> 24 & 0xFF) != 0)
+				return true;
+		}
+		return false;
+	}
+
+	private static boolean faceHasCustomVertexColor(int[] colors, int face) {
+		int offset = face * 3;
+		return colors[offset] != ModelOverride.NO_VERTEX_COLOR ||
+			colors[offset + 1] != ModelOverride.NO_VERTEX_COLOR ||
+			colors[offset + 2] != ModelOverride.NO_VERTEX_COLOR;
+	}
+
 	private int uploadStaticModel(
 		ZoneSceneContext ctx,
 		Zone zone,
@@ -1643,6 +1666,7 @@ public class SceneUploader implements AutoCloseable {
 		final ModelOverride[] faceOverrides = modelOverride.faceOverrides;
 		final Material textureMaterial = modelOverride.textureMaterial;
 		final boolean customUvs = modelOverride.hasCustomUvs(model);
+		final boolean customVertexColors = modelOverride.hasCustomVertexColors(model);
 
 		int len = 0;
 		for (int face = 0; face < faceCount; ++face) {
@@ -1843,7 +1867,9 @@ public class SceneUploader implements AutoCloseable {
 				faceUVs = GEOMETRY_UVS;
 			}
 
-			final int materialData = material.packMaterialData(faceOverride, uvType, false);
+			int materialData = material.packMaterialData(faceOverride, uvType, false);
+			if (customVertexColors && faceHasCustomVertexColor(modelOverride.vertexColors, face))
+				materialData |= 1;
 			final boolean flatNormals = !modelHasNormals || faceOverride.flatNormals;
 			final boolean undoFaceShading = plugin.configUndoVanillaShading && faceOverride.undoVanillaShading;
 
@@ -1874,7 +1900,12 @@ public class SceneUploader implements AutoCloseable {
 				);
 			}
 
-			if (undoFaceShading && !keepShading) {
+			if (customVertexColors) {
+				int colorOffset = face * 3;
+				color1 = applyCustomVertexColor(color1, modelOverride.vertexColors[colorOffset]);
+				color2 = applyCustomVertexColor(color2, modelOverride.vertexColors[colorOffset + 1]);
+				color3 = applyCustomVertexColor(color3, modelOverride.vertexColors[colorOffset + 2]);
+			} else if (undoFaceShading && !keepShading) {
 				color1 = undoVanillaShading(color1, plugin.configLegacyGreyColors, modelNormals[0], modelNormals[1], modelNormals[2]);
 				color2 = undoVanillaShading(color2, plugin.configLegacyGreyColors, modelNormals[3], modelNormals[4], modelNormals[5]);
 				color3 = undoVanillaShading(color3, plugin.configLegacyGreyColors, modelNormals[6], modelNormals[7], modelNormals[8]);
@@ -1889,12 +1920,14 @@ public class SceneUploader implements AutoCloseable {
 			int depthBias = faceOverride.depthBias != -1 ? faceOverride.depthBias :
 				bias == null ? 0 : bias[face] & 0xFF;
 			int packedAlphaBiasHsl = transparency << 24 | depthBias << 16;
-			final VertexWriteCache vb = writeCache.getVertexBuffer(material.hasTransparency || transparency != 0);
 			final VertexWriteCache tb = writeCache.opaqueTex;
 
 			color1 |= packedAlphaBiasHsl;
 			color2 |= packedAlphaBiasHsl;
 			color3 |= packedAlphaBiasHsl;
+			final boolean hasAlpha = material.hasTransparency ||
+				(color1 >>> 24 & 0xFF) != 0 || (color2 >>> 24 & 0xFF) != 0 || (color3 >>> 24 & 0xFF) != 0;
+			final VertexWriteCache vb = writeCache.getVertexBuffer(hasAlpha);
 
 			final int texturedFaceIdx = tb.putFace(
 				color1, color2, color3,
@@ -2058,6 +2091,7 @@ public class SceneUploader implements AutoCloseable {
 		final Material baseMaterial = modelOverride.material;
 		final ModelOverride[] faceOverrides = modelOverride.faceOverrides;
 		final Material textureMaterial = modelOverride.textureMaterial;
+		final boolean customVertexColors = modelOverride.hasCustomVertexColors(model);
 
 		final boolean isVanillaTextured = faceTextures != null;
 
@@ -2189,12 +2223,13 @@ public class SceneUploader implements AutoCloseable {
 				continue;
 			}
 
-			if (material.hasTransparency || transparency != 0)
+			boolean customColorHasAlpha = customVertexColors && faceHasCustomVertexAlpha(modelOverride.vertexColors, f);
+			if (material.hasTransparency || transparency != 0 || customColorHasAlpha)
 				tempModelAlphaFaces++;
 
 			// store distance for face sorting
 			if (faceDistances != null) {
-				if (shouldSort && (isPlayer || material.hasTransparency || transparency != 0)) {
+				if (shouldSort && (isPlayer || material.hasTransparency || transparency != 0 || customColorHasAlpha)) {
 					final float aZ = modelProjected[offsetA + 2];
 					final float bZ = modelProjected[offsetB + 2];
 					final float cZ = modelProjected[offsetC + 2];
@@ -2247,6 +2282,7 @@ public class SceneUploader implements AutoCloseable {
 		final byte[] bias = model.getFaceBias();
 		final int[] faceNormals = isShadow ? EMPTY_NORMALS : modelNormals;
 		final boolean customUvs = modelOverride.hasCustomUvs(model);
+		final boolean customVertexColors = modelOverride.hasCustomVertexColors(model);
 
 		final int faceCount = model.getFaceCount();
 		final boolean hasBias = bias != null;
@@ -2322,7 +2358,9 @@ public class SceneUploader implements AutoCloseable {
 				faceUVs = GEOMETRY_UVS;
 			}
 
-			final int materialData = material.packMaterialData(faceOverride, uvType, false);
+			int materialData = material.packMaterialData(faceOverride, uvType, false);
+			if (customVertexColors && faceHasCustomVertexColor(modelOverride.vertexColors, face))
+				materialData |= 1;
 			final boolean flatNormals = !modelHasNormals || faceOverride.flatNormals;
 			final boolean undoFaceShading = plugin.configUndoVanillaShading && faceOverride.undoVanillaShading;
 
@@ -2377,11 +2415,18 @@ public class SceneUploader implements AutoCloseable {
 			final int depthBias = faceOverride.depthBias != -1 ? faceOverride.depthBias :
 				hasBias ? bias[face] & 0xFF : 0;
 			final int packedAlphaBiasHsl = transparency << 24 | depthBias << 16;
-			final boolean hasAlpha = material.hasTransparency || transparency != 0;
 
 			color1 |= packedAlphaBiasHsl;
 			color2 |= packedAlphaBiasHsl;
 			color3 |= packedAlphaBiasHsl;
+			if (customVertexColors) {
+				int colorOffset = face * 3;
+				color1 = applyCustomVertexColor(color1, modelOverride.vertexColors[colorOffset]);
+				color2 = applyCustomVertexColor(color2, modelOverride.vertexColors[colorOffset + 1]);
+				color3 = applyCustomVertexColor(color3, modelOverride.vertexColors[colorOffset + 2]);
+			}
+			final boolean hasAlpha = material.hasTransparency ||
+				(color1 >>> 24 & 0xFF) != 0 || (color2 >>> 24 & 0xFF) != 0 || (color3 >>> 24 & 0xFF) != 0;
 
 			final VertexWriteCache vb = writeCache.getVertexBuffer(hasAlpha);
 			final VertexWriteCache tb = writeCache.getTextureBuffer(hasAlpha);

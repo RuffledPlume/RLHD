@@ -80,6 +80,10 @@ public class GsonUtils {
 	}
 
 	public static String compactNumberArrays(String json) {
+		return compactPrimitiveArrays(json);
+	}
+
+	public static String compactPrimitiveArrays(String json) {
 		StringBuilder compacted = new StringBuilder(json.length());
 		int copiedThrough = 0;
 		boolean inString = false;
@@ -103,7 +107,7 @@ public class GsonUtils {
 			if (c != '[')
 				continue;
 
-			NumberArray array = parseNumberArray(json, i);
+			PrimitiveArray array = parsePrimitiveArray(json, i);
 			if (array == null)
 				continue;
 			compacted.append(json, copiedThrough, i).append(array.compactText);
@@ -114,30 +118,67 @@ public class GsonUtils {
 	}
 
 	@Nullable
-	private static NumberArray parseNumberArray(String json, int start) {
+	private static PrimitiveArray parsePrimitiveArray(String json, int start) {
 		int cursor = skipWhitespace(json, start + 1);
 		StringBuilder compact = new StringBuilder("[ ");
 		int count = 0;
 		while (cursor < json.length()) {
-			int numberStart = cursor;
-			int numberEnd = parseJsonNumber(json, cursor);
-			if (numberEnd < 0)
+			int valueStart = cursor;
+			int valueEnd = parseJsonPrimitive(json, cursor);
+			if (valueEnd < 0)
 				return null;
-			cursor = numberEnd;
+			if (json.charAt(valueStart) == '"' && jsonStringLength(json, valueStart, valueEnd) > 12)
+				return null;
+			cursor = valueEnd;
 			if (count++ > 0)
 				compact.append(", ");
-			compact.append(json, numberStart, cursor);
+			compact.append(json, valueStart, cursor);
 			cursor = skipWhitespace(json, cursor);
 			if (cursor >= json.length())
 				return null;
 			char separator = json.charAt(cursor++);
 			if (separator == ']')
-				return count >= 2 ? new NumberArray(cursor - 1, compact.append(" ]").toString()) : null;
+				return count > 0 ? new PrimitiveArray(cursor - 1, compact.append(" ]").toString()) : null;
 			if (separator != ',')
 				return null;
 			cursor = skipWhitespace(json, cursor);
 		}
 		return null;
+	}
+
+	private static int jsonStringLength(String json, int start, int end) {
+		int length = 0;
+		for (int i = start + 1; i < end - 1; i++) {
+			if (json.charAt(i) == '\\')
+				i += json.charAt(i + 1) == 'u' ? 5 : 1;
+			length++;
+		}
+		return length;
+	}
+
+	private static int parseJsonPrimitive(String json, int cursor) {
+		if (cursor >= json.length())
+			return -1;
+		char c = json.charAt(cursor);
+		if (c == '"') {
+			for (int i = cursor + 1; i < json.length(); i++) {
+				char current = json.charAt(i);
+				if (current == '\\')
+					i++;
+				else if (current == '"')
+					return i + 1;
+			}
+			return -1;
+		}
+		if (c == '-' || isDigit(c))
+			return parseJsonNumber(json, cursor);
+		if (json.startsWith("true", cursor))
+			return cursor + 4;
+		if (json.startsWith("false", cursor))
+			return cursor + 5;
+		if (json.startsWith("null", cursor))
+			return cursor + 4;
+		return -1;
 	}
 
 	private static int parseJsonNumber(String json, int cursor) {
@@ -194,11 +235,11 @@ public class GsonUtils {
 		return c >= '0' && c <= '9';
 	}
 
-	private static final class NumberArray {
+	private static final class PrimitiveArray {
 		private final int endIndex;
 		private final String compactText;
 
-		private NumberArray(int endIndex, String compactText) {
+		private PrimitiveArray(int endIndex, String compactText) {
 			this.endIndex = endIndex;
 			this.compactText = compactText;
 		}
@@ -390,7 +431,7 @@ public class GsonUtils {
 
 		String jsonStr = gson.toJson(result);
 		if(compact)
-			jsonStr = compactNumberArrays(jsonStr);
+			jsonStr = compactPrimitiveArrays(jsonStr);
 
 		path.mkdirs();
 		path.writeString(jsonStr);

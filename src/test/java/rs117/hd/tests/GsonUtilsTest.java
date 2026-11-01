@@ -53,4 +53,16 @@ public class GsonUtilsTest {
 		assertEquals("{\"text\": \"[1,\\n2]\", \"numbers\": [ 1, 2 ]}",
 			GsonUtils.compactNumberArrays(input));
 	}
+
+	@Test
+	public void compactsStringArraysUsedForMaterialFaceRanges() {
+		String input = "{\"faces\": [\n  \"0-3\",\n  \"7-9\"\n]}";
+		assertEquals("{\"faces\": [ \"0-3\", \"7-9\" ]}", GsonUtils.compactPrimitiveArrays(input));
+	}
+
+	@Test
+	public void leavesStringArraysWithLongElementsMultiline() {
+		String input = "{\"values\": [\n  \"thirteen chars\",\n  \"short\"\n]}";
+		assertEquals(input, GsonUtils.compactPrimitiveArrays(input));
+	}
 }

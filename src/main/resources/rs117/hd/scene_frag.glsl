@@ -322,11 +322,14 @@ void main() {
         }
 
         // get fragment colors by combining vertex colors and texture samples
-        vec4 texA = getMaterialShouldOverrideBaseColor(material1) ? texColor1 :
+        bool importVertexColor1 = (fMaterialData[0] >> MATERIAL_FLAG_USE_IMPORTED_VERTEX_COLORS & 1) == 1;
+        bool importVertexColor2 = (fMaterialData[1] >> MATERIAL_FLAG_USE_IMPORTED_VERTEX_COLORS & 1) == 1;
+        bool importVertexColor3 = (fMaterialData[2] >> MATERIAL_FLAG_USE_IMPORTED_VERTEX_COLORS & 1) == 1;
+        vec4 texA = getMaterialShouldOverrideBaseColor(material1) && !importVertexColor1 ? texColor1 :
             vec4(texColor1.rgb * baseColor1.rgb, min(texColor1.a, baseColor1.a));
-        vec4 texB = getMaterialShouldOverrideBaseColor(material2) ? texColor2 :
+        vec4 texB = getMaterialShouldOverrideBaseColor(material2) && !importVertexColor2 ? texColor2 :
             vec4(texColor2.rgb * baseColor2.rgb, min(texColor2.a, baseColor2.a));
-        vec4 texC = getMaterialShouldOverrideBaseColor(material3) ? texColor3 :
+        vec4 texC = getMaterialShouldOverrideBaseColor(material3) && !importVertexColor3 ? texColor3 :
             vec4(texColor3.rgb * baseColor3.rgb, min(texColor3.a, baseColor3.a));
 
         // combine fragment colors based on each blend, creating

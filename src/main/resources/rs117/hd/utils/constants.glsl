@@ -29,6 +29,8 @@
 #define MATERIAL_FLAG_WORLD_UVS 2
 #define MATERIAL_FLAG_VANILLA_UVS 1
 #define MATERIAL_FLAG_IS_OVERLAY 0
+// Model faces set this on all three corners, so the overlay flag has no blend effect there.
+#define MATERIAL_FLAG_USE_IMPORTED_VERTEX_COLORS MATERIAL_FLAG_IS_OVERLAY
 
 #include SHADOW_MODE
 #define SHADOW_MODE_OFF 0
