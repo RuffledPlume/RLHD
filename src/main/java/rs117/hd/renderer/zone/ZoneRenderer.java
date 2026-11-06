@@ -68,6 +68,7 @@ import rs117.hd.utils.HDUtils;
 import rs117.hd.utils.Mat4;
 import rs117.hd.utils.RenderState;
 import rs117.hd.utils.ShadowCasterVolume;
+import rs117.hd.utils.TiledInterface;
 import rs117.hd.utils.buffer.GLBuffer;
 import rs117.hd.utils.buffer.GLMappedBufferIntWriter;
 import rs117.hd.utils.buffer.GpuIntBuffer;
@@ -121,6 +122,9 @@ public class ZoneRenderer implements Renderer {
 
 	@Inject
 	private HdPluginConfig config;
+
+	@Inject
+	private TiledInterface tiledInterface;
 
 	@Inject
 	private LightManager lightManager;
@@ -1348,15 +1352,8 @@ public class ZoneRenderer implements Renderer {
 			// Should only ever wait when not rendering the scene, since this will have been called in preSceneDraw
 			waitForFrameFence();
 
-			try {
-				plugin.prepareInterfaceTexture();
-			} catch (Exception ex) {
-				// Fixes: https://github.com/runelite/runelite/issues/12930
-				// Gracefully Handle loss of opengl buffers and context
-				log.warn("prepareInterfaceTexture exception", ex);
-				plugin.restartPlugin();
+			if(!tiledInterface.prepare())
 				return;
-			}
 
 			frameTimer.begin(Timer.DRAW_SUBMIT);
 			if (shouldRenderScene) {

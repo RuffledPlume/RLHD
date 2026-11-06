@@ -58,6 +58,7 @@ import rs117.hd.utils.HDUtils;
 import rs117.hd.utils.Mat4;
 import rs117.hd.utils.ModelHash;
 import rs117.hd.utils.NpcDisplacementCache;
+import rs117.hd.utils.TiledInterface;
 import rs117.hd.utils.buffer.GLBuffer;
 import rs117.hd.utils.buffer.GpuIntBuffer;
 import rs117.hd.utils.buffer.SharedGLBuffer;
@@ -104,6 +105,9 @@ public class LegacyRenderer implements Renderer {
 
 	@Inject
 	private AreaManager areaManager;
+
+	@Inject
+	private TiledInterface tiledInterface;
 
 	@Inject
 	private LightManager lightManager;
@@ -1003,15 +1007,8 @@ public class LegacyRenderer implements Renderer {
 			return;
 		}
 
-		try {
-			plugin.prepareInterfaceTexture();
-		} catch (Exception ex) {
-			// Fixes: https://github.com/runelite/runelite/issues/12930
-			// Gracefully Handle loss of opengl buffers and context
-			log.warn("prepareInterfaceTexture exception", ex);
-			plugin.restartPlugin();
+		if(!tiledInterface.prepare())
 			return;
-		}
 
 		// Upon logging in, the client will draw some frames with zero geometry before it hides the login screen
 		if (gameState.getState() >= GameState.LOGGED_IN.getState() && renderBufferOffset > 0)

@@ -31,7 +31,6 @@ import com.google.inject.Binder;
 import com.google.inject.Provider;
 import com.google.inject.Provides;
 import java.awt.Canvas;
-import java.awt.Dimension;
 import java.awt.GraphicsConfiguration;
 import java.awt.Image;
 import java.awt.geom.AffineTransform;
@@ -89,7 +88,6 @@ import rs117.hd.config.VanillaShadowMode;
 import rs117.hd.opengl.shader.ShaderException;
 import rs117.hd.opengl.shader.ShaderIncludes;
 import rs117.hd.opengl.shader.TiledLightingShaderProgram;
-import rs117.hd.opengl.shader.UIShaderProgram;
 import rs117.hd.opengl.uniforms.UBOCompute;
 import rs117.hd.opengl.uniforms.UBOGlobal;
 import rs117.hd.opengl.uniforms.UBOLights;
@@ -132,10 +130,9 @@ import rs117.hd.utils.PopupUtils;
 import rs117.hd.utils.Props;
 import rs117.hd.utils.ResourcePath;
 import rs117.hd.utils.ShaderRecompile;
-import rs117.hd.utils.buffer.GLBuffer;
+import rs117.hd.utils.TiledInterface;
 import rs117.hd.utils.collections.ConcurrentPool;
 import rs117.hd.utils.collections.PooledArrayType;
-import rs117.hd.utils.jobs.GenericJob;
 import rs117.hd.utils.jobs.JobSystem;
 
 import static net.runelite.api.Constants.*;
@@ -144,10 +141,6 @@ import static rs117.hd.HdPluginConfig.*;
 import static rs117.hd.utils.MathUtils.*;
 import static rs117.hd.utils.ResourcePath.path;
 import static rs117.hd.utils.buffer.GLBuffer.DEBUG_MAC_OS;
-import static rs117.hd.utils.buffer.GLBuffer.MAP_WRITE;
-import static rs117.hd.utils.buffer.GLBuffer.STORAGE_IMMUTABLE;
-import static rs117.hd.utils.buffer.GLBuffer.STORAGE_PERSISTENT;
-import static rs117.hd.utils.buffer.GLBuffer.STORAGE_WRITE;
 
 @Slf4j
 @Singleton
@@ -269,6 +262,9 @@ public class HdPlugin extends Plugin {
 	private AreaManager areaManager;
 
 	@Inject
+	private TiledInterface tiledInterface;
+
+	@Inject
 	private LightManager lightManager;
 
 	@Inject
@@ -306,9 +302,6 @@ public class HdPlugin extends Plugin {
 
 	@Inject
 	private FrameTimer frameTimer;
-
-	@Inject
-	private UIShaderProgram uiProgram;
 
 	@Inject
 	private SceneManager sceneManager;
@@ -372,16 +365,6 @@ public class HdPlugin extends Plugin {
 
 	public int vaoTri;
 	private int vboTri;
-
-	@Getter
-	@Nullable
-	private int[] uiResolution;
-	private final int[] actualUiResolution = { 0, 0 }; // Includes stretched mode and DPI scaling
-	private final GLBuffer[] pboUi = new GLBuffer[3];
-	private int texUi;
-	private int uiWidth;
-	private int uiHeight;
-	private GenericJob uiCopyJob;
 
 	@Nullable
 	public int[] sceneViewport;
@@ -742,7 +725,6 @@ public class HdPlugin extends Plugin {
 
 				initializeShaders();
 				initializeShaderHotswapping();
-				initializeUiTexture();
 				initializeShadowMapFbo();
 
 				checkGLErrors();
@@ -752,6 +734,7 @@ public class HdPlugin extends Plugin {
 				// force rebuild of main buffer provider to enable alpha channel
 				client.resizeCanvas();
 
+				tiledInterface.startup();
 				areaManager.startUp();
 				groundMaterialManager.startUp();
 				tileOverrideManager.startUp();
@@ -805,7 +788,6 @@ public class HdPlugin extends Plugin {
 			if (lwjglInitialized) {
 				lwjglInitialized = false;
 
-				destroyUiTexture();
 				destroyShaders();
 				destroyVaos();
 				destroyUbos();
@@ -821,6 +803,7 @@ public class HdPlugin extends Plugin {
 			}
 
 			developerTools.deactivate();
+			tiledInterface.shutdown();
 			tileOverrideManager.shutDown();
 			groundMaterialManager.shutDown();
 			modelOverrideManager.shutDown();
@@ -1056,8 +1039,8 @@ public class HdPlugin extends Plugin {
 		// Bind a valid VAO, otherwise validation may fail on older Intel-based Macs
 		glBindVertexArray(vaoTri);
 
+		tiledInterface.initializeShaders(includes);
 		renderer.initializeShaders(includes);
-		uiProgram.compile(includes);
 
 		if (configDynamicLights != DynamicLights.NONE && configTiledLighting) {
 			if (!AMD_GPU && configTiledLightingImageLoadStore &&
@@ -1118,7 +1101,7 @@ public class HdPlugin extends Plugin {
 
 	private void destroyShaders() {
 		renderer.destroyShaders();
-		uiProgram.destroy();
+		tiledInterface.destroyShaders();
 
 		tiledLightingImageStoreProgram.destroy();
 		for (var program : tiledLightingShaderPrograms)
@@ -1256,42 +1239,6 @@ public class HdPlugin extends Plugin {
 		uboLightsCulling = null;
 	}
 
-	private void initializeUiTexture() {
-		for (int i = 0; i < 3; i++) {
-			pboUi[i] = new GLBuffer(
-				"PBO::UI",
-				GL_PIXEL_UNPACK_BUFFER,
-				GL_STREAM_DRAW,
-				STORAGE_PERSISTENT | STORAGE_IMMUTABLE | STORAGE_WRITE
-			);
-			pboUi[i].initialize();
-		}
-
-		texUi = glGenTextures();
-		glActiveTexture(TEXTURE_UNIT_UI);
-		glBindTexture(GL_TEXTURE_2D, texUi);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-
-		checkGLErrors();
-	}
-
-	private void destroyUiTexture() {
-		uiResolution = null;
-
-		for (int i = 0; i < 3; i++) {
-			if (pboUi[i] != null)
-				pboUi[i].destroy();
-			pboUi[i] = null;
-		}
-
-		if (texUi != 0)
-			glDeleteTextures(texUi);
-		texUi = 0;
-	}
-
 	public void updateTiledLightingFbo() {
 		assert configTiledLighting;
 
@@ -1355,6 +1302,7 @@ public class HdPlugin extends Plugin {
 	}
 
 	public void updateSceneFbo() {
+		int[] uiResolution = tiledInterface.getUiResolution();
 		if (uiResolution == null)
 			return;
 
@@ -1370,7 +1318,7 @@ public class HdPlugin extends Plugin {
 			return;
 
 		// DPI scaling and stretched mode also affects the game's viewport
-		divide(sceneViewportScale, vec(actualUiResolution), vec(uiResolution));
+		divide(sceneViewportScale, vec(tiledInterface.getActualUiResolution()), vec(uiResolution));
 		if (sceneViewportScale[0] != 1 || sceneViewportScale[1] != 1) {
 			// Pad the viewport before scaling, so it always covers the game's viewport in the UI
 			for (int i = 0; i < 2; i++) {
@@ -1629,63 +1577,9 @@ public class HdPlugin extends Plugin {
 		});
 	}
 
-	public void prepareInterfaceTexture() {
-		if (uiCopyJob != null)
-			uiCopyJob.waitForCompletion(true);
-		uiCopyJob = null;
-
-		int[] resolution = {
-			max(1, client.getCanvasWidth()),
-			max(1, client.getCanvasHeight())
-		};
-		boolean resize = !Arrays.equals(uiResolution, resolution);
-		if (resize) {
-			uiResolution = resolution;
-
-			glActiveTexture(TEXTURE_UNIT_UI);
-			glBindTexture(GL_TEXTURE_2D, texUi);
-			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, uiResolution[0], uiResolution[1], 0, GL_BGRA, GL_UNSIGNED_BYTE, 0);
-		}
-
-		if (client.isStretchedEnabled()) {
-			Dimension dim = client.getStretchedDimensions();
-			actualUiResolution[0] = dim.width;
-			actualUiResolution[1] = dim.height;
-		} else {
-			copyTo(actualUiResolution, uiResolution);
-		}
-		round(actualUiResolution, multiply(vec(actualUiResolution), getDpiScaling()));
-
-		final BufferProvider bufferProvider = client.getBufferProvider();
-		final int[] pixels = bufferProvider.getPixels();
-		uiWidth = bufferProvider.getWidth();
-		uiHeight = bufferProvider.getHeight();
-
-		frameTimer.begin(Timer.MAP_UI_BUFFER);
-		final GLBuffer pbo = pboUi[frame % 3];
-		pbo.map(MAP_WRITE, 0, uiWidth * uiHeight * 4L);
-		frameTimer.end(Timer.MAP_UI_BUFFER);
-		if (!pbo.isMapped()) {
-			log.error("Unable to map interface PBO. Skipping UI...");
-		} else if (uiWidth > uiResolution[0] || uiHeight > uiResolution[1]) {
-			log.error("UI texture resolution mismatch ({}x{} > {}). Skipping UI...", uiWidth, uiHeight, uiResolution);
-		} else {
-			uiCopyJob = GenericJob
-				.build(
-					"AsyncUICopy",
-					t -> {
-						long start = System.nanoTime();
-						pbo.mapped().intView().put(pixels, 0, uiWidth * uiHeight);
-						frameTimer.add(Timer.COPY_UI_ASYNC, System.nanoTime() - start);
-					}
-				)
-				.setExecuteAsync(!isPowerSaving)
-				.queue();
-		}
-		pbo.unbind();
-	}
-
 	public void drawUi(int overlayColor) {
+		int[] uiResolution = tiledInterface.getUiResolution();
+		int[] actualUiResolution = tiledInterface.getActualUiResolution();
 		if (uiResolution == null || developerTools.isHideUiEnabled() && hasLoggedIn)
 			return;
 
@@ -1709,32 +1603,7 @@ public class HdPlugin extends Plugin {
 		uboUi.alphaOverlay.set(ColorUtils.srgba(overlayColor));
 		uboUi.upload();
 
-		// Set the sampling function used when stretching the UI.
-		// This is probably better done with sampler objects instead of texture parameters, but this is easier and likely more portable.
-		// See https://www.khronos.org/opengl/wiki/Sampler_Object for details.
-		// GL_NEAREST makes sampling for bicubic/xBR simpler, so it should be used whenever linear/pixel isn't
-		final int function = config.uiScalingMode().glSamplingFunction;
-		glActiveTexture(TEXTURE_UNIT_UI);
-		glBindTexture(GL_TEXTURE_2D, texUi);
-
-		if (uiCopyJob != null) {
-			frameTimer.begin(Timer.COPY_UI);
-			uiCopyJob.waitForCompletion(true);
-			uiCopyJob = null;
-			frameTimer.end(Timer.COPY_UI);
-
-			frameTimer.begin(Timer.UPLOAD_UI);
-			final GLBuffer pbo = pboUi[frame % 3];
-			pbo.unmap();
-			pbo.bind();
-
-			glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, uiWidth, uiHeight, GL_BGRA, GL_UNSIGNED_INT_8_8_8_8_REV, 0);
-			pbo.unbind();
-			frameTimer.end(Timer.UPLOAD_UI);
-		}
-
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, function);
-		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, function);
+		tiledInterface.upload();
 
 		glEnable(GL_BLEND);
 		glBlendFuncSeparate(GL_ONE, GL_ONE_MINUS_SRC_ALPHA, GL_ZERO, GL_ONE);
@@ -1756,11 +1625,11 @@ public class HdPlugin extends Plugin {
 	 * Convert the front framebuffer to an Image
 	 */
 	public Image screenshot() {
-		if (uiResolution == null)
+		if (tiledInterface.getUiResolution() == null)
 			return null;
 
-		int width = actualUiResolution[0];
-		int height = actualUiResolution[1];
+		int width = tiledInterface.getActualUiResolution()[0];
+		int height = tiledInterface.getActualUiResolution()[1];
 
 		ByteBuffer buffer = BufferUtils.createByteBuffer(width * height * 4);
 
@@ -2153,7 +2022,7 @@ public class HdPlugin extends Plugin {
 		checkGLErrors();
 	}
 
-	private float[] getDpiScaling() {
+	public float[] getDpiScaling() {
 		final GraphicsConfiguration graphicsConfiguration = clientUI.getGraphicsConfiguration();
 		if (graphicsConfiguration == null)
 			return new float[] { 1, 1 };

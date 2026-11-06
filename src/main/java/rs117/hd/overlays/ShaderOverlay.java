@@ -51,6 +51,7 @@ import rs117.hd.opengl.shader.ShaderException;
 import rs117.hd.opengl.shader.ShaderProgram;
 import rs117.hd.opengl.shader.ShaderTemplate;
 import rs117.hd.utils.ShaderRecompile;
+import rs117.hd.utils.TiledInterface;
 
 import static org.lwjgl.opengl.GL33C.*;
 import static rs117.hd.utils.MathUtils.*;
@@ -75,6 +76,9 @@ public class ShaderOverlay<T extends ShaderOverlay.Shader> extends Overlay {
 
 	@Inject
 	private HdPlugin plugin;
+
+	@Inject
+	private TiledInterface tiledInterface;
 
 	@Inject
 	public T shader;
@@ -377,7 +381,7 @@ public class ShaderOverlay<T extends ShaderOverlay.Shader> extends Overlay {
 		if (isFullscreen()) {
 			shader.uniTransform.set(0, 0, 1, 1);
 		} else {
-			int[] resolution = plugin.getUiResolution();
+			int[] resolution = tiledInterface.getUiResolution();
 			if (resolution == null)
 				return;
 			var bounds = getBounds();
