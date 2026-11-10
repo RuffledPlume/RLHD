@@ -38,6 +38,7 @@ import rs117.hd.scene.ProceduralGenerator;
 import rs117.hd.scene.SceneContext;
 import rs117.hd.scene.ground_materials.GroundMaterial;
 import rs117.hd.scene.materials.Material;
+import rs117.hd.scene.model_overrides.AHSLSupplier;
 import rs117.hd.scene.model_overrides.InheritTileColorType;
 import rs117.hd.scene.model_overrides.ModelOverride;
 import rs117.hd.scene.model_overrides.TzHaarRecolorType;
@@ -152,6 +153,8 @@ public class SceneUploader implements AutoCloseable {
 	private final GpuIntBuffer zoneVboA = new GpuIntBuffer(false);
 	private final GpuIntBuffer zoneTboF = new GpuIntBuffer(false);
 	private final GpuIntBuffer zoneTboM = new GpuIntBuffer(false);
+
+	private final AHSLSupplier ahslSupplier = new AHSLSupplier();
 
 	// Lazily initialized staging buffers
 	public VertexWriteCache.Collection writeCache;
@@ -2143,6 +2146,7 @@ public class SceneUploader implements AutoCloseable {
 		visibleFaces.ensureCapacity(triangleCount);
 		culledFaces.ensureCapacity(triangleCount);
 
+		final int[] color1s = model.getFaceColors1();
 		final int[] color3s = model.getFaceColors3();
 		final int[] indices1 = model.getFaceIndices1();
 		final int[] indices2 = model.getFaceIndices2();
@@ -2210,10 +2214,10 @@ public class SceneUploader implements AutoCloseable {
 						}
 					}
 				} else if (modelOverride.colorOverrides != null) {
-					final int ahsl = (0xFF - transparency) << 16 | model.getFaceColors1()[f];
+					final int ahsl = (0xFF - transparency) << 16 | color1s[f];
 					final var override = cachedAhsl == ahsl ?
 						cachedAhslOverride :
-						modelOverride.testColorOverrides(ahsl);
+					modelOverride.testColorOverrides(ahslSupplier.ahsl(ahsl));
 					cachedAhsl = ahsl;
 					cachedAhslOverride = override;
 
